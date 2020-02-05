@@ -1,0 +1,12 @@
+[package]
+name = "ccsds-rs"
+version = "0.1.0"
+authors = ["Bruce Flynn <brucef@ssec.wisc.edu>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+chrono = "0.4"
+packed_struct = "0.3"
+packed_struct_codegen = "0.3"
