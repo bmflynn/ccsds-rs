@@ -2,15 +2,17 @@ extern crate packed_struct;
 #[macro_use]
 extern crate packed_struct_codegen;
 
-use chrono::{DateTime, LocalResult, TimeZone, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use packed_struct::prelude::*;
 
-use std::fs::File;
 use std::io;
-use std::io::{BufReader, BufRead, Read, Seek};
+
+// XXX: Seems like it should be possible to get the size from the struct
+pub const PRIMARY_HEADER_SIZE: usize = 6;
+pub const CDS_TIMECODE_SIZE: usize = 8;
 
 #[derive(PackedStruct, Debug)]
-#[packed_struct(endian="msb", bit_numbering="msb0")]
+#[packed_struct(endian = "msb", bit_numbering = "msb0")]
 pub struct PrimaryHeader {
     #[packed_field(bits = "0:2")]
     version: Integer<u8, packed_bits::Bits3>,
@@ -27,9 +29,8 @@ pub struct PrimaryHeader {
     #[packed_field(size_bits = "16")]
     len_minus1: u16,
 }
-const PRIMARY_HEADER_SIZE: usize = 6;
 
-fn decode_header(r: &mut impl io::Read) -> Result<PrimaryHeader, io::Error> {
+pub fn decode_header(r: &mut impl io::Read) -> Result<PrimaryHeader, io::Error> {
     let mut buf: [u8; PRIMARY_HEADER_SIZE] = [0; PRIMARY_HEADER_SIZE];
     r.read_exact(&mut buf)?;
     match PrimaryHeader::unpack(&buf) {
@@ -38,14 +39,44 @@ fn decode_header(r: &mut impl io::Read) -> Result<PrimaryHeader, io::Error> {
     }
 }
 
+#[derive(PackedStruct)]
+#[packed_struct(endian = "msb", bit_numbering = "msb0")]
+pub struct CDSTimecode {
+    #[packed_field(size_bits = "16")]
+    days: u16,
+    #[packed_field(size_bits = "32")]
+    millis: u32,
+    #[packed_field(size_bits = "16")]
+    micros: u16,
+}
+
+impl CDSTimecode {
+    pub fn timestamp(&self) -> DateTime<Utc> {
+        Utc.timestamp_nanos((
+            (self.days as u64) * 86400 * (1e9 as u64) +
+            (self.millis as u64) * (1e6 as u64) +
+            (self.micros as u64) * (1e3 as u64)) as i64)
+    }
+}
+
+pub fn decode_cds(dat: u64) -> CDSTimecode {
+    CDSTimecode {
+        days: (dat >> 48 & 0xffff) as u16,
+        millis: (dat >> 16 & 0xffffffff) as u32,
+        micros: (dat & 0xffff) as u16,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::BufReader;
 
     #[test]
     fn test_decode_header() {
         let dat: [u8; 6] = [
-            0xd, 0x59, 0xd2, 0xab, 0xa, 0x8f
+            // bytes from a SNPP CrIS packet
+            0xd, 0x59, 0xd2, 0xab, 0xa, 0x8f,
         ];
         let x = &dat[0..];
         let mut r = BufReader::new(x);
@@ -60,38 +91,17 @@ mod tests {
         assert_eq!(ph.len_minus1, 2703);
     }
 
-}
+    #[test]
+    fn test_cdstimecode() {
+        // cds time from SNPP CrIS packet converted to u64
+        let x: u64 = 5962765906649481435;
+        let cds = decode_cds(x);
 
-#[derive(PackedStruct)]
-#[packed_struct(endian = "msb", bit_numbering = "msb0")]
-pub struct CDSTimecode {
-    #[packed_field(size_bits = "16")]
-    days: u16,
-    #[packed_field(size_bits = "32")]
-    millis: u32,
-    #[packed_field(size_bits = "16")]
-    micros: u16,
-}
-const CDS_TIMECODE_SIZE: usize = 8;
+        assert_eq!(cds.days, 21184);
+        assert_eq!(cds.millis, 167);
+        assert_eq!(cds.micros, 219);
 
-fn decode_cds(dat: u64) -> DateTime<Utc> {
-    let days = dat >> 48 & 0xffff;
-    let millis = dat >> 16 & 0xffffffff;
-    let micros = dat & 0xffff;
-
-    Utc.timestamp_nanos(
-        (days * 86400 * (1e9 as u64) + millis * (1e6 as u64) + micros * (1e3 as u64)) as i64,
-    )
-}
-
-
-fn main() -> std::io::Result<()> {
-    let fp = File::open("snpp_cris.dat")?;
-    let mut reader = io::BufReader::new(fp);
-
-    loop {
-        let ph = decode_header(&mut reader)?;
-        println!("{:?}", ph);
-        reader.seek(io::SeekFrom::Current((ph.len_minus1+1) as i64))?;
+        let ts = cds.timestamp();
+        assert_eq!(ts.to_string(), "2016-01-01 00:00:00.167219 UTC");
     }
 }
