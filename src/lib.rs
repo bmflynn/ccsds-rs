@@ -2,7 +2,7 @@ extern crate packed_struct;
 #[macro_use]
 extern crate packed_struct_codegen;
 
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, Duration, TimeZone, Utc};
 use packed_struct::prelude::*;
 
 use std::io;
@@ -51,11 +51,15 @@ pub struct CDSTimecode {
 }
 
 impl CDSTimecode {
+    // Seconds between Unix epoch and CDS epoch
+    const EPOCH_DELTA: i64 = 378691200;
+
     pub fn timestamp(&self) -> DateTime<Utc> {
-        Utc.timestamp_nanos((
-            (self.days as u64) * 86400 * (1e9 as u64) +
-            (self.millis as u64) * (1e6 as u64) +
-            (self.micros as u64) * (1e3 as u64)) as i64)
+        Utc.timestamp_nanos(
+            ((self.days as u64) * 86400 * (1e9 as u64)
+                + (self.millis as u64) * (1e6 as u64)
+                + (self.micros as u64) * (1e3 as u64)) as i64,
+        ) - Duration::seconds(CDSTimecode::EPOCH_DELTA)
     }
 }
 
