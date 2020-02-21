@@ -55,11 +55,11 @@ pub fn read_header(r: &mut impl io::Read) -> Result<PrimaryHeader, DecodeError> 
 #[packed_struct(endian = "msb", bit_numbering = "msb0")]
 pub struct CDSTimecode {
     #[packed_field(size_bits = "16")]
-    days: u16,
+    pub days: u16,
     #[packed_field(size_bits = "32")]
-    millis: u32,
+    pub millis: u32,
     #[packed_field(size_bits = "16")]
-    micros: u16,
+    pub micros: u16,
 }
 
 impl CDSTimecode {
@@ -77,13 +77,13 @@ impl CDSTimecode {
 }
 
 pub struct Packet {
-    header: PrimaryHeader,
+    pub header: PrimaryHeader,
     // Secondary header and any user data
-    data: Vec<u8>,
+    pub data: Vec<u8>,
 }
 
 impl Packet {
-    fn timecode(&self) -> Result<CDSTimecode, io::Error> {
+    pub fn timecode(&self) -> Result<CDSTimecode, io::Error> {
         if self.data.len() < CDSTimecode::SIZE {
             return Err(io::Error::new(io::ErrorKind::Other, "not enough bytes"));
         }
