@@ -1,5 +1,5 @@
 [package]
-name = "ccsds-rs"
+name = "ccsds"
 version = "0.1.0"
 authors = ["Bruce Flynn <brucef@ssec.wisc.edu>"]
 edition = "2018"
