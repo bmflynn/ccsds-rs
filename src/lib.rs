@@ -11,6 +11,7 @@ extern crate packed_struct_codegen;
 pub mod error;
 pub mod timecode;
 pub mod packet;
+pub mod stream;
 
 use packed_struct::prelude::*;
 
@@ -26,7 +27,7 @@ pub struct PrimaryHeader {
     #[packed_field(bits = "0:2")]
     version: Integer<u8, packed_bits::Bits3>,
     #[packed_field(size_bits = "1")]
-    is_test: bool,
+    type_flag: u8,
     #[packed_field(size_bits = "1")]
     has_secondary_header: bool,
     #[packed_field(size_bits = "11")]
@@ -73,7 +74,7 @@ mod tests {
         let ph = PrimaryHeader::read(&mut r).unwrap();
 
         assert_eq!(ph.version.to_primitive(), 0);
-        assert_eq!(ph.is_test, false);
+        assert_eq!(ph.type_flag, 0);
         assert_eq!(ph.has_secondary_header, true);
         assert_eq!(ph.apid.to_primitive(), 1369);
         assert_eq!(ph.sequence_flags.to_primitive(), 3);
