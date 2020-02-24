@@ -6,6 +6,27 @@ use crate::error::DecodeError;
 use crate::timecode::{CDSTimecode, HasTimecode};
 use crate::PrimaryHeader;
 
+/// Packet represents a single CCSDS space packet and its associated data.
+///
+/// This packet contains the primary header data as well as the user data,
+/// which may or may not container a secondary header. See the header's
+/// `has_secondary_header` flag.
+///
+/// # Example
+/// Create a packet from the minumum number of bytes:
+/// ```
+/// use std::io;
+/// use ccsds::packet::Packet;
+///
+/// let dat: &[u8] = &[
+///     // primary header bytes
+///     0xd, 0x59, 0xd2, 0xab, 0x0, 0x0,
+///     // minimum 1 byte of user data
+///     0xff
+/// ];
+/// let mut r = io::BufReader::new(dat);
+/// let packet = Packet::read(&mut r).unwrap();
+/// ```
 pub struct Packet {
     /// All packets have a primary header
     pub header: PrimaryHeader,

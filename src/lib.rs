@@ -4,14 +4,15 @@
 /// * CCSDS Space Packet Protocol 133.0-B-1
 ///     - https://public.ccsds.org/Pubs/133x0b1c2.pdf
 ///
+extern crate log;
 extern crate packed_struct;
 #[macro_use]
 extern crate packed_struct_codegen;
 
 pub mod error;
-pub mod timecode;
 pub mod packet;
 pub mod stream;
+pub mod timecode;
 
 use packed_struct::prelude::*;
 
@@ -21,7 +22,7 @@ use std::io;
 ///
 /// The primary header format is common to all CCSDS space packets.
 ///
-#[derive(PackedStruct, Debug)]
+#[derive(PackedStruct, Debug, Copy, Clone)]
 #[packed_struct(endian = "msb", bit_numbering = "msb0")]
 pub struct PrimaryHeader {
     #[packed_field(bits = "0:2")]
@@ -81,5 +82,4 @@ mod tests {
         assert_eq!(ph.sequence_id.to_primitive(), 4779);
         assert_eq!(ph.len_minus1, 2703);
     }
-
 }

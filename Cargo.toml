@@ -10,3 +10,12 @@ edition = "2018"
 chrono = "0.4"
 packed_struct = "0.3"
 packed_struct_codegen = "0.3"
+log = "0.4"
+
+[lib]
+name = "ccsds"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ccsds"
+path = "src/bin.rs"
