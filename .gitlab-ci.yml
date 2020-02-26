@@ -1,0 +1,12 @@
+stages:
+  - test
+  - build
+
+test:
+  stage: test
+  only:
+    - master
+  script:
+    - docker build -t ${CI_PROJECT_NAME} .
+    - docker run --rm -v $PWD:/code ${CI_PROJECT_NAME} cargo test
+
