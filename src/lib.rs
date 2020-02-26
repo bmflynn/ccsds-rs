@@ -4,17 +4,11 @@
 /// * CCSDS Space Packet Protocol 133.0-B-1
 ///     - https://public.ccsds.org/Pubs/133x0b1c2.pdf
 ///
-extern crate log;
-extern crate packed_struct;
-#[macro_use]
-extern crate packed_struct_codegen;
 
 pub mod error;
 pub mod packet;
 pub mod stream;
 pub mod timecode;
-
-use packed_struct::prelude::*;
 
 use std::io;
 
@@ -22,23 +16,15 @@ use std::io;
 ///
 /// The primary header format is common to all CCSDS space packets.
 ///
-#[derive(PackedStruct, Debug, Copy, Clone)]
-#[packed_struct(endian = "msb", bit_numbering = "msb0")]
+#[derive(Debug, Copy, Clone)]
 pub struct PrimaryHeader {
-    #[packed_field(bits = "0:2")]
-    version: Integer<u8, packed_bits::Bits3>,
-    #[packed_field(size_bits = "1")]
-    type_flag: u8,
-    #[packed_field(size_bits = "1")]
-    has_secondary_header: bool,
-    #[packed_field(size_bits = "11")]
-    apid: Integer<u16, packed_bits::Bits11>,
-    #[packed_field(size_bits = "2")]
-    sequence_flags: Integer<u8, packed_bits::Bits2>,
-    #[packed_field(size_bits = "14")]
-    sequence_id: Integer<u16, packed_bits::Bits14>,
-    #[packed_field(size_bits = "16")]
-    len_minus1: u16,
+    pub version: u8,
+    pub type_flag: u8,
+    pub has_secondary_header: bool,
+    pub apid: u16,
+    pub sequence_flags: u8,
+    pub sequence_id: u16,
+    pub len_minus1: u16,
 }
 
 impl PrimaryHeader {
@@ -53,9 +39,22 @@ impl PrimaryHeader {
     ///   the resulting bytes.
     ///
     pub fn read<T: io::Read>(r: &mut T) -> Result<PrimaryHeader, Box<dyn std::error::Error>> {
-        let mut buf = [0u8; PrimaryHeader::SIZE];
+        let mut buf = [0u8; Self::SIZE];
         r.read_exact(&mut buf)?;
-        Ok(PrimaryHeader::unpack(&buf)?)
+
+        let d1 = u16::from_be_bytes([buf[0], buf[1]]);
+        let d2 = u16::from_be_bytes([buf[2], buf[3]]);
+        let d3 = u16::from_be_bytes([buf[4], buf[5]]);
+
+        Ok(PrimaryHeader{
+            version: (d1 >> 13 & 0x7) as u8,
+            type_flag: (d1 >> 12 & 0x1) as u8,
+            has_secondary_header: (d1 >> 11 & 0x1) == 1,
+            apid: (d1 & 0x7ff) as u16,
+            sequence_flags: (d2 >> 14 & 0x3) as u8,
+            sequence_id: (d2 & 0x3fff) as u16,
+            len_minus1: d3,
+        })
     }
 }
 
@@ -74,12 +73,12 @@ mod tests {
         let mut r = BufReader::new(x);
         let ph = PrimaryHeader::read(&mut r).unwrap();
 
-        assert_eq!(ph.version.to_primitive(), 0);
+        assert_eq!(ph.version, 0);
         assert_eq!(ph.type_flag, 0);
         assert_eq!(ph.has_secondary_header, true);
-        assert_eq!(ph.apid.to_primitive(), 1369);
-        assert_eq!(ph.sequence_flags.to_primitive(), 3);
-        assert_eq!(ph.sequence_id.to_primitive(), 4779);
+        assert_eq!(ph.apid, 1369);
+        assert_eq!(ph.sequence_flags, 3);
+        assert_eq!(ph.sequence_id, 4779);
         assert_eq!(ph.len_minus1, 2703);
     }
 }

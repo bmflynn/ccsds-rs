@@ -1,4 +1,3 @@
-use log::info;
 use std::collections::HashMap;
 use std::error::Error;
 use std::io::Read;
@@ -31,7 +30,9 @@ impl Iterator for Stream {
 
     fn next(&mut self) -> Option<Self::Item> {
         match Packet::read(&mut self.reader) {
-            Ok(p) => Some(Ok(p)),
+            Ok(p) => {
+                Some(Ok(p))
+            },
             Err(err) => {
                 self.err = Some(err);
                 None
@@ -80,16 +81,13 @@ impl Sequencer {
 
     fn handle_sequence(&mut self, packet: &Packet) {
         let hdr = packet.header.clone();
-        let apid: u16 = *packet.header.apid.clone();
-        let seq: u16 = *packet.header.sequence_id.clone();
-
-        info!("{:?}", hdr);
+        let apid: u16 = packet.header.apid.clone();
+        let seq: u16 = packet.header.sequence_id.clone();
 
         if let Some(prev_hdr) = self.tracker.get(&apid) {
-            let prev_seq: u16 = *prev_hdr.sequence_id;
+            let prev_seq: u16 = prev_hdr.sequence_id;
 
             // check if sequence numbers are sequential w/ rollover
-            info!("seq: {} prev_seq: {}", seq, prev_seq);
             if modseq(prev_seq + 1) != seq {
                 self.gaps.push(Gap {
                     count: modseq(seq - prev_seq),
@@ -111,7 +109,6 @@ impl Iterator for Sequencer {
         match self.stream.next() {
             Some(zult) => match zult {
                 Ok(p) => {
-                    info!("hdr: {:?}", p.header);
                     self.offset += (PrimaryHeader::SIZE + p.data.len()) as u64;
                     self.handle_sequence(&p);
                     Some(Ok(p))
@@ -126,7 +123,6 @@ impl Iterator for Sequencer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use packed_struct::types::SizedInteger;
     use std::io::BufReader;
 
     #[test]
@@ -147,9 +143,9 @@ mod tests {
             .collect();
 
         assert_eq!(packets.len(), 2);
-        assert_eq!(packets[0].header.apid.to_primitive(), 1369);
-        assert_eq!(packets[0].header.sequence_id.to_primitive(), 1);
-        assert_eq!(packets[1].header.sequence_id.to_primitive(), 2);
+        assert_eq!(packets[0].header.apid, 1369);
+        assert_eq!(packets[0].header.sequence_id, 1);
+        assert_eq!(packets[1].header.sequence_id, 2);
     }
 
     #[test]

@@ -3,8 +3,6 @@ use std::error::Error;
 use std::fmt;
 use std::io::Error as IoError;
 
-use packed_struct::PackingError;
-
 use std::io;
 
 /* All of this is just to make sure we can make the error handling
@@ -17,7 +15,7 @@ use std::io;
 #[derive(Debug)]
 pub enum DecodeError {
     Io(io::Error),
-    Packing(PackingError),
+    TooFewBytes,
     Other(String),
 }
 
@@ -25,7 +23,7 @@ impl fmt::Display for DecodeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             DecodeError::Io(ref cause) => write!(f, "I/O Error {}", cause),
-            DecodeError::Packing(ref cause) => write!(f, "(un)packing error {}", cause),
+            DecodeError::TooFewBytes => write!(f, "too few bytes"),
             DecodeError::Other(ref cause) => write!(f, "Other error {}", cause),
         }
     }
@@ -35,7 +33,7 @@ impl Error for DecodeError {
     fn description(&self) -> &str {
         match *self {
             DecodeError::Io(ref cause) => cause.description(),
-            DecodeError::Packing(ref cause) => cause.description(),
+            DecodeError::TooFewBytes => "too few bytes",
             DecodeError::Other(ref s) => s,
         }
     }
@@ -43,7 +41,7 @@ impl Error for DecodeError {
     fn cause(&self) -> Option<&dyn Error> {
         match *self {
             DecodeError::Io(ref cause) => Some(cause),
-            DecodeError::Packing(ref cause) => Some(cause),
+            DecodeError::TooFewBytes => None,
             DecodeError::Other(_) => None,
         }
     }
@@ -52,11 +50,5 @@ impl Error for DecodeError {
 impl From<IoError> for DecodeError {
     fn from(cause: IoError) -> DecodeError {
         DecodeError::Io(cause)
-    }
-}
-
-impl From<PackingError> for DecodeError {
-    fn from(cause: PackingError) -> DecodeError {
-        DecodeError::Packing(cause)
     }
 }
