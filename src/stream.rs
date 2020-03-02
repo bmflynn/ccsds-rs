@@ -1,13 +1,9 @@
-use std::collections::HashMap;
 use std::error::Error;
 use std::io::Read;
 use std::iter::Iterator;
 
 use crate::error::DecodeError;
 use crate::packet::Packet;
-use crate::PrimaryHeader;
-
-const MAX_SEQ_NUM: u16 = 16383;
 
 /// Stream provides the ability to iterate of a reader to provided its
 /// contained packet sequence.
@@ -30,9 +26,7 @@ impl Iterator for Stream {
 
     fn next(&mut self) -> Option<Self::Item> {
         match Packet::read(&mut self.reader) {
-            Ok(p) => {
-                Some(Ok(p))
-            },
+            Ok(p) => Some(Ok(p)),
             Err(err) => {
                 self.err = Some(err);
                 None
@@ -40,6 +34,17 @@ impl Iterator for Stream {
         }
     }
 }
+
+/*
+ * FIXME: Sequencer's impl is flawed b/c it does not play well with borrow system.
+ *
+ * The iter requires a &mut self ref which means the instance cannot be used after
+ * iteration.
+ *
+ * TODO: Consider a providing a method to return a wrapped iter that will compute
+ *       the gaps while iterating, afterwhich the zults can be retreived.
+ *
+const MAX_SEQ_NUM: u16 = 16383;
 
 #[derive(Debug)]
 pub struct Gap {
@@ -61,10 +66,6 @@ pub struct Sequencer {
     gaps: Box<Vec<Gap>>,
 }
 
-fn modseq(x: u16) -> u16 {
-    ((x % MAX_SEQ_NUM) + MAX_SEQ_NUM) % MAX_SEQ_NUM
-}
-
 impl Sequencer {
     pub fn new(stream: Stream) -> Sequencer {
         return Sequencer {
@@ -81,17 +82,17 @@ impl Sequencer {
 
     fn handle_sequence(&mut self, packet: &Packet) {
         let hdr = packet.header.clone();
-        let apid: u16 = packet.header.apid.clone();
-        let seq: u16 = packet.header.sequence_id.clone();
+        let apid = packet.header.apid.clone();
+        let seq: i32 = packet.header.sequence_id.clone() as i32;
 
         if let Some(prev_hdr) = self.tracker.get(&apid) {
-            let prev_seq: u16 = prev_hdr.sequence_id;
+            let prev_seq: i32= prev_hdr.sequence_id as i32;
 
             // check if sequence numbers are sequential w/ rollover
-            if (prev_seq + 1) % MAX_SEQ_NUM != seq {
+            if (prev_seq + 1) % MAX_SEQ_NUM as i32 != seq {
                 self.gaps.push(Gap {
-                    count: (seq - prev_seq) % MAX_SEQ_NUM,
-                    start: prev_seq,
+                    count: ((seq - prev_seq) % (MAX_SEQ_NUM as i32)) as u16,
+                    start: prev_seq as u16,
                     offset: self.offset.clone(),
                 });
             }
@@ -119,6 +120,8 @@ impl Iterator for Sequencer {
         }
     }
 }
+
+*/
 
 #[cfg(test)]
 mod tests {
@@ -148,6 +151,7 @@ mod tests {
         assert_eq!(packets[1].header.sequence_id, 2);
     }
 
+    /*
     #[test]
     fn sequencer_test() {
         #[rustfmt::skip]
@@ -163,6 +167,8 @@ mod tests {
         let stream = Stream::new(Box::new(reader));
         let sequencer = Sequencer::new(stream);
 
+        let packets: Vec<Result<Packet, DecodeError>> = sequencer.collect();
+
         let gaps = sequencer.gaps();
 
         assert!(false, "FIXME: sequencer not generating expected gaps");
@@ -171,4 +177,5 @@ mod tests {
         assert_eq!(gaps[0].offset, 2, "{:?}", gaps[0]);
 
     }
+    */
 }
