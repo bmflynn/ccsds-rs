@@ -185,13 +185,16 @@ impl CDSTimecode {
 
 impl Timecode for CDSTimecode {
     fn timestamp(&self) -> Result<DateTime<Utc>, DecodeError> {
-        let secs: i64 = self.days as i64 * 86400;
-        let nanos: u32 = self.millis * 1e6 as u32 + self.micros as u32 * 1e3 as u32;
+        let mut secs: i64 = self.days as i64 * 86400;
+        secs += self.millis as i64 / 1e3 as i64;
+        let nanos: u64 =
+            (self.millis as u64 % 1e3 as u64) * 1e6 as u64
+            + self.micros as u64 * 1e3 as u64;
         if secs as i64 + (nanos as i64 / 1e9 as i64) < Self::EPOCH_DELTA {
             return Err(DecodeError::Other(String::from("could not decode timestamp")));
         }
 
-        Ok(Utc.timestamp(secs, nanos) - Duration::seconds(Self::EPOCH_DELTA))
+        Ok(Utc.timestamp(secs, nanos as u32) - Duration::seconds(Self::EPOCH_DELTA))
     }
 }
 
