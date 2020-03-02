@@ -88,9 +88,9 @@ impl Sequencer {
             let prev_seq: u16 = prev_hdr.sequence_id;
 
             // check if sequence numbers are sequential w/ rollover
-            if modseq(prev_seq + 1) != seq {
+            if (prev_seq + 1) % MAX_SEQ_NUM != seq {
                 self.gaps.push(Gap {
-                    count: modseq(seq - prev_seq),
+                    count: (seq - prev_seq) % MAX_SEQ_NUM,
                     start: prev_seq,
                     offset: self.offset.clone(),
                 });

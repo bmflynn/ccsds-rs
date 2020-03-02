@@ -45,7 +45,7 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use crate::error::DecodeError;
 
 pub trait Timecode {
-    fn timestamp(&self) -> DateTime<Utc>;
+    fn timestamp(&self) -> Result<DateTime<Utc>, DecodeError>;
 }
 
 pub trait HasTimecode<T> {
@@ -74,7 +74,7 @@ pub struct EOSCUCTimecode {
 
 impl EOSCUCTimecode {
     pub const SIZE: usize = 8;
-    pub const EPOCH_DELTA: u64 = 378_691_200;
+    pub const EPOCH_DELTA: i64 = 378_691_200;
 
     // Each bit is 15.2 microseconds, converted here to seconds
     const LSB_MULT: u64 = (15.2 * 1e6) as u64;
@@ -120,13 +120,13 @@ impl EOSCUCTimecode {
 }
 
 impl Timecode for EOSCUCTimecode {
-    fn timestamp(&self) -> DateTime<Utc> {
-        Utc.timestamp_nanos(
-            ((self.seconds as u64 * 1e9 as u64)
-                + (self.sub_seconds as u64 * EOSCUCTimecode::LSB_MULT)
-                + (self.leapsecs as u64 * 1e9 as u64)
-                - Self::EPOCH_DELTA * 1e9 as u64) as i64,
-        )
+    fn timestamp(&self) -> Result<DateTime<Utc>, DecodeError> {
+        let secs: i64 = self.seconds as i64 + self.leapsecs as i64;
+        let nanos: u32 = ((self.sub_seconds * EOSCUCTimecode::LSB_MULT) / 1e3 as u64) as u32;
+        if secs as i64 + (nanos as i64 / 1e9 as i64) < Self::EPOCH_DELTA {
+            return Err(DecodeError::Other(String::from("could not decode timestamp")));
+        }
+        Ok(Utc.timestamp(secs, nanos) - Duration::seconds(Self::EPOCH_DELTA))
     }
 }
 
@@ -151,8 +151,10 @@ mod eoscuc_tests {
         assert_eq!(tc.sub_seconds, 24111);
         assert_eq!(tc.leapsecs, 37);
 
-        let ts = tc.timestamp();
-        assert_eq!(ts.to_string(), "2020-02-22 20:02:06.487200 UTC");
+        let ts = tc.timestamp().unwrap();
+        // FIXME: Needs absolute validation against known science data.
+        //        This value is taken from parsed values.
+        assert_eq!(ts.to_string(), "2020-02-22 19:56:00.366487200 UTC");
     }
 }
 
@@ -182,12 +184,14 @@ impl CDSTimecode {
 }
 
 impl Timecode for CDSTimecode {
-    fn timestamp(&self) -> DateTime<Utc> {
-        Utc.timestamp_nanos(
-            ((self.days as u64) * 86400 * (1e9 as u64)
-                + (self.millis as u64) * (1e6 as u64)
-                + (self.micros as u64) * (1e3 as u64)) as i64,
-        ) - Duration::seconds(CDSTimecode::EPOCH_DELTA)
+    fn timestamp(&self) -> Result<DateTime<Utc>, DecodeError> {
+        let secs: i64 = self.days as i64 * 86400;
+        let nanos: u32 = self.millis * 1e6 as u32 + self.micros as u32 * 1e3 as u32;
+        if secs as i64 + (nanos as i64 / 1e9 as i64) < Self::EPOCH_DELTA {
+            return Err(DecodeError::Other(String::from("could not decode timestamp")));
+        }
+
+        Ok(Utc.timestamp(secs, nanos) - Duration::seconds(Self::EPOCH_DELTA))
     }
 }
 
@@ -204,7 +208,7 @@ mod cds_tests {
         assert_eq!(cds.millis, 167);
         assert_eq!(cds.micros, 219);
 
-        let ts = cds.timestamp();
+        let ts = cds.timestamp().unwrap();
         assert_eq!(ts.timestamp_millis(), 1451606400167);
     }
 }
