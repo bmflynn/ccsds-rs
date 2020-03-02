@@ -17,11 +17,15 @@ use crate::PrimaryHeader;
 /// bytes for a `CDSTimecode` in the data zone.
 /// ```
 /// use std::io;
+/// use ccsds::timecode::{
+///     CDSTimecode,
+///     HasTimecode
+/// };
 /// use ccsds::packet::Packet;
 ///
 /// let dat: &[u8] = &[
 ///     // primary header bytes
-///     0xd, 0x59, 0xd2, 0xab, 0x0, 0x0,
+///     0xd, 0x59, 0xd2, 0xab, 0x0, 0x7,
 ///     // CDS timecode bytes in secondary header
 ///     0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
 ///     // minimum 1 byte of user data
@@ -29,7 +33,7 @@ use crate::PrimaryHeader;
 /// ];
 /// let mut r = io::BufReader::new(dat);
 /// let packet = Packet::read(&mut r).unwrap();
-/// let tc: CDSTimecode = packet.timecode().unwrap()
+/// let tc: CDSTimecode = packet.timecode().unwrap();
 /// ```
 pub struct Packet {
     /// All packets have a primary header
@@ -63,7 +67,8 @@ impl HasTimecode<CDSTimecode> for Packet {
             )));
         }
         if self.data.len() < CDSTimecode::SIZE {
-            return Err(DecodeError::Other(String::from("not enough bytes")));
+            return Err(DecodeError::Other(format!(
+                "expected {} bytes for CDSTimecode, got {}", CDSTimecode::SIZE, self.data.len())));
         }
 
         // convert 8 bytes of time data into u64
@@ -73,9 +78,7 @@ impl HasTimecode<CDSTimecode> for Packet {
     }
 }
 
-
 impl HasTimecode<EOSCUCTimecode> for Packet {
-
     /// Reads a EOSCUCTimecode from packet data zone.
     fn timecode(&self) -> Result<EOSCUCTimecode, DecodeError> {
         if !self.header.has_secondary_header {
@@ -84,7 +87,8 @@ impl HasTimecode<EOSCUCTimecode> for Packet {
             )));
         }
         if self.data.len() < EOSCUCTimecode::SIZE {
-            return Err(DecodeError::Other(String::from("not enough bytes")));
+            return Err(DecodeError::Other(format!(
+                "expected {} bytes for EOSCUCTimecode, got {}", EOSCUCTimecode::SIZE, self.data.len())));
         }
 
         // There is an extra byte of data before timecode
