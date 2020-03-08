@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fs::File;
 
 use ccsds::stream::Stream;
-use ccsds::timecode::{CDSTimecode, EOSCUCTimecode, HasTimecode, Timecode};
+use ccsds::timecode::{CDSTimecode, HasTimecode, Timecode};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let fp = File::open("input.dat")?;

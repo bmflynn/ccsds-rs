@@ -1,3 +1,5 @@
+use crate::PrimaryHeader;
+use std::collections::HashMap;
 use std::error::Error;
 use std::io::Read;
 use std::iter::Iterator;
@@ -35,24 +37,16 @@ impl Iterator for Stream {
     }
 }
 
-/*
- * FIXME: Sequencer's impl is flawed b/c it does not play well with borrow system.
- *
- * The iter requires a &mut self ref which means the instance cannot be used after
- * iteration.
- *
- * TODO: Consider a providing a method to return a wrapped iter that will compute
- *       the gaps while iterating, afterwhich the zults can be retreived.
- *
-const MAX_SEQ_NUM: u16 = 16383;
+const MAX_SEQ_NUM: i32 = 16383;
 
 #[derive(Debug)]
 pub struct Gap {
-    // max gap size due to sequence counter rollover
+    // Number of packets in gap. There's no guarantee that rollover did not occur
+    // which may occur if the gap is bigger than the max seq number.
     pub count: u16,
     // starting sequence id
     pub start: u16,
-    // byte offset into reader where last packet before the gap
+    // byte offset into reader for the first byte _after_ the gap.
     pub offset: u64,
 }
 
@@ -83,17 +77,18 @@ impl Sequencer {
     fn handle_sequence(&mut self, packet: &Packet) {
         let hdr = packet.header.clone();
         let apid = packet.header.apid.clone();
-        let seq: i32 = packet.header.sequence_id.clone() as i32;
+        let seq = packet.header.sequence_id.clone() as i32;
 
         if let Some(prev_hdr) = self.tracker.get(&apid) {
-            let prev_seq: i32= prev_hdr.sequence_id as i32;
+            let prev_seq = prev_hdr.sequence_id as i32;
 
             // check if sequence numbers are sequential w/ rollover
-            if (prev_seq + 1) % MAX_SEQ_NUM as i32 != seq {
+            if (prev_seq + 1) % MAX_SEQ_NUM != seq {
                 self.gaps.push(Gap {
-                    count: ((seq - prev_seq) % (MAX_SEQ_NUM as i32)) as u16,
+                    count: ((seq - prev_seq) % MAX_SEQ_NUM) as u16 - 1u16,
                     start: prev_seq as u16,
-                    offset: self.offset.clone(),
+                    // offset already includes packet, so subtract it out.
+                    offset: self.offset.clone() - (packet.data.len() + PrimaryHeader::SIZE) as u64,
                 });
             }
         };
@@ -120,8 +115,6 @@ impl Iterator for Sequencer {
         }
     }
 }
-
-*/
 
 #[cfg(test)]
 mod tests {
@@ -151,7 +144,6 @@ mod tests {
         assert_eq!(packets[1].header.sequence_id, 2);
     }
 
-    /*
     #[test]
     fn sequencer_test() {
         #[rustfmt::skip]
@@ -159,23 +151,29 @@ mod tests {
             // Primary/secondary header and a single byte of user data
             // byte 4 is sequence number 1 & 2
             0xd, 0x59, 0xc0, 0x01, 0x0, 0x8, 0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
+            // gap
             0xd, 0x59, 0xc0, 0x03, 0x0, 0x8, 0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
+            // gap
             0xd, 0x59, 0xc0, 0x05, 0x0, 0x8, 0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
             0xd, 0x59, 0xc0, 0x06, 0x0, 0x8, 0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
         ];
         let reader = BufReader::new(dat);
         let stream = Stream::new(Box::new(reader));
-        let sequencer = Sequencer::new(stream);
+        let mut sequencer = Sequencer::new(stream);
 
-        let packets: Vec<Result<Packet, DecodeError>> = sequencer.collect();
+        let packets: Vec<Result<Packet, DecodeError>> = sequencer.by_ref().collect();
+        assert_eq!(packets.len(), 4);
 
         let gaps = sequencer.gaps();
 
-        assert!(false, "FIXME: sequencer not generating expected gaps");
-
         assert_eq!(gaps.len(), 2, "expected 2 gaps");
-        assert_eq!(gaps[0].offset, 2, "{:?}", gaps[0]);
 
+        assert_eq!(gaps[0].count, 1, "{:?}", gaps[0]);
+        assert_eq!(gaps[0].start, 1, "{:?}", gaps[0]);
+        assert_eq!(gaps[0].offset, 15, "{:?}", gaps[0]);
+
+        assert_eq!(gaps[1].count, 1, "{:?}", gaps[1]);
+        assert_eq!(gaps[1].start, 3, "{:?}", gaps[1]);
+        assert_eq!(gaps[1].offset, 30, "{:?}", gaps[1]);
     }
-    */
 }
