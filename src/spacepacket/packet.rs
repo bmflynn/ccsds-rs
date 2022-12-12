@@ -1,10 +1,8 @@
-use std::convert::TryInto;
+use std::{convert::TryInto, io::Read};
 use std::error::Error;
-use std::io;
 
 use crate::error::DecodeError;
-use crate::timecode::{CDSTimecode, EOSCUCTimecode, HasTimecode};
-use crate::PrimaryHeader;
+use super::{PrimaryHeader, CDSTimecode, EOSCUCTimecode, HasTimecode};
 
 /// Packet represents a single CCSDS space packet and its associated data.
 ///
@@ -16,12 +14,11 @@ use crate::PrimaryHeader;
 /// Create a packet from the minumum number of bytes. This example includes
 /// bytes for a `CDSTimecode` in the data zone.
 /// ```
-/// use std::io;
-/// use ccsds::timecode::{
+/// use ccsds::spacepacket::{
 ///     CDSTimecode,
-///     HasTimecode
+///     HasTimecode,
+///     Packet,
 /// };
-/// use ccsds::packet::Packet;
 ///
 /// let dat: &[u8] = &[
 ///     // primary header bytes
@@ -31,7 +28,7 @@ use crate::PrimaryHeader;
 ///     // minimum 1 byte of user data
 ///     0xff
 /// ];
-/// let mut r = io::BufReader::new(dat);
+/// let mut r = std::io::BufReader::new(dat);
 /// let packet = Packet::read(&mut r).unwrap();
 /// let tc: CDSTimecode = packet.timecode().unwrap();
 /// ```
@@ -43,7 +40,7 @@ pub struct Packet {
 }
 
 impl Packet {
-    pub fn read(r: &mut impl io::Read) -> Result<Packet, Box<dyn Error>> {
+    pub fn read(r: &mut dyn Read) -> Result<Packet, Box<dyn Error>> {
         let ph = PrimaryHeader::read(r)?;
 
         // read the user data, shouldn't panic since unpacking worked
@@ -101,6 +98,8 @@ impl HasTimecode<EOSCUCTimecode> for Packet {
 
 #[cfg(test)]
 mod tests {
+    use std::io;
+
     use super::*;
 
     #[test]

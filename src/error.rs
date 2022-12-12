@@ -11,7 +11,6 @@ use std::io;
  * actual conversion bits are below:  From<src type>.
  */
 
-
 #[derive(Debug)]
 pub enum DecodeError {
     Io(io::Error),
@@ -30,14 +29,6 @@ impl fmt::Display for DecodeError {
 }
 
 impl Error for DecodeError {
-    fn description(&self) -> &str {
-        match *self {
-            DecodeError::Io(ref cause) => cause.description(),
-            DecodeError::TooFewBytes => "too few bytes",
-            DecodeError::Other(ref s) => s,
-        }
-    }
-
     fn cause(&self) -> Option<&dyn Error> {
         match *self {
             DecodeError::Io(ref cause) => Some(cause),

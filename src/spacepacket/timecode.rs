@@ -124,7 +124,9 @@ impl Timecode for EOSCUCTimecode {
         let secs: i64 = self.seconds as i64 + self.leapsecs as i64;
         let nanos: u32 = ((self.sub_seconds * EOSCUCTimecode::LSB_MULT) / 1e3 as u64) as u32;
         if secs as i64 + (nanos as i64 / 1e9 as i64) < Self::EPOCH_DELTA {
-            return Err(DecodeError::Other(String::from("could not decode timestamp")));
+            return Err(DecodeError::Other(String::from(
+                "could not decode timestamp",
+            )));
         }
         Ok(Utc.timestamp(secs, nanos) - Duration::seconds(Self::EPOCH_DELTA))
     }
@@ -171,7 +173,7 @@ impl CDSTimecode {
     pub const SIZE: usize = 8;
 
     pub fn new(buf: &[u8]) -> Result<CDSTimecode, DecodeError> {
-        if buf.len() < CDSTimecode::SIZE as usize {
+        if buf.len() < Self::SIZE {
             return Err(DecodeError::TooFewBytes);
         }
 
@@ -187,12 +189,12 @@ impl Timecode for CDSTimecode {
     fn timestamp(&self) -> Result<DateTime<Utc>, DecodeError> {
         let mut secs: i64 = self.days as i64 * 86400;
         secs += self.millis as i64 / 1e3 as i64;
+        let m: u64 = self.millis as u64 % 1e3 as u64;
         let nanos: u64 =
-            (self.millis as u64 % 1e3 as u64) * 1e6 as u64
-            + self.micros as u64 * 1e3 as u64;
-        if secs as i64 + (nanos as i64 / 1e9 as i64) < Self::EPOCH_DELTA {
-            return Err(DecodeError::Other(String::from("could not decode timestamp")));
-        }
+            // convert millis remainder to nanos
+            (self.millis as u64 * 1e6 as u64 % 1e9 as u64)
+            // convert micros to nanos
+             + (self.micros as u64 * 1e3 as u64);
 
         Ok(Utc.timestamp(secs, nanos as u32) - Duration::seconds(Self::EPOCH_DELTA))
     }

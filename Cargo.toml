@@ -8,11 +8,12 @@ edition = "2018"
 
 [dependencies]
 chrono = "0.4"
+clap = { version = "4.0.29", features = ["derive"] }
 
 [lib]
 name = "ccsds"
 path = "src/lib.rs"
 
 [[bin]]
-name = "ccsds"
-path = "src/bin.rs"
+name = "spacepackets"
+path = "src/bin/spacepackets/bin.rs"

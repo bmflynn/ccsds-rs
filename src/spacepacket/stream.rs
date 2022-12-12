@@ -1,29 +1,25 @@
-use crate::PrimaryHeader;
 use std::collections::HashMap;
 use std::error::Error;
 use std::io::Read;
 use std::iter::Iterator;
 
+use super::{Packet, PrimaryHeader};
 use crate::error::DecodeError;
-use crate::packet::Packet;
 
 /// Stream provides the ability to iterate of a reader to provided its
 /// contained packet sequence.
-pub struct Stream {
-    reader: Box<dyn Read>,
+pub struct Stream<'a> {
+    reader: &'a mut dyn Read,
     err: Option<Box<dyn Error>>,
 }
 
-impl Stream {
-    pub fn new(reader: Box<dyn Read>) -> Stream {
-        Stream {
-            reader: reader,
-            err: None,
-        }
+impl<'a> Stream<'a> {
+    pub fn new(reader: &mut dyn Read) -> Stream {
+        Stream { reader, err: None }
     }
 }
 
-impl Iterator for Stream {
+impl<'a> Iterator for Stream<'a> {
     type Item = Result<Packet, DecodeError>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -52,15 +48,15 @@ pub struct Gap {
 
 /// Sequencer is an adapter for a `Stream` that keeps track of packet sequence
 /// data. Works as a drop in replacement for `Stream`.
-pub struct Sequencer {
-    stream: Stream,
+pub struct Sequencer<'a> {
+    stream: Stream<'a>,
     offset: u64,
     // apid -> last seen packet
     tracker: Box<HashMap<u16, PrimaryHeader>>,
     gaps: Box<Vec<Gap>>,
 }
 
-impl Sequencer {
+impl<'a> Sequencer<'a> {
     pub fn new(stream: Stream) -> Sequencer {
         return Sequencer {
             stream: stream,
@@ -83,9 +79,10 @@ impl Sequencer {
             let prev_seq = prev_hdr.sequence_id as i32;
 
             // check if sequence numbers are sequential w/ rollover
-            if (prev_seq + 1) % MAX_SEQ_NUM != seq {
+            let expected = (seq - prev_seq) % MAX_SEQ_NUM + 1;
+            if seq != expected {
                 self.gaps.push(Gap {
-                    count: ((seq - prev_seq) % MAX_SEQ_NUM) as u16 - 1u16,
+                    count: (seq - prev_seq - 1) as u16,
                     start: prev_seq as u16,
                     // offset already includes packet, so subtract it out.
                     offset: self.offset.clone() - (packet.data.len() + PrimaryHeader::SIZE) as u64,
@@ -98,7 +95,7 @@ impl Sequencer {
     }
 }
 
-impl Iterator for Sequencer {
+impl<'a> Iterator for Sequencer<'a> {
     type Item = Result<Packet, DecodeError>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -130,8 +127,8 @@ mod tests {
             0xd, 0x59, 0xc0, 0x01, 0x0, 0x8, 0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
             0xd, 0x59, 0xc0, 0x02, 0x0, 0x8, 0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
         ];
-        let reader = BufReader::new(dat);
-        let stream = Stream::new(Box::new(reader));
+        let mut reader = BufReader::new(dat);
+        let stream = Stream::new(&mut reader);
 
         let packets: Vec<Packet> = stream
             .filter(|zult| zult.is_ok())
@@ -157,8 +154,8 @@ mod tests {
             0xd, 0x59, 0xc0, 0x05, 0x0, 0x8, 0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
             0xd, 0x59, 0xc0, 0x06, 0x0, 0x8, 0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
         ];
-        let reader = BufReader::new(dat);
-        let stream = Stream::new(Box::new(reader));
+        let mut reader = BufReader::new(dat);
+        let stream = Stream::new(&mut reader);
         let mut sequencer = Sequencer::new(stream);
 
         let packets: Vec<Result<Packet, DecodeError>> = sequencer.by_ref().collect();
