@@ -1,10 +1,15 @@
-use std::collections::HashMap;
+use serde::{Serialize, Serializer};
 use std::error::Error;
 use std::io::Read;
 use std::iter::Iterator;
+use std::{cmp, collections::HashMap};
 
-use super::{Packet, PrimaryHeader};
-use crate::error::DecodeError;
+use chrono::{DateTime, TimeZone, Utc};
+
+use super::timecode::TimecodeParser;
+use super::{Packet, PrimaryHeader, SEQ_FIRST, SEQ_STANDALONE};
+
+const MAX_SEQ_NUM: i32 = 16383;
 
 /// Stream provides the ability to iterate of a reader to provided its
 /// contained packet sequence.
@@ -20,11 +25,11 @@ impl<'a> Stream<'a> {
 }
 
 impl<'a> Iterator for Stream<'a> {
-    type Item = Result<Packet, DecodeError>;
+    type Item = Packet;
 
     fn next(&mut self) -> Option<Self::Item> {
         match Packet::read(&mut self.reader) {
-            Ok(p) => Some(Ok(p)),
+            Ok(p) => Some(p),
             Err(err) => {
                 self.err = Some(err);
                 None
@@ -33,9 +38,30 @@ impl<'a> Iterator for Stream<'a> {
     }
 }
 
-const MAX_SEQ_NUM: i32 = 16383;
+pub(crate) fn serialize_dt<S>(dt: &DateTime<Utc>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    dt.format("%Y-%m-%dT%H:%M:%S.%fZ")
+        .to_string()
+        .serialize(serializer)
+}
 
-#[derive(Debug)]
+pub(crate) fn serialize_err<S>(
+    err: &Option<Box<dyn Error>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    if let Some(err) = err {
+        err.to_string().serialize(serializer)
+    } else {
+        serializer.serialize_none()
+    }
+}
+
+#[derive(Debug, Serialize)]
 pub struct Gap {
     // Number of packets in gap. There's no guarantee that rollover did not occur
     // which may occur if the gap is bigger than the max seq number.
@@ -43,78 +69,122 @@ pub struct Gap {
     // starting sequence id
     pub start: u16,
     // byte offset into reader for the first byte _after_ the gap.
-    pub offset: u64,
+    pub offset: usize,
 }
 
-/// Sequencer is an adapter for a `Stream` that keeps track of packet sequence
-/// data. Works as a drop in replacement for `Stream`.
-pub struct Sequencer<'a> {
-    stream: Stream<'a>,
-    offset: u64,
-    // apid -> last seen packet
-    tracker: Box<HashMap<u16, PrimaryHeader>>,
+#[derive(Debug, Serialize)]
+pub struct ApidInfo {
+    total_count: u32,
+    total_bytes: usize,
     gaps: Box<Vec<Gap>>,
+    #[serde(serialize_with = "serialize_dt")]
+    first: DateTime<Utc>,
+    #[serde(serialize_with = "serialize_dt")]
+    last: DateTime<Utc>,
 }
 
-impl<'a> Sequencer<'a> {
-    pub fn new(stream: Stream) -> Sequencer {
-        return Sequencer {
-            stream: stream,
-            offset: 0,
-            tracker: Box::new(HashMap::new()),
-            gaps: Box::new(Vec::new()),
+#[derive(Debug, Serialize)]
+pub struct Summary {
+    apids: HashMap<u16, ApidInfo>,
+    total_count: u32,
+    total_bytes: usize,
+    #[serde(serialize_with = "serialize_dt")]
+    first: DateTime<Utc>,
+    #[serde(serialize_with = "serialize_dt")]
+    last: DateTime<Utc>,
+    #[serde(serialize_with = "serialize_err")]
+    err: Option<Box<dyn Error>>,
+}
+
+pub fn summarize(
+    reader: &mut dyn Read,
+    tc_parser: &TimecodeParser,
+    // dyn Fn(&[u8]) -> Result<DateTime<Utc>, DecodeError>,
+) -> Summary {
+    let mut summary = Summary {
+        apids: HashMap::new(),
+        total_count: 0,
+        total_bytes: 0,
+        first: Utc::now(),
+        last: Utc.timestamp(0, 0),
+        err: None,
+    };
+
+    let mut tracker: HashMap<u16, PrimaryHeader> = HashMap::new();
+    let mut offset: usize = 0;
+
+    loop {
+        let pkt = match Packet::read(reader) {
+            Ok(p) => p,
+            Err(e) => {
+                summary.err = Some(e);
+                break;
+            }
         };
-    }
+        let hdr = pkt.header.clone();
+        let seq = pkt.header.sequence_id as i32;
+        let total_bytes = PrimaryHeader::SIZE + pkt.data.len();
 
-    pub fn gaps(&self) -> &[Gap] {
-        self.gaps.as_slice()
-    }
+        offset += total_bytes;
+        summary.total_count += 1;
+        summary.total_bytes += total_bytes;
 
-    fn handle_sequence(&mut self, packet: &Packet) {
-        let hdr = packet.header.clone();
-        let apid = packet.header.apid.clone();
-        let seq = packet.header.sequence_id.clone() as i32;
+        // Handle individual apid information
+        let mut apid = match summary.apids.remove(&pkt.header.apid) {
+            Some(a) => a,
+            None => ApidInfo {
+                total_count: 1,
+                total_bytes: total_bytes,
+                gaps: Box::new(Vec::new()),
+                first: Utc::now(),
+                last: Utc.timestamp(0, 0),
+            },
+        };
+        apid.total_count += 1;
+        apid.total_bytes += total_bytes;
 
-        if let Some(prev_hdr) = self.tracker.get(&apid) {
+        // Handle gap checking
+        if let Some(prev_hdr) = tracker.get(&hdr.apid) {
             let prev_seq = prev_hdr.sequence_id as i32;
-
             // check if sequence numbers are sequential w/ rollover
-            let expected = (seq - prev_seq) % MAX_SEQ_NUM + 1;
+            let expected = (prev_seq + 1) % (MAX_SEQ_NUM + 1);
             if seq != expected {
-                self.gaps.push(Gap {
+                apid.gaps.push(Gap {
                     count: (seq - prev_seq - 1) as u16,
                     start: prev_seq as u16,
                     // offset already includes packet, so subtract it out.
-                    offset: self.offset.clone() - (packet.data.len() + PrimaryHeader::SIZE) as u64,
+                    offset: offset - (pkt.data.len() + PrimaryHeader::SIZE) as usize,
                 });
             }
         };
+        tracker.insert(hdr.apid, hdr);
 
-        // record current as last packet seen
-        self.tracker.insert(apid, hdr);
-    }
-}
-
-impl<'a> Iterator for Sequencer<'a> {
-    type Item = Result<Packet, DecodeError>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.stream.next() {
-            Some(zult) => match zult {
-                Ok(p) => {
-                    self.offset += (PrimaryHeader::SIZE + p.data.len()) as u64;
-                    self.handle_sequence(&p);
-                    Some(Ok(p))
+        // Handle first/last packet times
+        if pkt.header.has_secondary_header
+            && (pkt.header.sequence_flags == SEQ_FIRST
+                || pkt.header.sequence_flags == SEQ_STANDALONE)
+        {
+            match tc_parser(&pkt.data) {
+                Ok(dt) => {
+                    summary.first = cmp::min(summary.first, dt.clone());
+                    summary.last = cmp::max(summary.last, dt.clone());
+                    apid.first = cmp::min(apid.first, dt.clone());
+                    apid.last = cmp::max(apid.last, dt.clone());
                 }
-                Err(err) => Some(Err(err)),
-            },
-            None => None,
-        }
+                _ => {}
+            };
+        };
+
+        summary.apids.insert(pkt.header.apid, apid);
     }
+
+    summary
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::spacepacket::parse_cds_timecode;
+
     use super::*;
     use std::io::BufReader;
 
@@ -130,10 +200,7 @@ mod tests {
         let mut reader = BufReader::new(dat);
         let stream = Stream::new(&mut reader);
 
-        let packets: Vec<Packet> = stream
-            .filter(|zult| zult.is_ok())
-            .map(|zult| zult.unwrap())
-            .collect();
+        let packets: Vec<Packet> = stream.collect();
 
         assert_eq!(packets.len(), 2);
         assert_eq!(packets[0].header.apid, 1369);
@@ -142,7 +209,7 @@ mod tests {
     }
 
     #[test]
-    fn sequencer_test() {
+    fn summarize_test() {
         #[rustfmt::skip]
         let dat: &[u8] = &[
             // Primary/secondary header and a single byte of user data
@@ -155,13 +222,14 @@ mod tests {
             0xd, 0x59, 0xc0, 0x06, 0x0, 0x8, 0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
         ];
         let mut reader = BufReader::new(dat);
-        let stream = Stream::new(&mut reader);
-        let mut sequencer = Sequencer::new(stream);
+        let summary = summarize(&mut reader, &parse_cds_timecode);
 
-        let packets: Vec<Result<Packet, DecodeError>> = sequencer.by_ref().collect();
-        assert_eq!(packets.len(), 4);
-
-        let gaps = sequencer.gaps();
+        let mut gaps: Box<Vec<&Gap>> = Box::new(Vec::new());
+        for apid in summary.apids.values() {
+            for gap in apid.gaps.iter() {
+                gaps.push(gap);
+            }
+        }
 
         assert_eq!(gaps.len(), 2, "expected 2 gaps");
 

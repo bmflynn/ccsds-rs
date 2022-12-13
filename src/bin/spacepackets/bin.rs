@@ -12,6 +12,12 @@ struct Cli {
     command: Commands,
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
+enum TimecodeFormat {
+    CDS,
+    EOSCUC,
+}
+
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// Inspect the contents of a file
@@ -25,7 +31,7 @@ enum Commands {
         gaps: bool,
 
         /// Timecode format
-        #[arg(value_enum, short, long, default_value_t = TimecodeFormat::None)]
+        #[arg(value_enum, short, long)]
         timecode: TimecodeFormat,
     },
     /// Merge multiple files together
@@ -35,20 +41,9 @@ enum Commands {
     },
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
-enum TimecodeFormat {
-    /// CCSDS Day Segmented timecode
-    CDS,
-    /// CCSDS Unsegmented timecode as used in NASA EOS Mission
-    EOSCUC,
-    /// Do not decode times
-    None,
-}
 
 fn main() -> process::ExitCode {
     let cli = Cli::parse();
-    println!("{:?}", cli);
-
     match &cli.command {
         Commands::Info {
             input,

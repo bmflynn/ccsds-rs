@@ -38,34 +38,30 @@
 //!    422-11-19-03)](https://directreadout.sci.gsfc.nasa.gov/links/rsd_eosdb/PDF/ICD_Space_Ground_Aqua.pdf)
 //!    Figure 5.5.1-1
 //!
+use crate::error::DecodeError;
+use chrono::{DateTime, Duration, TimeZone, Utc};
 use std::convert::TryInto;
 
-use chrono::{DateTime, Duration, TimeZone, Utc};
-
-use crate::error::DecodeError;
-
 pub trait Timecode {
-    fn timestamp(&self) -> Result<DateTime<Utc>, DecodeError>;
+    fn timecode(buf: &[u8]) -> Result<DateTime<Utc>, DecodeError>;
 }
 
-pub trait HasTimecode<T> {
-    fn timecode(&self) -> Result<T, DecodeError>;
-}
+pub type TimecodeParser = dyn Fn(&[u8]) -> Result<DateTime<Utc>, DecodeError>;
 
 /// CCSDS Unsegmented Timecode format for the NASA EOS mission.
 ///
 /// This is different than the standard CUC format in that the p-field extension
-/// bits 1..8 contains the number of leap-seconds to convert from TAI to UTC.
+/// bits 1..8 contains the number of leap-seconds to convertp from TAI to UTC.
 ///
 /// It also encodes the t-field fine-time LSB multiplier as 15.2 microseconds.
 ///
 #[derive(Debug)]
 pub struct EOSCUCTimecode {
-    has_extension: bool,
-    epoch: u8,
-    num_coarse_time_octets_minus1: u8,
-    num_fine_time_octets: u8,
-    ext_has_ext: bool, // false
+    pub has_extension: bool,
+    pub epoch: u8,
+    pub num_coarse_time_octets_minus1: u8,
+    pub num_fine_time_octets: u8,
+    pub ext_has_ext: bool, // false
 
     pub leapsecs: u8,
     pub seconds: u64,
@@ -77,7 +73,7 @@ impl EOSCUCTimecode {
     pub const EPOCH_DELTA: i64 = 378_691_200;
 
     // Each bit is 15.2 microseconds, converted here to seconds
-    const LSB_MULT: u64 = (15.2 * 1e6) as u64;
+    pub const LSB_MULT: u64 = (15.2 * 1e6) as u64;
 
     pub fn new(buf: &[u8]) -> Result<EOSCUCTimecode, DecodeError> {
         // Validate buf len, but it's dynamic so we have to get some
@@ -119,17 +115,28 @@ impl EOSCUCTimecode {
     }
 }
 
-impl Timecode for EOSCUCTimecode {
-    fn timestamp(&self) -> Result<DateTime<Utc>, DecodeError> {
-        let secs: i64 = self.seconds as i64 + self.leapsecs as i64;
-        let nanos: u32 = ((self.sub_seconds * EOSCUCTimecode::LSB_MULT) / 1e3 as u64) as u32;
-        if secs as i64 + (nanos as i64 / 1e9 as i64) < Self::EPOCH_DELTA {
-            return Err(DecodeError::Other(String::from(
-                "could not decode timestamp",
-            )));
-        }
-        Ok(Utc.timestamp(secs, nanos) - Duration::seconds(Self::EPOCH_DELTA))
+pub fn parse_eoscuc_timecode(buf: &[u8]) -> Result<DateTime<Utc>, DecodeError> {
+    if buf.len() < EOSCUCTimecode::SIZE {
+        return Err(DecodeError::Other(format!(
+            "expected {} bytes for EOSCUCTimecode, got {}",
+            EOSCUCTimecode::SIZE,
+            buf.len()
+        )));
     }
+
+    // There is an extra byte of data before timecode
+    let (bytes, _) = buf[1..].split_at(EOSCUCTimecode::SIZE);
+    // we've already ensured we have enough bytes, so this won't panic
+
+    let cuc = EOSCUCTimecode::new(bytes.try_into().unwrap())?;
+    let secs: i64 = cuc.seconds as i64 + cuc.leapsecs as i64;
+    let nanos: u32 = ((cuc.sub_seconds * EOSCUCTimecode::LSB_MULT) / 1e3 as u64) as u32;
+    if secs as i64 + (nanos as i64 / 1e9 as i64) < EOSCUCTimecode::EPOCH_DELTA {
+        return Err(DecodeError::Other(String::from(
+            "could not decode timestamp",
+        )));
+    }
+    Ok(Utc.timestamp(secs, nanos) - Duration::seconds(EOSCUCTimecode::EPOCH_DELTA))
 }
 
 #[cfg(test)]
@@ -141,19 +148,7 @@ mod eoscuc_tests {
         // bytes 7..15 from AIRS packet
         let dat: [u8; 8] = [0xae, 0x25, 0x74, 0xe3, 0xe5, 0xab, 0x5e, 0x2f];
 
-        let tc = EOSCUCTimecode::new(&dat).unwrap();
-
-        assert_eq!(tc.has_extension, true);
-        assert_eq!(tc.epoch, 2.into());
-        assert_eq!(tc.num_coarse_time_octets_minus1, 3.into());
-        assert_eq!(tc.num_fine_time_octets, 2.into());
-        assert_eq!(tc.ext_has_ext, false);
-
-        assert_eq!(tc.seconds, 1961092523);
-        assert_eq!(tc.sub_seconds, 24111);
-        assert_eq!(tc.leapsecs, 37);
-
-        let ts = tc.timestamp().unwrap();
+        let ts = parse_eoscuc_timecode(&dat).unwrap();
         // FIXME: Needs absolute validation against known science data.
         //        This value is taken from parsed values.
         assert_eq!(ts.to_string(), "2020-02-22 19:56:00.366487200 UTC");
@@ -185,19 +180,27 @@ impl CDSTimecode {
     }
 }
 
-impl Timecode for CDSTimecode {
-    fn timestamp(&self) -> Result<DateTime<Utc>, DecodeError> {
-        let mut secs: i64 = self.days as i64 * 86400;
-        secs += self.millis as i64 / 1e3 as i64;
-        let m: u64 = self.millis as u64 % 1e3 as u64;
-        let nanos: u64 =
-            // convert millis remainder to nanos
-            (self.millis as u64 * 1e6 as u64 % 1e9 as u64)
-            // convert micros to nanos
-             + (self.micros as u64 * 1e3 as u64);
-
-        Ok(Utc.timestamp(secs, nanos as u32) - Duration::seconds(Self::EPOCH_DELTA))
+pub fn parse_cds_timecode(buf: &[u8]) -> Result<DateTime<Utc>, DecodeError> {
+    if buf.len() < CDSTimecode::SIZE {
+        return Err(DecodeError::Other(format!(
+            "expected {} bytes for CDSTimecode, got {}",
+            CDSTimecode::SIZE,
+            buf.len()
+        )));
     }
+    // convert 8 bytes of time data into u64
+    let (bytes, _) = buf.split_at(CDSTimecode::SIZE);
+
+    let cds = CDSTimecode::new(bytes)?;
+    let mut secs: i64 = cds.days as i64 * 86400;
+    secs += cds.millis as i64 / 1e3 as i64;
+    let nanos: u64 =
+             // convert millis remainder to nanos
+             (cds.millis as u64 * 1e6 as u64 % 1e9 as u64)
+             // convert micros to nanos
+              + (cds.micros as u64 * 1e3 as u64);
+
+    Ok(Utc.timestamp(secs, nanos as u32) - Duration::seconds(CDSTimecode::EPOCH_DELTA))
 }
 
 #[cfg(test)]
@@ -207,13 +210,8 @@ mod cds_tests {
     #[test]
     fn test_cds_timecode() {
         let dat = [0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff];
-        let cds = CDSTimecode::new(&dat).unwrap();
 
-        assert_eq!(cds.days, 21184);
-        assert_eq!(cds.millis, 167);
-        assert_eq!(cds.micros, 219);
-
-        let ts = cds.timestamp().unwrap();
+        let ts = parse_cds_timecode(&dat).unwrap();
         assert_eq!(ts.timestamp_millis(), 1451606400167);
     }
 }

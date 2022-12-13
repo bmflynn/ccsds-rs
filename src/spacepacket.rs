@@ -14,12 +14,16 @@ pub use primary_header::{
 };
 pub use timecode::{
     Timecode,
-    HasTimecode,
+    TimecodeParser,
     CDSTimecode,
     EOSCUCTimecode,
+    parse_cds_timecode,
+    parse_eoscuc_timecode,
 };
 pub use stream::{
-    Gap,
-    Sequencer,
     Stream,
+    Gap,
+    Summary,
+    ApidInfo,
+    summarize,
 };
