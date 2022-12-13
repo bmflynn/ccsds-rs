@@ -30,11 +30,13 @@ enum Commands {
         #[arg(value_enum, short, long, default_value_t=TimecodeFormat::CDS)]
         timecode: TimecodeFormat,
     },
+    /*
     /// Merge multiple files together
     Merge {
         #[arg(short, long)]
         input: String,
     },
+    */
 }
 
 
@@ -45,6 +47,6 @@ fn main() -> process::ExitCode {
             input,
             timecode,
         } => info::do_info(input.clone(), timecode),
-        Commands::Merge { input } => merge::do_merge(input.clone()),
+        // Commands::Merge { input } => merge::do_merge(input.clone()),
     }
 }
