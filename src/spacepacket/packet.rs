@@ -15,8 +15,9 @@ use super::{PrimaryHeader};
 /// ```
 /// use ccsds::spacepacket::{
 ///     CDSTimecode,
-///     HasTimecode,
+///     parse_cds_timecode,
 ///     Packet,
+///     PrimaryHeader,
 /// };
 ///
 /// let dat: &[u8] = &[
@@ -29,7 +30,7 @@ use super::{PrimaryHeader};
 /// ];
 /// let mut r = std::io::BufReader::new(dat);
 /// let packet = Packet::read(&mut r).unwrap();
-/// let tc: CDSTimecode = packet.timecode().unwrap();
+/// let tc = parse_cds_timecode(&packet.data[PrimaryHeader::SIZE..]);
 /// ```
 pub struct Packet {
     /// All packets have a primary header

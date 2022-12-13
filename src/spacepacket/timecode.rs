@@ -125,7 +125,7 @@ pub fn parse_eoscuc_timecode(buf: &[u8]) -> Result<DateTime<Utc>, DecodeError> {
     }
 
     // There is an extra byte of data before timecode
-    let (bytes, _) = buf[1..].split_at(EOSCUCTimecode::SIZE);
+    let (bytes, _) = buf.split_at(EOSCUCTimecode::SIZE);
     // we've already ensured we have enough bytes, so this won't panic
 
     let cuc = EOSCUCTimecode::new(bytes.try_into().unwrap())?;
