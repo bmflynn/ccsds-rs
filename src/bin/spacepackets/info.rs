@@ -4,7 +4,7 @@ use std::process;
 use crate::TimecodeFormat;
 use ccsds::spacepacket::*;
 
-pub(crate) fn do_info(input: String, _gaps: bool, tc_fmt: &TimecodeFormat) -> process::ExitCode {
+pub(crate) fn do_info(input: String, tc_fmt: &TimecodeFormat) -> process::ExitCode {
     let mut fp = match fs::File::open(input) {
         Ok(f) => f,
         Err(e) => {

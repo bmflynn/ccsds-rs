@@ -26,12 +26,8 @@ enum Commands {
         #[arg(short, long)]
         input: String,
 
-        /// Show gap information
-        #[arg(short, long)]
-        gaps: bool,
-
         /// Timecode format
-        #[arg(value_enum, short, long)]
+        #[arg(value_enum, short, long, default_value_t=TimecodeFormat::CDS)]
         timecode: TimecodeFormat,
     },
     /// Merge multiple files together
@@ -47,9 +43,8 @@ fn main() -> process::ExitCode {
     match &cli.command {
         Commands::Info {
             input,
-            gaps,
             timecode,
-        } => info::do_info(input.clone(), *gaps, timecode),
+        } => info::do_info(input.clone(), timecode),
         Commands::Merge { input } => merge::do_merge(input.clone()),
     }
 }
