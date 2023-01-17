@@ -136,7 +136,8 @@ pub fn parse_eoscuc_timecode(buf: &[u8]) -> Result<DateTime<Utc>, DecodeError> {
             "could not decode timestamp",
         )));
     }
-    Ok(Utc.timestamp(secs, nanos) - Duration::seconds(EOSCUCTimecode::EPOCH_DELTA))
+    let dt = Utc.timestamp_opt(secs, nanos).unwrap();
+    Ok(dt - Duration::seconds(EOSCUCTimecode::EPOCH_DELTA))
 }
 
 #[cfg(test)]
@@ -200,7 +201,7 @@ pub fn parse_cds_timecode(buf: &[u8]) -> Result<DateTime<Utc>, DecodeError> {
              // convert micros to nanos
               + (cds.micros as u64 * 1e3 as u64);
 
-    Ok(Utc.timestamp(secs, nanos as u32) - Duration::seconds(CDSTimecode::EPOCH_DELTA))
+    Ok(Utc.timestamp_opt(secs, nanos as u32).unwrap() - Duration::seconds(CDSTimecode::EPOCH_DELTA))
 }
 
 #[cfg(test)]

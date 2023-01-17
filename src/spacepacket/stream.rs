@@ -106,7 +106,7 @@ pub fn summarize(
         total_count: 0,
         total_bytes: 0,
         first: Utc::now(),
-        last: Utc.timestamp(0, 0),
+        last: Utc.timestamp_opt(0, 0).single().unwrap(),
         err: None,
     };
 
@@ -137,7 +137,7 @@ pub fn summarize(
                 total_bytes: total_bytes,
                 gaps: Box::new(Vec::new()),
                 first: Utc::now(),
-                last: Utc.timestamp(0, 0),
+                last: Utc.timestamp_opt(0, 0).single().unwrap(),
             },
         };
         apid.total_count += 1;

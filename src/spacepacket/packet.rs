@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::{convert::TryInto, io::Read};
 
-use super::{PrimaryHeader};
+use super::PrimaryHeader;
 
 /// Packet represents a single CCSDS space packet and its associated data.
 ///

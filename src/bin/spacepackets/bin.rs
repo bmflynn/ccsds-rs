@@ -1,5 +1,6 @@
 mod info;
 mod merge;
+mod inspect;
 
 use std::process;
 

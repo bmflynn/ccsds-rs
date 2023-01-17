@@ -13,7 +13,7 @@ use std::io;
 
 #[derive(Debug)]
 pub enum DecodeError {
-    Io(io::Error),
+    IO(io::Error),
     TooFewBytes,
     Other(String),
 }
@@ -21,7 +21,7 @@ pub enum DecodeError {
 impl fmt::Display for DecodeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            DecodeError::Io(ref cause) => write!(f, "I/O Error {}", cause),
+            DecodeError::IO(ref cause) => write!(f, "I/O Error {}", cause),
             DecodeError::TooFewBytes => write!(f, "too few bytes"),
             DecodeError::Other(ref cause) => write!(f, "Other error {}", cause),
         }
@@ -29,9 +29,9 @@ impl fmt::Display for DecodeError {
 }
 
 impl Error for DecodeError {
-    fn cause(&self) -> Option<&dyn Error> {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
         match *self {
-            DecodeError::Io(ref cause) => Some(cause),
+            DecodeError::IO(ref source) => Some(source),
             DecodeError::TooFewBytes => None,
             DecodeError::Other(_) => None,
         }
@@ -40,6 +40,6 @@ impl Error for DecodeError {
 
 impl From<IoError> for DecodeError {
     fn from(cause: IoError) -> DecodeError {
-        DecodeError::Io(cause)
+        DecodeError::IO(cause)
     }
 }
