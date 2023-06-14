@@ -4,7 +4,10 @@ mod primary_header;
 mod stream;
 mod timecode;
 
-pub use packet::Packet;
+pub use packet::{
+    APID,
+    Packet,
+};
 pub use primary_header::{
     PrimaryHeader,
     SEQ_CONT,
@@ -25,5 +28,5 @@ pub use stream::{
     Gap,
     Summary,
     ApidInfo,
-    summarize,
+    Summarizer,
 };

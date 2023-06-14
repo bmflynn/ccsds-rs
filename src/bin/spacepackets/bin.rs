@@ -1,9 +1,10 @@
-mod info;
-mod merge;
+mod edit;
 mod inspect;
+mod merge;
 
 use std::process;
 
+use ccsds::spacepacket::APID;
 use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Parser, Debug)]
@@ -21,33 +22,35 @@ enum TimecodeFormat {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Inspect the contents of a file
-    Info {
-        /// Input spacepacket file
+    Edit {
         #[arg(short, long)]
         input: String,
-
-        /// Timecode format
+        #[arg(short, long, action=clap::ArgAction::Append)]
+        apids: Vec<APID>,
+        #[arg(short, long)]
+        start: Option<String>,
+        #[arg(short, long)]
+        end: Option<String>,
         #[arg(value_enum, short, long, default_value_t=TimecodeFormat::CDS)]
-        timecode: TimecodeFormat,
+        tc_fmt: TimecodeFormat,
     },
-    /*
     /// Merge multiple files together
     Merge {
         #[arg(short, long)]
         input: String,
     },
-    */
 }
-
 
 fn main() -> process::ExitCode {
     let cli = Cli::parse();
     match &cli.command {
-        Commands::Info {
+        Commands::Edit {
             input,
-            timecode,
-        } => info::do_info(input.clone(), timecode),
-        // Commands::Merge { input } => merge::do_merge(input.clone()),
+            apids,
+            start,
+            end,
+            tc_fmt,
+        } => edit::do_edit(input.clone(), apids.clone(), start.clone(), end.clone(), tc_fmt),
+        Commands::Merge { input } => merge::do_merge(input.clone()),
     }
 }

@@ -3,6 +3,8 @@ use std::{convert::TryInto, io::Read};
 
 use super::PrimaryHeader;
 
+pub type APID = u16;
+
 /// Packet represents a single CCSDS space packet and its associated data.
 ///
 /// This packet contains the primary header data as well as the user data,

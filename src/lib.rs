@@ -1,3 +1,7 @@
+#![feature(test)]
+extern crate test;
+
+pub mod cadu;
 /// ccsds packet decoding library.
 ///
 /// References:
@@ -5,6 +9,6 @@
 ///     - https://public.ccsds.org/Pubs/133x0b1c2.pdf
 ///
 pub mod error;
-pub mod spacepacket;
-pub mod cadu;
 pub mod pn;
+pub mod rs;
+pub mod spacepacket;

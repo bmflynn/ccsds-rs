@@ -16,9 +16,15 @@ pub(crate) fn do_inspect(input: String, tc_fmt: &TimecodeFormat) -> process::Exi
         TimecodeFormat::CDS => &parse_cds_timecode,
         TimecodeFormat::EOSCUC => &parse_eoscuc_timecode,
     };
-    let summary = summarize(&mut fp, tc_parser);
+    let stream = Stream::new(&mut fp);
+    let mut summarizer = Summarizer::new(&parse_cds_timecode);
+    for packet in stream {
+        summarizer.add(&packet);
+    }
 
-    println!("{}", serde_json::to_string(&summary).unwrap());
+    let summary = summarizer.result();
+    
+    todo!();
 
     return process::ExitCode::SUCCESS;
 }

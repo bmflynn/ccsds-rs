@@ -29,7 +29,9 @@ impl<'a> Iterator for Stream<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match Packet::read(&mut self.reader) {
-            Ok(p) => Some(p),
+            Ok(p) => {
+                return Some(p);
+            }
             Err(err) => {
                 self.err = Some(err);
                 None
@@ -61,7 +63,7 @@ where
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone)]
 pub struct Gap {
     // Number of packets in gap. There's no guarantee that rollover did not occur
     // which may occur if the gap is bigger than the max seq number.
@@ -72,65 +74,64 @@ pub struct Gap {
     pub offset: usize,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone)]
 pub struct ApidInfo {
     total_count: u32,
     total_bytes: usize,
     gaps: Box<Vec<Gap>>,
-    #[serde(serialize_with = "serialize_dt")]
     first: DateTime<Utc>,
-    #[serde(serialize_with = "serialize_dt")]
     last: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone)]
 pub struct Summary {
     apids: HashMap<u16, ApidInfo>,
     total_count: u32,
     total_bytes: usize,
-    #[serde(serialize_with = "serialize_dt")]
     first: DateTime<Utc>,
-    #[serde(serialize_with = "serialize_dt")]
     last: DateTime<Utc>,
-    #[serde(serialize_with = "serialize_err")]
+}
+
+pub struct Summarizer<'a> {
+    summary: Summary,
+    tc_parser: &'a TimecodeParser,
+    offset: usize,
+    tracker: HashMap<u16, PrimaryHeader>,
     err: Option<Box<dyn Error>>,
 }
 
-pub fn summarize(
-    reader: &mut dyn Read,
-    tc_parser: &TimecodeParser,
-    // dyn Fn(&[u8]) -> Result<DateTime<Utc>, DecodeError>,
-) -> Summary {
-    let mut summary = Summary {
-        apids: HashMap::new(),
-        total_count: 0,
-        total_bytes: 0,
-        first: Utc::now(),
-        last: Utc.timestamp_opt(0, 0).single().unwrap(),
-        err: None,
-    };
-
-    let mut tracker: HashMap<u16, PrimaryHeader> = HashMap::new();
-    let mut offset: usize = 0;
-
-    loop {
-        let pkt = match Packet::read(reader) {
-            Ok(p) => p,
-            Err(e) => {
-                summary.err = Some(e);
-                break;
-            }
+impl<'a> Summarizer<'a> {
+    pub fn new(tc_parser: &'a TimecodeParser) -> Self {
+        return Summarizer {
+            summary: Summary {
+                apids: HashMap::new(),
+                total_count: 0,
+                total_bytes: 0,
+                first: Utc::now(),
+                last: Utc.timestamp_opt(0, 0).single().unwrap(),
+            },
+            tracker: HashMap::new(),
+            tc_parser: tc_parser,
+            offset: 0,
+            err: None,
         };
+    }
+    pub fn add(&mut self, pkt: &Packet) {
+        // can't add more if we've already encountered an error
+        if self.err.is_some() {
+            return;
+        }
+
         let hdr = pkt.header.clone();
         let seq = pkt.header.sequence_id as i32;
         let total_bytes = PrimaryHeader::SIZE + pkt.data.len();
 
-        offset += total_bytes;
-        summary.total_count += 1;
-        summary.total_bytes += total_bytes;
+        self.offset += total_bytes;
+        self.summary.total_count += 1;
+        self.summary.total_bytes += total_bytes;
 
         // Handle individual apid information
-        let mut apid = match summary.apids.remove(&pkt.header.apid) {
+        let mut apid = match self.summary.apids.remove(&pkt.header.apid) {
             Some(a) => a,
             None => ApidInfo {
                 total_count: 1,
@@ -144,7 +145,7 @@ pub fn summarize(
         apid.total_bytes += total_bytes;
 
         // Handle gap checking
-        if let Some(prev_hdr) = tracker.get(&hdr.apid) {
+        if let Some(prev_hdr) = self.tracker.get(&hdr.apid) {
             let prev_seq = prev_hdr.sequence_id as i32;
             // check if sequence numbers are sequential w/ rollover
             let expected = (prev_seq + 1) % (MAX_SEQ_NUM + 1);
@@ -153,21 +154,21 @@ pub fn summarize(
                     count: (seq - prev_seq - 1) as u16,
                     start: prev_seq as u16,
                     // offset already includes packet, so subtract it out.
-                    offset: offset - (pkt.data.len() + PrimaryHeader::SIZE) as usize,
+                    offset: self.offset - (pkt.data.len() + PrimaryHeader::SIZE) as usize,
                 });
             }
         };
-        tracker.insert(hdr.apid, hdr);
+        self.tracker.insert(hdr.apid, hdr);
 
         // Handle first/last packet times
         if pkt.header.has_secondary_header
             && (pkt.header.sequence_flags == SEQ_FIRST
                 || pkt.header.sequence_flags == SEQ_STANDALONE)
         {
-            match tc_parser(&pkt.data) {
+            match (self.tc_parser)(&pkt.data) {
                 Ok(dt) => {
-                    summary.first = cmp::min(summary.first, dt.clone());
-                    summary.last = cmp::max(summary.last, dt.clone());
+                    self.summary.first = cmp::min(self.summary.first, dt.clone());
+                    self.summary.last = cmp::max(self.summary.last, dt.clone());
                     apid.first = cmp::min(apid.first, dt.clone());
                     apid.last = cmp::max(apid.last, dt.clone());
                 }
@@ -175,11 +176,15 @@ pub fn summarize(
             };
         };
 
-        summary.apids.insert(pkt.header.apid, apid);
+        self.summary.apids.insert(pkt.header.apid, apid);
     }
 
-    summary
+    pub fn result(&self) -> Summary {
+        self.summary.clone()
+    }
 }
+
+fn collect_groups() {}
 
 #[cfg(test)]
 mod tests {
@@ -222,8 +227,13 @@ mod tests {
             0xd, 0x59, 0xc0, 0x06, 0x0, 0x8, 0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
         ];
         let mut reader = BufReader::new(dat);
-        let summary = summarize(&mut reader, &parse_cds_timecode);
+        let stream = Stream::new(&mut reader);
+        let mut summarizer = Summarizer::new(&parse_cds_timecode);
+        for packet in stream {
+            summarizer.add(&packet);
+        }
 
+        let summary = summarizer.result();
         let mut gaps: Box<Vec<&Gap>> = Box::new(Vec::new());
         for apid in summary.apids.values() {
             for gap in apid.gaps.iter() {
