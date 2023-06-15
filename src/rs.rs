@@ -303,7 +303,7 @@ mod tests {
     }   
 
     #[bench]
-    fn bench_wv_correct_message(b: &mut test::Bencher) {
+    fn bench_correct_message(b: &mut test::Bencher) {
 
         b.iter(|| {
             let mut msg = test::black_box(FIXTURE_MSG.clone());

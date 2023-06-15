@@ -10,6 +10,7 @@
 //! |-----------|-----------|-------------------------|
 //! | JPSS      | SNPP      | All sensors & S/C       |
 //! | JPSS      | NOAA20    | All sensors & S/C       |
+//! | JPSS      | NOAA21    | All sensors & S/C       |
 //! | EOS       | Aqua      | *MODIS (Sci & Engr)     |
 //! | EOS       | Aqua      | *CERES                  |
 //!
@@ -38,15 +39,22 @@
 //!    422-11-19-03)](https://directreadout.sci.gsfc.nasa.gov/links/rsd_eosdb/PDF/ICD_Space_Ground_Aqua.pdf)
 //!    Figure 5.5.1-1
 //!
-use crate::error::DecodeError;
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use std::convert::TryInto;
 
-pub trait Timecode {
-    fn timecode(buf: &[u8]) -> Result<DateTime<Utc>, DecodeError>;
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("failed to create timecode from provided bytes")]
+    Parse(String),
+    #[error("buffer too short to create timecode")]
+    BufferTooShort,
 }
 
-pub type TimecodeParser = dyn Fn(&[u8]) -> Result<DateTime<Utc>, DecodeError>;
+pub trait Timecode {
+    fn timecode(buf: &[u8]) -> Result<DateTime<Utc>, Error>;
+}
+
+pub type TimecodeParser = dyn Fn(&[u8]) -> Result<DateTime<Utc>, Error>;
 
 /// CCSDS Unsegmented Timecode format for the NASA EOS mission.
 ///
@@ -75,16 +83,16 @@ impl EOSCUCTimecode {
     // Each bit is 15.2 microseconds, converted here to seconds
     pub const LSB_MULT: u64 = (15.2 * 1e6) as u64;
 
-    pub fn new(buf: &[u8]) -> Result<EOSCUCTimecode, DecodeError> {
+    pub fn new(buf: &[u8]) -> Result<EOSCUCTimecode, Error> {
         // Validate buf len, but it's dynamic so we have to get some
         // p-field values to be sure
         if buf.len() == 0 {
-            return Err(DecodeError::TooFewBytes);
+            return Err(Error::BufferTooShort);
         }
         let num_coarse = ((buf[0] >> 2) & 0x3) + 1;
         let num_fine = (buf[0] & 0x3) as u8;
         if buf.len() < (num_fine + num_coarse + 2) as usize {
-            return Err(DecodeError::TooFewBytes);
+            return Err(Error::BufferTooShort);
         }
 
         // figure out mask for coarse time
@@ -115,13 +123,9 @@ impl EOSCUCTimecode {
     }
 }
 
-pub fn parse_eoscuc_timecode(buf: &[u8]) -> Result<DateTime<Utc>, DecodeError> {
+pub fn parse_eoscuc_timecode(buf: &[u8]) -> Result<DateTime<Utc>, Error> {
     if buf.len() < EOSCUCTimecode::SIZE {
-        return Err(DecodeError::Other(format!(
-            "expected {} bytes for EOSCUCTimecode, got {}",
-            EOSCUCTimecode::SIZE,
-            buf.len()
-        )));
+        return Err(Error::BufferTooShort);
     }
 
     // There is an extra byte of data before timecode
@@ -132,9 +136,7 @@ pub fn parse_eoscuc_timecode(buf: &[u8]) -> Result<DateTime<Utc>, DecodeError> {
     let secs: i64 = cuc.seconds as i64 + cuc.leapsecs as i64;
     let nanos: u32 = ((cuc.sub_seconds * EOSCUCTimecode::LSB_MULT) / 1e3 as u64) as u32;
     if secs as i64 + (nanos as i64 / 1e9 as i64) < EOSCUCTimecode::EPOCH_DELTA {
-        return Err(DecodeError::Other(String::from(
-            "could not decode timestamp",
-        )));
+        return Err(Error::Parse("could not decode timestamp".to_owned()));
     }
     let dt = Utc.timestamp_opt(secs, nanos).unwrap();
     Ok(dt - Duration::seconds(EOSCUCTimecode::EPOCH_DELTA))
@@ -168,9 +170,9 @@ impl CDSTimecode {
     pub const EPOCH_DELTA: i64 = 378_691_200;
     pub const SIZE: usize = 8;
 
-    pub fn new(buf: &[u8]) -> Result<CDSTimecode, DecodeError> {
+    pub fn new(buf: &[u8]) -> Result<CDSTimecode, Error> {
         if buf.len() < Self::SIZE {
-            return Err(DecodeError::TooFewBytes);
+            return Err(Error::BufferTooShort);
         }
 
         Ok(CDSTimecode {
@@ -181,13 +183,9 @@ impl CDSTimecode {
     }
 }
 
-pub fn parse_cds_timecode(buf: &[u8]) -> Result<DateTime<Utc>, DecodeError> {
+pub fn parse_cds_timecode(buf: &[u8]) -> Result<DateTime<Utc>, Error> {
     if buf.len() < CDSTimecode::SIZE {
-        return Err(DecodeError::Other(format!(
-            "expected {} bytes for CDSTimecode, got {}",
-            CDSTimecode::SIZE,
-            buf.len()
-        )));
+        return Err(Error::BufferTooShort);
     }
     // convert 8 bytes of time data into u64
     let (bytes, _) = buf.split_at(CDSTimecode::SIZE);
