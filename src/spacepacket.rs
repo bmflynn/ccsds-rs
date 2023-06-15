@@ -2,9 +2,8 @@ mod timecode;
 
 use std::cmp;
 use std::collections::HashMap;
-use std::io::{Read, self};
+use std::io::Read;
 use std::convert::TryInto;
-use serde::{Serialize, Serializer};
 use chrono::{DateTime, TimeZone, Utc};
 
 pub use timecode::{
@@ -17,12 +16,6 @@ pub use timecode::{
 };
 
 const MAX_SEQ_NUM: i32 = 16383;
-
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error("error reading")]
-    Read(#[from] io::Error)
-}
 
 pub type APID = u16;
 
@@ -63,7 +56,7 @@ pub struct Packet {
 }
 
 impl Packet {
-    pub fn read(r: &mut dyn Read) -> Result<Packet, Error> {
+    pub fn read(r: &mut dyn Read) -> Result<Packet, std::io::Error> {
         let ph = PrimaryHeader::read(r)?;
 
         // read the user data, shouldn't panic since unpacking worked
@@ -102,7 +95,7 @@ impl PrimaryHeader {
     /// Size of a PrimaryHeader
     pub const SIZE: usize = 6;
 
-    pub fn read(r: &mut dyn Read) -> Result<PrimaryHeader, Error> {
+    pub fn read(r: &mut dyn Read) -> Result<PrimaryHeader, std::io::Error> {
         let mut buf = [0u8; Self::SIZE];
         r.read_exact(&mut buf)?;
 
@@ -122,60 +115,30 @@ impl PrimaryHeader {
     }
 }
 
-
-
-/// Stream provides the ability to iterate of a reader to provided its
-/// contained packet sequence.
-pub struct Stream<'a> {
+pub struct PacketIter<'a> {
     reader: &'a mut dyn Read,
-    err: Option<Error>,
 }
 
-impl<'a> Stream<'a> {
-    pub fn new(reader: &mut dyn Read) -> Stream {
-        Stream { reader, err: None }
-    }
-}
-
-impl<'a> Iterator for Stream<'a> {
-    type Item = Packet;
+impl<'a> Iterator for PacketIter<'a> {
+    type Item = Result<Packet, std::io::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match Packet::read(&mut self.reader) {
             Ok(p) => {
-                return Some(p);
+                return Some(Ok(p))
             }
             Err(err) => {
-                self.err = Some(err);
-                None
+                if err.kind() == std::io::ErrorKind::UnexpectedEof {
+                    return None
+                }
+                Some(Err(err))
             }
         }
     }
 }
 
-#[allow(unused)]
-pub(crate) fn serialize_dt<S>(dt: &DateTime<Utc>, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    dt.format("%Y-%m-%dT%H:%M:%S.%fZ")
-        .to_string()
-        .serialize(serializer)
-}
-
-#[allow(unused)]
-pub(crate) fn serialize_err<S>(
-    err: &Option<Error>,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    if let Some(err) = err {
-        err.to_string().serialize(serializer)
-    } else {
-        serializer.serialize_none()
-    }
+pub fn packet_iter(reader: &mut dyn Read) -> PacketIter {
+    PacketIter{reader}
 }
 
 #[derive(Debug, Clone)]
@@ -212,7 +175,7 @@ pub struct Summarizer<'a> {
     tc_parser: &'a TimecodeParser,
     offset: usize,
     tracker: HashMap<u16, PrimaryHeader>,
-    err: Option<Error>,
+    err: Option<std::io::Error>,
 }
 
 impl<'a> Summarizer<'a> {
@@ -336,7 +299,7 @@ mod tests {
     }
 
     #[test]
-    fn stream_test() {
+    fn packet_iter_test() {
         #[rustfmt::skip]
         let dat: &[u8] = &[
             // Primary/secondary header and a single byte of user data
@@ -345,9 +308,11 @@ mod tests {
             0xd, 0x59, 0xc0, 0x02, 0x0, 0x8, 0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
         ];
         let mut reader = std::io::BufReader::new(dat);
-        let stream = Stream::new(&mut reader);
 
-        let packets: Vec<Packet> = stream.collect();
+        let packets: Vec<Packet> = packet_iter(&mut reader)
+            .filter(|r| r.is_ok())
+            .map(|r| r.unwrap())
+            .collect();
 
         assert_eq!(packets.len(), 2);
         assert_eq!(packets[0].header.apid, 1369);
@@ -369,9 +334,12 @@ mod tests {
             0xd, 0x59, 0xc0, 0x06, 0x0, 0x8, 0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
         ];
         let mut reader = std::io::BufReader::new(dat);
-        let stream = Stream::new(&mut reader);
+        let packets: Vec<Packet> = packet_iter(&mut reader)
+            .filter(|r| r.is_ok())
+            .map(|r| r.unwrap())
+            .collect();
         let mut summarizer = Summarizer::new(&parse_cds_timecode);
-        for packet in stream {
+        for packet in packets {
             summarizer.add(&packet);
         }
 

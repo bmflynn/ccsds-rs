@@ -16,7 +16,3 @@ thiserror = "1.0.38"
 [lib]
 name = "ccsds"
 path = "src/lib.rs"
-
-[[bin]]
-name = "spacepackets"
-path = "src/bin/spacepackets/bin.rs"
