@@ -2,6 +2,7 @@ mod timecode;
 
 use std::cmp;
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::io::Read;
 use std::convert::TryInto;
 use chrono::{DateTime, TimeZone, Utc};
@@ -48,6 +49,7 @@ pub type APID = u16;
 /// let packet = Packet::read(&mut r).unwrap();
 /// let tc = parse_cds_timecode(&packet.data[PrimaryHeader::SIZE..]);
 /// ```
+#[derive(Debug, Clone)]
 pub struct Packet {
     /// All packets have a primary header
     pub header: PrimaryHeader,
@@ -55,7 +57,31 @@ pub struct Packet {
     pub data: Vec<u8>,
 }
 
+impl Display for Packet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Packet{{header: {:?}, data:[len={}]}}", self.header, self.data.len())?;
+        Ok(())
+    }
+}
+
 impl Packet {
+
+    pub fn is_first(&self) -> bool {
+        self.header.sequence_flags == SEQ_FIRST
+    }
+
+    pub fn is_last(&self) -> bool {
+        self.header.sequence_flags == SEQ_LAST
+    }
+
+    pub fn is_cont(&self) -> bool {
+        self.header.sequence_flags == SEQ_CONT
+    }
+
+    pub fn is_standalone(&self) -> bool {
+        self.header.sequence_flags == SEQ_STANDALONE
+    }
+
     pub fn read(r: &mut dyn Read) -> Result<Packet, std::io::Error> {
         let ph = PrimaryHeader::read(r)?;
 
@@ -119,6 +145,12 @@ pub struct PacketIter<'a> {
     reader: &'a mut dyn Read,
 }
 
+impl <'a> PacketIter<'a> {
+    pub fn new(reader: &'a mut dyn Read) -> Self { 
+        PacketIter{reader}
+    }
+}
+
 impl<'a> Iterator for PacketIter<'a> {
     type Item = Result<Packet, std::io::Error>;
 
@@ -137,8 +169,86 @@ impl<'a> Iterator for PacketIter<'a> {
     }
 }
 
-pub fn packet_iter(reader: &mut dyn Read) -> PacketIter {
-    PacketIter{reader}
+#[derive(Clone)]
+pub struct Group {
+    pub packets: Vec<Packet>,
+}
+
+pub struct GroupIter<'a> {
+    packets: PacketIter<'a>,
+    group: Group,
+    done: bool,
+}
+
+impl <'a> GroupIter<'a> {
+    pub fn new(reader: &'a mut dyn Read) -> Self {
+        let packets = PacketIter::new(reader);
+        GroupIter{packets, group: Group{packets: vec![]}, done: false}
+    }
+}
+
+impl<'a> GroupIter<'a> {
+    fn have_packets(&self) -> bool {
+        self.group.packets.len() > 0
+    }
+
+    fn should_start_new_group(&self, packet: &Packet) -> bool {
+        packet.is_first() ||
+            (self.group.packets.len() > 0 && self.group.packets[0].header.apid != packet.header.apid)
+   }
+
+    /// Create a new group, returning the old, priming it with the packet
+    fn new_group(&mut self, packet: Option<Packet>) -> Group {
+        let group = self.group.clone();
+        self.group = Group{packets: vec![]};
+        if let Some(p) = packet {
+            self.group.packets.push(p);
+        }
+        group
+    }
+}
+
+impl<'a> Iterator for GroupIter<'a> {
+    type Item = Result<Group, std::io::Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            return None;
+        }
+        'outer: loop {
+            // Get a packet from the iterator. Exit the iterator    
+            let packet: Packet = match self.packets.next() {
+                Some(zult) => {
+                    match zult {
+                        // Got a packet from the packet iter
+                        Ok(packet) => packet,
+                        // Got an error from the packet iter. Return a result with the
+                        // error to let the consumer decide what to do.
+                        Err(err) => return Some(Err(err)),
+                    }
+                },
+                None => break 'outer,
+            };
+            // Return group of one
+            if packet.is_standalone() {
+                return Some(Ok(Group{packets: vec![packet]})); 
+            }
+            if self.should_start_new_group(&packet) {
+                if self.have_packets() {
+                    return Some(Ok(self.new_group(Some(packet))));
+                }
+                self.new_group(None);
+            } 
+            self.group.packets.push(packet);
+        }
+
+        self.done = true;
+        // We're all done, so return any partial group
+        if self.have_packets() {
+            return Some(Ok(self.new_group(None)));
+        }    
+        return None;
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -309,7 +419,7 @@ mod tests {
         ];
         let mut reader = std::io::BufReader::new(dat);
 
-        let packets: Vec<Packet> = packet_iter(&mut reader)
+        let packets: Vec<Packet> = PacketIter::new(&mut reader)
             .filter(|r| r.is_ok())
             .map(|r| r.unwrap())
             .collect();
@@ -334,7 +444,7 @@ mod tests {
             0xd, 0x59, 0xc0, 0x06, 0x0, 0x8, 0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
         ];
         let mut reader = std::io::BufReader::new(dat);
-        let packets: Vec<Packet> = packet_iter(&mut reader)
+        let packets: Vec<Packet> = PacketIter::new(&mut reader)
             .filter(|r| r.is_ok())
             .map(|r| r.unwrap())
             .collect();
