@@ -125,11 +125,14 @@ pub fn poly_add(p: &[u8], q: &[u8]) -> Vec<u8> {
     let l = if p.len() > q.len() { p.len() } else { q.len() };
     let mut r = vec![0u8; l];
     let rl = r.len();
+    let pl = p.len();
+    let ql = q.len();
+
     for i in 0..p.len() {
-        r[i + rl - p.len()] = p[i];
+        r[i + rl - pl] = p[i];
     }
     for i in 0..q.len() {
-        r[i + rl - q.len()] ^= q[i];
+        r[i + rl - ql] ^= q[i];
     }
     r
 }
@@ -155,17 +158,18 @@ pub fn poly_eval(p: &[u8], x: u8) -> u8 {
 pub fn poly_div(dividend: &[u8], divisor: &[u8]) -> (Vec<u8>, Vec<u8>) {
     let mut out = Vec::with_capacity(dividend.len());
     out.extend_from_slice(dividend);
+
     for i in 0..(dividend.len() - divisor.len() - 1) {
         let coef = out[i];
         if coef != 0 {
             for j in 1..divisor.len() {
-                if divisor[i] != 0 {
+                if divisor[j] != 0 {
                     out[i + j] ^= mult(divisor[j], coef);
                 }
             }
         }
     }
-    let mid = dividend.len() - divisor.len() - 1;
+    let mid = dividend.len() - divisor.len() + 1;
     let (head, tail) = out.split_at(mid);
     (Vec::from(head), Vec::from(tail))
 }

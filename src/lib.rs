@@ -1,6 +1,3 @@
-#![feature(test)]
-extern crate test;
-
 pub mod cadu;
 /// ccsds packet decoding library.
 ///

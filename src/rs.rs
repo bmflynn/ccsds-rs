@@ -1,8 +1,6 @@
 mod dual_basis;
 mod gf;
 
-use thiserror::Error;
-
 // Symbols per code word
 pub const N: u8 = 255;
 // Bits per symbol
@@ -16,25 +14,17 @@ pub const FCR: i32 = 112;
 
 pub const PARITY_LEN: usize = 32;
 
+#[derive(Debug, PartialEq, Clone)]
 pub enum RSState {
-    Ok(i32),
-    Uncorrectable,
+    Ok,
+    Corrected(i32),
+    Uncorrectable(String),
     NotPerformed,
 }
 
-#[derive(Error, Debug)]
-pub enum RSError {
-    #[error("could not perform RS with provided input")]
-    InvalidInput,
-    #[error("algorithm failure")]
-    AlgorithmFailure(String),
-    #[error("uncorrectable")]
-    Uncorrectable(String),
-}
-
-pub fn deinterlace(data: Vec<u8>, interlacing: i32) -> Result<Vec<[u8; 255]>, RSError> {
+pub fn deinterlace(data: &Vec<u8>, interlacing: i32) -> Result<Vec<[u8; 255]>, &'static str> {
     if data.len() % interlacing as usize != 0 {
-        return Err(RSError::InvalidInput);
+        return Err("invalid input size");
     }
     let mut zult: Vec<[u8; 255]> = Vec::new();
     for _ in 0..interlacing {
@@ -46,7 +36,7 @@ pub fn deinterlace(data: Vec<u8>, interlacing: i32) -> Result<Vec<[u8; 255]>, RS
     Ok(zult)
 }
 
-fn correct_errata(input: &[u8], synd: &[u8], errpos: &[i32]) -> Result<Vec<u8>, RSError> {
+fn correct_errata(input: &[u8], synd: &[u8], errpos: &[i32]) -> Result<Vec<u8>, &'static str> {
     let mut coef_pos = vec![0i32; errpos.len()];
     for (i, p) in errpos.iter().enumerate() {
         coef_pos[i] = input.len() as i32 - 1 - p;
@@ -55,7 +45,8 @@ fn correct_errata(input: &[u8], synd: &[u8], errpos: &[i32]) -> Result<Vec<u8>, 
     let errloc = find_errata_locator(&coef_pos[..]);
     let mut rev_synd = synd.to_owned();
     rev_synd.reverse();
-    let erreval = find_error_evaluator(&rev_synd, &errloc, errloc.len() as i32 - 1);
+    let mut erreval = find_error_evaluator(&rev_synd, &errloc, errloc.len() as i32 - 1);
+    erreval.reverse();
 
     let mut x = vec![0u8; coef_pos.len()];
     for (i, p) in coef_pos.iter().enumerate() {
@@ -75,12 +66,14 @@ fn correct_errata(input: &[u8], synd: &[u8], errpos: &[i32]) -> Result<Vec<u8>, 
         for c in errloc_prime_tmp.iter() {
             errloc_prime = gf::mult(errloc_prime, *c);
         }
-
-        let mut y = gf::poly_eval(&erreval, xi_inv);
+    
+        let mut erreval_rev = erreval.to_owned();
+        erreval_rev.reverse();
+        let mut y = gf::poly_eval(&erreval_rev, xi_inv);
         y = gf::mult(gf::pow(*xi, 1 - FCR), y);
 
         if errloc_prime == 0 {
-            return Err(RSError::AlgorithmFailure("failed to find error magnitude".to_owned()));
+            return Err("failed to find error magnitude");
         }
 
         e[errpos[i] as usize] = gf::div(y, errloc_prime);
@@ -91,11 +84,10 @@ fn correct_errata(input: &[u8], synd: &[u8], errpos: &[i32]) -> Result<Vec<u8>, 
 }
 
 fn find_errata_locator(errpos: &[i32]) -> Vec<u8> {
-    let mut errloc: Vec<u8> = Vec::with_capacity(errpos.len());
-    errloc.push(1);
+    let mut errloc = vec![1u8];
     for p in errpos.iter() {
-        let x = vec![gf::pow(GEN as u8, *p), 0];
-        let y = gf::poly_add(&vec![1u8][..], &x[..]);
+        let x = &[gf::pow(GEN as u8, *p), 0];
+        let y = gf::poly_add(&[1u8], x);
         errloc = gf::poly_mult(&errloc, &y);
     }
     errloc
@@ -108,27 +100,19 @@ fn find_error_evaluator(synd: &[u8], errloc: &[u8], n: i32) -> Vec<u8> {
     rem
 }
 
-fn find_errors(errloc: &[u8]) -> Result<Vec<i32>, RSError> {
+fn find_errors(errloc: &[u8]) -> Vec<i32> {
     let num_errs = errloc.len() - 1;
     let mut errpos: Vec<i32> = Vec::with_capacity(num_errs);
     let n = N as i32;
     for i in 0..n {
         if gf::poly_eval(errloc, gf::pow(GEN, i as i32)) == 0 {
-            errpos.push(n - 1 - i);
+            errpos.push(N as i32 - 1 - i);
         }
     }
-    if errpos.len() != num_errs {
-        return Err(RSError::AlgorithmFailure(format!(
-            "wrong number of errors; expected {:?}, got {:?}",
-            num_errs,
-            errpos.len()
-        )
-        .to_owned()));
-    }
-    Ok(errpos)
+    errpos
 }
 
-fn find_error_locator(synd: &[u8], parity_len: usize) -> Result<Vec<u8>, RSError> {
+fn find_error_locator(synd: &[u8], parity_len: usize) -> Vec<u8> {
     let mut errloc = vec![1u8];
     let mut oldloc = vec![1u8];
     let mut synd_shift = 0;
@@ -155,15 +139,8 @@ fn find_error_locator(synd: &[u8], parity_len: usize) -> Result<Vec<u8>, RSError
     while errloc.len() > 0 && errloc[0] == 0 {
         errloc = errloc[1..].to_vec();
     }
-    let num_errs = errloc.len() - 1;
-    if num_errs * 2 > parity_len {
-        return Err(RSError::Uncorrectable(format!(
-            "too many errors; expected no more than {:?}, found {:?}",
-            parity_len / 2,
-            num_errs
-        )));
-    }
-    Ok(errloc)
+
+    errloc
 }
 
 fn forney_syndromes(synd: &[u8], pos: &[i32], nmess: i32) -> Vec<u8> {
@@ -191,46 +168,86 @@ fn calc_syndromes(input: &[u8], parity_len: usize) -> Vec<u8> {
     synd
 }
 
-/// Correct a Reed-Solomon code block.
+pub struct Block {
+    pub state: RSState,
+    pub message: Option<Vec<u8>>
+}
+
+/// Correct a Reed-Solomon code block. The returned Block's message will
+/// contain the corrected message iff the state is RSState::Corrected. Otherwise
+/// it will be None.
 ///
 /// Decoding is performed according to the CCSDS Reed-Solomon coding standard documented 
 /// in CCSDS 131.0-B-4: TM Synchronization and Channel Coding.
 ///
-/// # Errors 
-/// * RSError::InvalidInput, if the input code block is not valid for CCSDS standard RS
-/// * RSError::Uncorrectable, if the code block contains too many errors to correct
-/// * RSError::AlgorithmFailure, if RS could not be performed for an internal reason
-pub fn correct_message(input: &[u8]) -> Result<Vec<u8>, RSError> {
+/// 
+pub fn correct_message(input: &[u8]) -> Block {
+    let input = input.to_vec();
     if input.len() != N as usize {
-        return Err(RSError::InvalidInput);
+        return Block{
+            state: RSState::Uncorrectable("invalid input".to_owned()),
+            message: None,
+        };
     }
-    let input = dual_basis::to_conv(input);
-    let mut out = input.clone();
+    let out = dual_basis::to_conv(&input).clone();
 
     let synd = calc_syndromes(&out, PARITY_LEN);
     let max = synd.iter().max().unwrap();
     // if there are no non-zero elements there are no errors
     if *max == 0 {
-        return Ok(out);
+        return Block{state: RSState::Ok, message: None};
     }
 
     let fsynd = forney_syndromes(&synd, &[], out.len() as i32);
-    let errloc = find_error_locator(&fsynd[..], PARITY_LEN)?;
+    let errloc = find_error_locator(&fsynd[..], PARITY_LEN);
+    
+    let num_errs = errloc.len() - 1;
+    if num_errs * 2 > PARITY_LEN {
+        return Block{
+            state: RSState::Uncorrectable(format!(
+                "too many errors to correct; expected no more than {:?}, found {:?}",
+                PARITY_LEN / 2,
+                num_errs
+            )).to_owned(),
+            message: None,
+        }
+    }
 
     let mut errloc_rev = errloc.clone();
     errloc_rev.reverse();
-    let errpos = find_errors(&errloc_rev[..])?;
+    let errpos = find_errors(&errloc_rev[..]);
+    if errpos.len() != num_errs {
+        return Block{
+            state: RSState::Uncorrectable(format!(
+                "failed to generate error positions; expected {} postions, got {}",
+                num_errs, errpos.len()).to_owned()
+            ),
+            message: None,
+        };
+    }
 
-    out = correct_errata(&out, &synd, &errpos)?;
+    let out = match correct_errata(&out, &synd, &errpos) {
+        Err(err) => {
+            return Block{
+                state: RSState::Uncorrectable(err.to_owned()),
+                message: None,
+            }
+        },
+        Ok(block) => block 
+    };
 
     let synd = calc_syndromes(&out, PARITY_LEN);
     if *synd.iter().max().unwrap() > 0 {
-        return Err(RSError::Uncorrectable(
-            "failed to correct all errors".to_owned(),
-        ));
+        return Block{
+            state: RSState::Uncorrectable("failed to correct all errors".to_owned()),
+            message: None,
+        };
     }
 
-    Ok(dual_basis::to_dual(&out))
+    Block{
+        state: RSState::Corrected(errloc.len() as i32 - 1),
+        message: Some(dual_basis::to_dual(&out)),
+    }
 }
 
 /// Return true if the input code block contains 1 or more errors.
@@ -273,6 +290,16 @@ mod tests {
     ];
 
     #[test]
+    fn test_deinterlace() {
+        let dat: Vec<u8> = vec![0, 1, 2, 3, 0, 1, 2, 3];
+        let blocks = deinterlace(&dat, 4).unwrap();
+        for i in 0..4 {
+            assert_eq!(blocks[i][0], i as u8);
+            assert_eq!(blocks[i][1], i as u8);
+        }
+    }
+
+    #[test]
     fn test_calc_syndromes() {
         const EXPECTED: &[u8] = &[
             0x00, 
@@ -288,7 +315,17 @@ mod tests {
     }
 
     #[test]
-    fn test_correct_message() {
+    fn test_correct_message_noerrors() {
+        let msg = FIXTURE_MSG.clone();
+
+        assert!(!has_errors(&msg), "expected message not to have errors"); 
+
+        let block = correct_message(&msg);
+        assert_eq!(block.state, RSState::Ok); 
+    }   
+
+    #[test]
+    fn test_correct_message_introduced_errors() {
         let mut msg = FIXTURE_MSG.clone();
 
         // corrupt the message
@@ -299,22 +336,38 @@ mod tests {
 
         assert!(has_errors(&msg), "expected message to have errors"); 
 
-        correct_message(&msg).expect("expected no error");
+        let block = correct_message(&msg);
+        assert_eq!(block.state, RSState::Corrected(4)); 
     }   
 
-    #[bench]
-    fn bench_correct_message(b: &mut test::Bencher) {
+    #[test]
+    fn test_correct_message2() {
+        // block 80 code block 0 from overpass_snpp_2017_7min.dat 
+        // This block contains errors
+        let msg = vec![
+            0x67, 0x4c, 0x00, 0xff, 0xff, 0x80, 0x02, 0xf8, 0x7f, 0x01, 0xf7, 0x4f, 0xb5, 0x65, 0x14, 0x29, 
+            0xfd, 0x68, 0x38, 0x9e, 0x6a, 0xca, 0x28, 0x53, 0xfa, 0xd0, 0x71, 0x3d, 0xd4, 0x95, 0x50, 0xa6, 
+            0xf4, 0xa0, 0xe2, 0x7b, 0xa9, 0x2a, 0xa1, 0x4c, 0xe9, 0x41, 0xc5, 0xf6, 0x52, 0x54, 0x42, 0x99, 
+            0xd2, 0x83, 0x8b, 0xed, 0xa5, 0xa8, 0x84, 0x33, 0xa4, 0x06, 0x16, 0xdb, 0x4b, 0x51, 0x08, 0x66, 
+            0x48, 0x0d, 0x2c, 0xb7, 0x97, 0xa2, 0x10, 0xcd, 0x90, 0x1a, 0x59, 0x6e, 0x2e, 0x45, 0x21, 0x9b, 
+            0x20, 0x35, 0xb2, 0xdd, 0x5d, 0x8a, 0x43, 0x37, 0x40, 0x6b, 0x64, 0xba, 0xbb, 0x15, 0x87, 0x6f, 
+            0x80, 0xd7, 0xc9, 0x74, 0x77, 0x2b, 0x0f, 0xde, 0x01, 0xae, 0x92, 0xe8, 0xef, 0x57, 0x1e, 0xbd, 
+            0x03, 0x5c, 0x24, 0xd1, 0xdf, 0xaf, 0x3c, 0x7a, 0x07, 0xb8, 0x49, 0xa3, 0xbe, 0x5f, 0x78, 0xf5, 
+            0x0e, 0x70, 0x93, 0x46, 0x7d, 0xbf, 0xf1, 0xea, 0x1d, 0xe1, 0x27, 0x8d, 0xfb, 0x7e, 0xe3, 0xd5, 
+            0x3b, 0xc2, 0x4e, 0x1b, 0xf7, 0xfc, 0xc6, 0xaa, 0x76, 0x85, 0x9d, 0x36, 0xee, 0xf9, 0x8c, 0x55, 
+            0xec, 0x0b, 0x3a, 0x6c, 0xdc, 0xf3, 0x18, 0xab, 0xd8, 0x17, 0x75, 0xd9, 0xb9, 0xe7, 0x31, 0x56, 
+            0xb0, 0x2f, 0xeb, 0xb3, 0x73, 0xcf, 0x62, 0xac, 0x60, 0x5e, 0xd6, 0x67, 0xe6, 0x9f, 0xc4, 0x58, 
+            0xc0, 0xbc, 0xad, 0xce, 0xcc, 0x3e, 0x88, 0xb1, 0x81, 0x79, 0x5b, 0x9c, 0x98, 0x7c, 0x11, 0x63, 
+            0x02, 0xf2, 0xb6, 0x39, 0x30, 0xf8, 0x22, 0xc7, 0x04, 0xe4, 0x6d, 0x72, 0x61, 0xf0, 0x44, 0x8f, 
+            0x09, 0xc8, 0xda, 0xe5, 0xc3, 0xe0, 0x89, 0x1f, 0x13, 0x91, 0xb4, 0xcb, 0x86, 0xc1, 0x12, 0x3f, 
+            0x26, 0x23, 0x69, 0x96, 0x0c, 0x82, 0x25, 0x7f, 0x4d, 0x47, 0xd3, 0x2d, 0x19, 0x05, 0x4a, 
 
-        b.iter(|| {
-            let mut msg = test::black_box(FIXTURE_MSG.clone());
+        ];
 
-            // corrupt the message
-            msg[0] = 0;
-            msg[2] = 2;
-            msg[4] = 2;
-            msg[6] = 2;
-            correct_message(&msg).expect("decode failed")
-        });
+        assert!(has_errors(&msg), "expected message to have errors"); 
+
+        let block = correct_message(&msg);
+        assert_eq!(block.state, RSState::Corrected(11)); 
     }
 }
 
