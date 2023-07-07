@@ -65,7 +65,6 @@ impl Display for Packet {
 }
 
 impl Packet {
-
     pub fn is_first(&self) -> bool {
         self.header.sequence_flags == SEQ_FIRST
     }
@@ -171,6 +170,7 @@ impl<'a> Iterator for PacketIter<'a> {
 
 #[derive(Clone)]
 pub struct Group {
+    pub apid: u16,
     pub packets: Vec<Packet>,
 }
 
@@ -183,7 +183,7 @@ pub struct GroupIter<'a> {
 impl <'a> GroupIter<'a> {
     pub fn new(reader: &'a mut dyn Read) -> Self {
         let packets = PacketIter::new(reader);
-        GroupIter{packets, group: Group{packets: vec![]}, done: false}
+        GroupIter{packets, group: Group{apid: 0, packets: vec![]}, done: false}
     }
 }
 
@@ -200,8 +200,9 @@ impl<'a> GroupIter<'a> {
     /// Create a new group, returning the old, priming it with the packet
     fn new_group(&mut self, packet: Option<Packet>) -> Group {
         let group = self.group.clone();
-        self.group = Group{packets: vec![]};
+        self.group = Group{apid: 0, packets: vec![]};
         if let Some(p) = packet {
+            self.group.apid = p.header.apid;
             self.group.packets.push(p);
         }
         group
@@ -231,7 +232,7 @@ impl<'a> Iterator for GroupIter<'a> {
             };
             // Return group of one
             if packet.is_standalone() {
-                return Some(Ok(Group{packets: vec![packet]})); 
+                return Some(Ok(Group{apid: packet.header.apid, packets: vec![packet]})); 
             }
             if self.should_start_new_group(&packet) {
                 if self.have_packets() {
