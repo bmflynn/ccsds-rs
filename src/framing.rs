@@ -1,4 +1,4 @@
-use crate::ASM;
+use crate::synchronizer::ASM;
 
 pub const TERRA: i32 = 42;
 pub const AQUA: i32 = 154;

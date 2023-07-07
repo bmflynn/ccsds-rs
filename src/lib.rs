@@ -11,5 +11,3 @@ pub mod pn;
 pub mod rs;
 pub mod spacepacket;
 pub mod synchronizer;
-
-pub const ASM: [u8; 4] = [0x1a, 0xcf, 0xfc, 0x1d];

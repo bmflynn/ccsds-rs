@@ -6,6 +6,8 @@ use thiserror::Error;
 
 use crate::bytes::Bytes;
 
+pub const ASM: [u8; 4] = [0x1a, 0xcf, 0xfc, 0x1d];
+
 #[derive(Error, Debug)]
 pub enum SyncError {
     #[error("IO error")]
@@ -214,7 +216,6 @@ impl<'a> Iterator for BlockIter<'_> {
 mod tests {
     use super::*;
     use std::fs;
-    use crate::ASM;
 
     #[test]
     fn left_shift_over_asm_bytes() {
