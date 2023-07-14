@@ -1,4 +1,13 @@
-use crate::synchronizer::ASM;
+mod bytes;
+mod pn;
+mod rs;
+mod synchronizer;
+
+pub use synchronizer::{
+    ASM,
+    SyncError,
+};
+
 
 pub const TERRA: i32 = 42;
 pub const AQUA: i32 = 154;
@@ -30,7 +39,8 @@ impl Framing {
     /// length of the Reed-Solomon code block.
     ///
     /// So, for example, with standard RS(223/255) with an interleave of 4 this
-    /// will return 1024, which is 4 bytes for the ASM, 128 bits for the j
+    /// will return 1024, which is 4 bytes for the ASM, 128 bits for the Reed-Solomon
+    /// code block and the frame bytes.
     pub fn cadu_len(&self) -> i32 {
         let rslen = match self.rs {
             Some(ref rs) => {

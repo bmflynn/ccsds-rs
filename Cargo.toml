@@ -16,3 +16,6 @@ thiserror = "1.0.38"
 [lib]
 name = "ccsds"
 path = "src/lib.rs"
+
+[dev-dependencies]
+rand = "0.8.5"

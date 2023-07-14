@@ -1,14 +1,16 @@
-/// Pseudo-noise removal.
-///
-/// This could definitely be made more general, however, since I have yet to come
-/// across PN of any other format it specifically implements the PN documented in
-/// the reference below.
-///
-/// # References
-/// 1. CCSDS TM Synchronization and Channel Coding; Section 10.
-///    - CCSDS 131.0-B-3
-///    - https://public.ccsds.org/Pubs/131x0b2ec1s.pdf
-///
+//! Pseudo-noise removal.
+//!
+//! This could definitely be made more general, however, since I have yet to come
+//! across PN of any other format it specifically implements the PN documented in
+//! the reference below.
+//!
+//! # References
+//! 1. CCSDS TM Synchronization and Channel Coding; Section 10.
+//!    - CCSDS 131.0-B-3
+//!    - https://public.ccsds.org/Pubs/131x0b2ec1s.pdf
+//!
+
+extern crate test;
 
 /// Sequence used to remove PN. Generated using poly=0xa9, gen=0xff.
 const SEQUENCE: [u8; 255] = [
@@ -91,7 +93,10 @@ pub fn decode(buf: &mut [u8]) {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
+    use test::Bencher;
+    use rand::prelude::*;
 
     #[test]
     fn test_filp_bits() {
@@ -127,4 +132,22 @@ mod tests {
             assert_eq!(*a, *b);
         }
     }
+
+    #[bench]
+    fn bench_throughput(b: &mut Bencher) {
+        let mut rng = rand::thread_rng();
+        let mut buf = [0u8; 4096];
+        for i in 0..buf.len() {
+            let f: u8 = rng.gen();
+            buf[i] = f;
+        }
+
+        b.iter(|| {
+            decode(&mut buf.clone());
+
+            rng.gen() // return a value to avoid optimization issue
+        });
+    }
 }
+
+

@@ -4,7 +4,7 @@ use std::{
 };
 use thiserror::Error;
 
-use crate::bytes::Bytes;
+use super::bytes::Bytes;
 
 pub const ASM: [u8; 4] = [0x1a, 0xcf, 0xfc, 0x1d];
 
@@ -17,7 +17,7 @@ pub enum SyncError {
 }
 
 /// Bit-shift each byte in dat by k bits to the left, without wrapping.
-pub fn left_shift(dat: &Vec<u8>, k: u8) -> Vec<u8> {
+pub(crate) fn left_shift(dat: &Vec<u8>, k: u8) -> Vec<u8> {
     let mut out: Vec<u8> = vec![0; dat.len()];
     // left shift each byte the correct nufdcmber of bits
     for i in 0..dat.len() {
