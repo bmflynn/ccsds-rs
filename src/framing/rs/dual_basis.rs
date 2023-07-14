@@ -46,7 +46,7 @@ pub fn to_conv(msg: &[u8]) -> Vec<u8> {
     out
 }
 
-pub fn to_dual(msg: &[u8]) -> Vec<u8> {
+pub(crate) fn to_dual(msg: &[u8]) -> Vec<u8> {
     let mut out = vec![0u8; msg.len()];
     for (i, x) in msg.iter().enumerate() {
         out[i as usize] = CONV_TO_DUAL[*x as usize];

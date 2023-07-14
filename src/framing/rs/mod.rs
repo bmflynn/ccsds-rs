@@ -1,18 +1,20 @@
-mod dual_basis;
-mod gf;
+pub mod gf;
+pub mod dual_basis;
 
 // Symbols per code word
-pub const N: u8 = 255;
+const N: u8 = 255;
 // Bits per symbol
-pub const J: u8 = 8;
+#[allow(unused)]
+const J: u8 = 8;
 // Common irreducible primative polynomial x^8 + x^7 + x^2 + x + 1
-pub const PRIM: i32 = 391;
+#[allow(unused)]
+const PRIM: i32 = 391;
 // Primative element: alpha 11
-pub const GEN: u8 = 173;
+const GEN: u8 = 173;
 // FIrst consecutive root in g(x): 128-E
-pub const FCR: i32 = 112;
+const FCR: i32 = 112;
 
-pub const PARITY_LEN: usize = 32;
+const PARITY_LEN: usize = 32;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum RSState {

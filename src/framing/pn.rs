@@ -10,8 +10,6 @@
 //!    - https://public.ccsds.org/Pubs/131x0b2ec1s.pdf
 //!
 
-extern crate test;
-
 /// Sequence used to remove PN. Generated using poly=0xa9, gen=0xff.
 const SEQUENCE: [u8; 255] = [
     0xff, 0x48, 0x0e, 0xc0, 0x9a, 0x0d, 0x70, 0xbc, 0x8e, 0x2c, 0x93, 0xad, 0xa7, 0xb7, 0x46, 0xce,
@@ -95,8 +93,7 @@ pub fn decode(buf: &mut [u8]) {
 mod tests {
 
     use super::*;
-    use test::Bencher;
-    use rand::prelude::*;
+
 
     #[test]
     fn test_filp_bits() {
@@ -133,6 +130,7 @@ mod tests {
         }
     }
 
+    /*
     #[bench]
     fn bench_throughput(b: &mut Bencher) {
         let mut rng = rand::thread_rng();
@@ -148,6 +146,7 @@ mod tests {
             rng.gen() // return a value to avoid optimization issue
         });
     }
+    */
 }
 
 

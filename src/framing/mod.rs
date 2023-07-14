@@ -1,11 +1,18 @@
-mod bytes;
 mod pn;
 mod rs;
 mod synchronizer;
+mod bytes;
 
 pub use synchronizer::{
     ASM,
     SyncError,
+    Synchronizer,
+};
+pub use pn::decode as pn_decode;
+pub use rs::{
+    deinterlace as rs_deinterlace,
+    correct_message as rs_correct_message,
+    has_errors as rs_has_errors,
 };
 
 

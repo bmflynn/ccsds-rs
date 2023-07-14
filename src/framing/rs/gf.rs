@@ -83,7 +83,7 @@ fn gen_exp_table(n: i32, prim: i32, gen: u8) -> ([i32; 512], [i32; 256]) {
     (exp, log)
 }
 
-pub fn mult(x: u8, y: u8) -> u8 {
+pub(super) fn mult(x: u8, y: u8) -> u8 {
     if x == 0 || y == 0 {
         0
     } else {
@@ -91,7 +91,7 @@ pub fn mult(x: u8, y: u8) -> u8 {
     }
 }
 
-pub fn div(x: u8, y: u8) -> u8 {
+pub(super) fn div(x: u8, y: u8) -> u8 {
     if y == 0 {
         panic!("zero division");
     }
@@ -101,7 +101,7 @@ pub fn div(x: u8, y: u8) -> u8 {
     EXP[((LOG[x as usize] + 255 - LOG[y as usize]) % 255) as usize] as u8
 }
 
-pub fn pow(x: u8, power: i32) -> u8 {
+pub(super) fn pow(x: u8, power: i32) -> u8 {
     let mut power = power;
     if power < 0 {
         power = (255 - (-power % 255)) % 255;
@@ -109,11 +109,11 @@ pub fn pow(x: u8, power: i32) -> u8 {
     EXP[((LOG[x as usize] * power) % 255) as usize] as u8
 }
 
-pub fn inv(x: u8) -> u8 {
+pub(super) fn inv(x: u8) -> u8 {
     EXP[(255 - LOG[x as usize]) as usize] as u8
 }
 
-pub fn poly_scale(p: &[u8], x: u8) -> Vec<u8> {
+pub(super) fn poly_scale(p: &[u8], x: u8) -> Vec<u8> {
     let mut r = vec![0u8; p.len()];
     for i in 0..p.len() {
         r[i] = mult(p[i], x);
@@ -121,7 +121,7 @@ pub fn poly_scale(p: &[u8], x: u8) -> Vec<u8> {
     r
 }
 
-pub fn poly_add(p: &[u8], q: &[u8]) -> Vec<u8> {
+pub(super) fn poly_add(p: &[u8], q: &[u8]) -> Vec<u8> {
     let l = if p.len() > q.len() { p.len() } else { q.len() };
     let mut r = vec![0u8; l];
     let rl = r.len();
@@ -137,7 +137,7 @@ pub fn poly_add(p: &[u8], q: &[u8]) -> Vec<u8> {
     r
 }
 
-pub fn poly_mult(p: &[u8], q: &[u8]) -> Vec<u8> {
+pub(super) fn poly_mult(p: &[u8], q: &[u8]) -> Vec<u8> {
     let mut r = vec![0u8; p.len() + q.len() - 1];
     for j in 0..q.len() {
         for i in 0..p.len() {
@@ -147,7 +147,7 @@ pub fn poly_mult(p: &[u8], q: &[u8]) -> Vec<u8> {
     r
 }
 
-pub fn poly_eval(p: &[u8], x: u8) -> u8 {
+pub(super) fn poly_eval(p: &[u8], x: u8) -> u8 {
     let mut y = p[0];
     for i in 1..p.len() {
         y = mult(y, x) ^ p[i];
@@ -155,7 +155,7 @@ pub fn poly_eval(p: &[u8], x: u8) -> u8 {
     y
 }
 
-pub fn poly_div(dividend: &[u8], divisor: &[u8]) -> (Vec<u8>, Vec<u8>) {
+pub(super) fn poly_div(dividend: &[u8], divisor: &[u8]) -> (Vec<u8>, Vec<u8>) {
     let mut out = Vec::with_capacity(dividend.len());
     out.extend_from_slice(dividend);
 
