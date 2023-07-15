@@ -1,1 +1,2 @@
 tests/fixtures/viirs_packets.dat filter=lfs diff=lfs merge=lfs -text
+tests/fixtures/snpp_7cadus_2vcids.dat filter=lfs diff=lfs merge=lfs -text

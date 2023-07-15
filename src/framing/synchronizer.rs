@@ -1,3 +1,4 @@
+use std::io::ErrorKind;
 use std::{
     collections::HashMap,
     io,
@@ -11,7 +12,10 @@ pub const ASM: [u8; 4] = [0x1a, 0xcf, 0xfc, 0x1d];
 #[derive(Error, Debug)]
 pub enum SyncError {
     #[error("IO error")]
-    IO(#[from] io::Error),
+    IO{
+        #[from] 
+        source: io::Error
+    },
     #[error("EOF")]
     EOF,
 }
@@ -63,8 +67,7 @@ fn create_patterns(dat: &Vec<u8>) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
 
 #[derive(Debug, PartialEq)]
 pub struct Loc {
-    /// Offset (1-based) to the first byte of a found sync marker that contains any
-    /// relavant bits.
+    /// Offset (1-based) to the first byte after a found sync marker
     pub offset: usize,
     /// The bit in the byte at offset where the marker is found.
     pub bit: u8,
@@ -112,7 +115,15 @@ impl<'a> Synchronizer<'a> {
 
         'next_pattern: loop {
             for byte_idx in 0..self.patterns[self.pattern_idx].len() {
-                b = self.bytes.next()?;
+                b = match self.bytes.next() {
+                        Err(err) => {
+                            if err.kind() == ErrorKind::UnexpectedEof {
+                                return Err(SyncError::EOF);
+                            }
+                            return Err(SyncError::IO{source: err});
+                        },
+                        Ok(b) => b
+                };
                 working.push(b);
 
                 if (b & self.masks[self.pattern_idx][byte_idx])
@@ -166,7 +177,7 @@ impl<'a> Synchronizer<'a> {
             // Make room for bit-shifting
             buf.push(0);
         }
-        self.bytes.read_exact(&mut buf)?;
+        self.bytes.fill(&mut buf)?;
         if self.pattern_idx != 0 {
             // There's a partially used byte, so push it back for the next read
             self.bytes.push(&[buf[buf.len() - 1]]);
@@ -312,20 +323,6 @@ mod tests {
             let loc = scanner.scan().unwrap();
 
             let expected = Loc { offset: 5, bit: 7 };
-            assert_eq!(loc, expected);
-        }
-
-        #[test]
-        #[ignore]
-        fn finds_first_sync_marker_in_overpass_file() {
-            let asm = ASM.to_vec();
-            let r = fs::File::open("../dldecode/testdata/overpass_snpp_2017_7min.dat").unwrap();
-            let mut scanner = Synchronizer::new(r, &asm, 0);
-            let loc = scanner.scan().expect("Expected scan to succeed");
-            let expected = Loc {
-                offset: 12620606,
-                bit: 7,
-            };
             assert_eq!(loc, expected);
         }
 

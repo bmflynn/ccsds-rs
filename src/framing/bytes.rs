@@ -1,4 +1,4 @@
-use std::io;
+use std::io::{self, ErrorKind};
 
 pub struct Bytes<'a> {
     reader: Box<dyn io::Read + 'a>,
@@ -35,12 +35,17 @@ impl<'a> Bytes<'a> {
         return Ok(b);
     }
 
-    pub fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), io::Error> {
+    pub fn fill(&mut self, buf: &mut [u8]) -> Result<bool, io::Error> {
         if self.cache.len() == 0 {
             // No cache, just fill the buffer
-            self.reader.read_exact(buf)?;
+            if let Err(err) = self.reader.read_exact(buf) {
+                if err.kind() == ErrorKind::UnexpectedEof {
+                    return Ok(false);
+                }
+                return Err(err);
+            }
             self.num_read += buf.len();
-            return Ok(());
+            return Ok(true);
         }
 
         if self.cache.len() < buf.len() {
@@ -50,7 +55,7 @@ impl<'a> Bytes<'a> {
             self.reader.read_exact(&mut buf[self.cache.len()..])?;
             self.num_read += buf.len()  - self.cache.len();
             self.cache.clear();
-            return Ok(());
+            return Ok(true);
         }
 
         // Cache contains enough bytes to fill buf
@@ -58,7 +63,7 @@ impl<'a> Bytes<'a> {
         buf[..].clone_from_slice(&self.cache[..n]);
         let (_, tail) = self.cache.split_at(buf.len());
         self.cache = tail.to_vec();
-        Ok(())
+        Ok(true)
     }
 
     pub fn push(&mut self, dat: &[u8]) {
@@ -107,7 +112,7 @@ mod tests {
 
         let mut buf = &mut vec![0u8; 3][..];
         bytes
-            .read_exact(&mut buf)
+            .fill(&mut buf)
             .expect("read_exact should not have failed");
         assert_eq!(bytes.cache, []);
         assert_eq!(bytes.offset(), 5);
@@ -122,7 +127,7 @@ mod tests {
 
         let mut buf = &mut vec![0u8; 3][..];
         bytes
-            .read_exact(&mut buf)
+            .fill(&mut buf)
             .expect("read_exact should not have failed");
         assert_eq!(buf, [1, 2, 3]);
         assert_eq!(bytes.num_read, 3);
@@ -137,7 +142,7 @@ mod tests {
         // Read some bytes
         let mut buf = &mut vec![0u8; 3][..];
         bytes
-            .read_exact(&mut buf)
+            .fill(&mut buf)
             .expect("read_exact should not have failed");
         assert_eq!(buf, [1, 2, 3]);
         assert_eq!(bytes.num_read, 3);
@@ -151,11 +156,31 @@ mod tests {
         // Read again, which should produce bytes from cache + 1 read byte
         let mut buf = &mut vec![0u8; 4][..];
         bytes
-            .read_exact(&mut buf)
+            .fill(&mut buf)
             .expect("read_exact should not have failed");
         assert_eq!(buf, [1, 2, 3, 4]);
         assert_eq!(bytes.num_read, 4);
         assert_eq!(bytes.offset(), 4);
+    }
+
+    #[test]
+    fn fill_returns_true_when_not_eof() {
+        let dat: Vec<u8> = vec![1, 2, 3, 4, 5];
+        let mut bytes = Bytes::new(&dat[..]);
+
+        let mut buf = &mut vec![0u8; 3][..];
+        let more = bytes.fill(&mut buf).expect("should not fail");
+        assert!(more, "more should be true when not EOF");
+    }
+
+    #[test]
+    fn fill_returns_false_when_eof() {
+        let dat: Vec<u8> = vec![];
+        let mut bytes = Bytes::new(&dat[..]);
+
+        let mut buf = &mut vec![0u8; 3][..];
+        let more = bytes.fill(&mut buf).expect("should not fail");
+        assert!(!more, "more should be false when EOF");
     }
 
     #[test]
@@ -165,7 +190,7 @@ mod tests {
 
         let mut buf = &mut vec![0u8; 3][..];
         bytes
-            .read_exact(&mut buf)
+            .fill(&mut buf)
             .expect("read_exact should not have failed");
         assert_eq!(buf, [1, 2, 3]);
         assert_eq!(bytes.offset(), 3);
@@ -176,7 +201,7 @@ mod tests {
 
         // Read again, which should product bytes from cache
         bytes
-            .read_exact(&mut buf)
+            .fill(&mut buf)
             .expect("read_exact should not have failed");
         assert_eq!(buf, [1, 2, 3]);
         assert_eq!(bytes.offset(), 3);
