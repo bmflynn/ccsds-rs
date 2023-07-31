@@ -13,6 +13,7 @@ pub use rs::{
     deinterlace as rs_deinterlace,
     correct_message as rs_correct_message,
     has_errors as rs_has_errors,
+    RSState,
 };
 
 
