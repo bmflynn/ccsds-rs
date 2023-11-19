@@ -1,5 +1,3 @@
-use ndarray::arr1;
-
 const LOG: &[i32] = &[
     0x00, 0x00, 0x74, 0x09, 0xe8, 0x12, 0x7d, 0x38, 0x5d, 0x41, 0x86, 0x85, 0xf1, 0x51, 0xac, 0x1b,
     0xd1, 0x24, 0xb5, 0x7b, 0xfa, 0x70, 0xf9, 0x5a, 0x66, 0x88, 0xc5, 0x4a, 0x21, 0x8e, 0x8f, 0x8a,
@@ -158,13 +156,13 @@ pub(super) fn poly_eval(p: &[u8], x: u8) -> u8 {
     y
 }
 
+/*
 #[cfg(test)]
 mod test {
     extern crate test;
     use super::*;
     use rand::Rng;
     use test::Bencher;
-
 
     #[bench]
     fn bench_poly_eval(b: &mut Bencher) {
@@ -180,11 +178,12 @@ mod test {
 
             rng.gen::<u8>() // return a value to avoid optimization issue
         });
-    } 
+    }
 }
+*/
 
 pub(super) fn poly_div(dividend: &[u8], divisor: &[u8]) -> (Vec<u8>, Vec<u8>) {
-    let mut out = Vec::with_capacity(dividend.len());   
+    let mut out = Vec::with_capacity(dividend.len());
     out.extend_from_slice(dividend);
 
     for i in 0..(dividend.len() - divisor.len() - 1) {

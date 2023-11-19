@@ -1,7 +1,7 @@
 use std::io::{self, ErrorKind};
 
 pub struct Bytes<'a> {
-    reader: Box<dyn io::Read + 'a>,
+    reader: Box<dyn io::Read + Send + 'a>,
     num_read: usize,
     cache: Vec<u8>,
     buf: [u8; 1],
@@ -11,7 +11,7 @@ pub struct Bytes<'a> {
 /// back if they are not needed, i.e., Peek-and-push. The original order of 
 /// the bytes is preserved when pushing bytes back.
 impl<'a> Bytes<'a> {
-    pub fn new(reader: impl io::Read + 'a) -> Self {
+    pub fn new(reader: impl io::Read + Send + 'a) -> Self {
         Bytes {
             reader: Box::new(reader),
             num_read: 0,

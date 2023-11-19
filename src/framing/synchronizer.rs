@@ -1,24 +1,8 @@
-use std::io::ErrorKind;
-use std::{
-    collections::HashMap,
-    io,
-};
-use thiserror::Error;
-
 use super::bytes::Bytes;
+use std::io::{Error, ErrorKind};
+use std::{collections::HashMap, io};
 
 pub const ASM: [u8; 4] = [0x1a, 0xcf, 0xfc, 0x1d];
-
-#[derive(Error, Debug)]
-pub enum SyncError {
-    #[error("IO error")]
-    IO{
-        #[from] 
-        source: io::Error
-    },
-    #[error("EOF")]
-    EOF,
-}
 
 /// Bit-shift each byte in dat by k bits to the left, without wrapping.
 pub(crate) fn left_shift(dat: &Vec<u8>, k: u8) -> Vec<u8> {
@@ -73,7 +57,7 @@ pub struct Loc {
     pub bit: u8,
 }
 
-// Synchronizer scans a byte stream for data blocks indicated by a sync marker. 
+// Synchronizer scans a byte stream for data blocks indicated by a sync marker.
 //
 // The sync marker may be bit-shifted, in which case the bytes returned will also
 // be bit shifted.
@@ -92,7 +76,7 @@ pub struct Synchronizer<'a> {
 }
 
 impl<'a> Synchronizer<'a> {
-    pub fn new(reader: impl io::Read + 'a, asm: &Vec<u8>, block_size: i32) -> Self {
+    pub fn new(reader: impl io::Read + Send + 'a, asm: &Vec<u8>, block_size: i32) -> Self {
         let (patterns, masks) = create_patterns(&asm);
         let bytes = Bytes::new(io::BufReader::new(reader));
         Synchronizer {
@@ -108,21 +92,20 @@ impl<'a> Synchronizer<'a> {
     /// Scan our stream until the next sync marker is found and return a option conatining
     /// a Some(Loc) indicating the position of the data block and any left bit-shift currenty
     /// in effect. If there are not enough bytes to check the sync marker return Ok(None).
-    /// Any io errors other than EOF will result in an Error.
-    pub fn scan(&mut self) -> Result<Loc, SyncError> {
+    pub fn scan(&mut self) -> Result<Option<Loc>, Error> {
         let mut b: u8 = 0;
         let mut working: Vec<u8> = Vec::new();
 
         'next_pattern: loop {
             for byte_idx in 0..self.patterns[self.pattern_idx].len() {
                 b = match self.bytes.next() {
-                        Err(err) => {
-                            if err.kind() == ErrorKind::UnexpectedEof {
-                                return Err(SyncError::EOF);
-                            }
-                            return Err(SyncError::IO{source: err});
-                        },
-                        Ok(b) => b
+                    Err(err) => {
+                        if err.kind() == ErrorKind::UnexpectedEof {
+                            return Ok(None)
+                        }
+                        return Err(err);
+                    }
+                    Ok(b) => b,
                 };
                 working.push(b);
 
@@ -137,7 +120,7 @@ impl<'a> Synchronizer<'a> {
                         // ASM does not begin there)
                         self.pattern_idx = 0;
                         working.reverse();
-                        self.bytes.push(&working[..working.len()-1]);
+                        self.bytes.push(&working[..working.len() - 1]);
                     } else {
                         // If we haven't checked all patterns put the working set back on bytes to
                         // check against the other patterns.
@@ -167,11 +150,12 @@ impl<'a> Synchronizer<'a> {
                 .and_modify(|count| *count += 1)
                 .or_insert(1);
 
-            return Ok(loc);
+            return Ok(Some(loc));
         }
     }
 
-    pub fn block(&mut self) -> Result<Vec<u8>, SyncError> {
+    /// Fetch a block from the stream.
+    pub fn block(&mut self) -> Result<Vec<u8>, Error> {
         let mut buf = vec![0u8; self.block_size as usize];
         if self.pattern_idx != 0 {
             // Make room for bit-shifting
@@ -188,37 +172,31 @@ impl<'a> Synchronizer<'a> {
     }
 }
 
-impl <'a> IntoIterator for Synchronizer<'a> {
-    type Item = Result<Vec<u8>, Box<dyn std::error::Error>>;
+impl<'a> IntoIterator for Synchronizer<'a> {
+    type Item = Result<Vec<u8>, Error>;
     type IntoIter = BlockIter<'a>;
     fn into_iter(self) -> Self::IntoIter {
-        BlockIter{scanner: self}
+        BlockIter { scanner: self }
     }
-} 
+}
 
 pub struct BlockIter<'a> {
     scanner: Synchronizer<'a>,
 }
-
 impl<'a> Iterator for BlockIter<'_> {
-    type Item = Result<Vec<u8>, Box<dyn std::error::Error>>;
+    type Item = Result<Vec<u8>, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Err(err) = self.scanner.scan() {
-            match err {
-                SyncError::EOF => return None,
-                _ => return Some(Err(Box::new(err))),
-            }
-        };
-
+        match self.scanner.scan() {
+            Ok(loc) => match loc {
+                None => return None,
+                _ => (),
+            },
+            Err(err) => return Some(Err(err)),
+        }
         match self.scanner.block() {
             Ok(block) => Some(Ok(block)),
-            Err(err) => {
-                match err {
-                    SyncError::EOF => return None,
-                    _ => return Some(Err(Box::new(err))),
-                }
-            }
+            Err(err) => Some(Err(err)),
         }
     }
 }
@@ -226,7 +204,6 @@ impl<'a> Iterator for BlockIter<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
 
     #[test]
     fn left_shift_over_asm_bytes() {
@@ -287,7 +264,7 @@ mod tests {
             let loc = scanner.scan().expect("Expected scan to succeed");
 
             let expected = Loc { offset: 5, bit: 0 };
-            assert_eq!(loc, expected);
+            assert_eq!(loc.unwrap(), expected);
         }
 
         #[test]
@@ -311,7 +288,7 @@ mod tests {
                     offset: 5,
                     bit: 7 - i as u8,
                 };
-                assert_eq!(loc, expected, "pattern {:?}", pat);
+                assert_eq!(loc.unwrap(), expected, "pattern {:?}", pat);
             }
         }
 
@@ -323,7 +300,7 @@ mod tests {
             let loc = scanner.scan().unwrap();
 
             let expected = Loc { offset: 5, bit: 7 };
-            assert_eq!(loc, expected);
+            assert_eq!(loc.unwrap(), expected);
         }
 
         #[test]
@@ -335,14 +312,14 @@ mod tests {
             // First block
             let loc = scanner.scan().expect("Expected scan 1 to succeed");
             let expected = Loc { offset: 2, bit: 0 };
-            assert_eq!(loc, expected);
+            assert_eq!(loc.unwrap(), expected);
             let block = scanner.block().expect("Expected block 1 to succeed");
             assert_eq!(block, [0x01, 0x02]);
 
             // Second block
             let loc = scanner.scan().expect("Expected scan 2 to succeed");
             let expected = Loc { offset: 7, bit: 0 };
-            assert_eq!(loc, expected);
+            assert_eq!(loc.unwrap(), expected);
             let block = scanner.block().expect("Expected block 2 to succeed");
             assert_eq!(block, [0x03, 0x04]);
         }
@@ -359,14 +336,14 @@ mod tests {
             // First block
             let loc = scanner.scan().expect("Expected scan 1 to succeed");
             let expected = Loc { offset: 2, bit: 7 };
-            assert_eq!(loc, expected);
+            assert_eq!(loc.unwrap(), expected);
             let block = scanner.block().expect("Expected block 1 to succeed");
             assert_eq!(block, [0x01, 0x02]);
 
             // Second block
             let loc = scanner.scan().expect("Expected scan 2 to succeed");
             let expected = Loc { offset: 7, bit: 7 };
-            assert_eq!(loc, expected);
+            assert_eq!(loc.unwrap(), expected);
             let block = scanner.block().expect("Expected block 2 to succeed");
             assert_eq!(block, [0x03, 0x04]);
         }

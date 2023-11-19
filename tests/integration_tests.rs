@@ -65,5 +65,5 @@ fn finds_first_asm() {
     let mut sync = Synchronizer::new(reader, &ASM[..].to_vec(), 1020);
     let loc = sync.scan().unwrap();
 
-    assert_eq!(loc.offset, 5);
+    assert_eq!(loc.unwrap().offset, 5);
 }
