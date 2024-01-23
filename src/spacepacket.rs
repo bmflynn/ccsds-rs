@@ -168,6 +168,11 @@ impl PrimaryHeader {
     }
 }
 
+/// An iterator providing [Packet] data read from a byte synchronized ungroupped 
+/// packet stream.
+///
+/// For packet streams that may contain packets that utilize packet groupping
+/// see [GroupIter].
 pub struct PacketIter<'a> {
     reader: &'a mut dyn Read,
 }
@@ -194,12 +199,16 @@ impl<'a> Iterator for PacketIter<'a> {
     }
 }
 
+/// Packet data representing a CCSDS packet group according to the packet 
+/// primary headers.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Group {
     pub apid: APID,
     pub packets: Vec<Packet>,
 }
 
+/// An iterator providing [Packet] data read from a byte synchronized groupped 
+/// packet stream as [Group] structs.
 pub struct GroupIter<'a> {
     packets: PacketIter<'a>,
     group: Group,
@@ -221,10 +230,13 @@ impl<'a> GroupIter<'a> {
 }
 
 impl<'a> GroupIter<'a> {
+
+    /// True when this group contains at least 1 packet.
     fn have_packets(&self) -> bool {
         self.group.packets.len() > 0
     }
 
+    /// Given our current state, does packet indicate we should start a new group.
     fn should_start_new_group(&self, packet: &Packet) -> bool {
         packet.is_first()
             || (self.group.packets.len() > 0
@@ -292,6 +304,7 @@ impl<'a> Iterator for GroupIter<'a> {
     }
 }
 
+/// Provides information regarding apids in stream
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Gap {
     // Number of packets in gap. There's no guarantee that rollover did not occur
@@ -303,6 +316,7 @@ pub struct Gap {
     pub offset: usize,
 }
 
+/// Provides summary information regarding apids in stream
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ApidInfo {
     pub total_count: u32,

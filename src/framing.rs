@@ -209,7 +209,7 @@ impl Iterator for DecodedFrameIter {
 /// from reader.
 ///
 /// Reads are only performed when a [Frame] is requested from the returned iterator, i.e.,
-/// when [Iteator.next] is called. More bytes than the size of the frame may be read if the
+/// when [Iterator::next] is called. More bytes than the size of the frame may be read if the
 /// underlying stream is not synchronized.
 ///
 /// Frames will generated in the order in which they occur in the original byte stream.

@@ -28,5 +28,6 @@ pub use rs::{
     correct_message as rs_correct_message, deinterleave as rs_deinterlace,
     has_errors as rs_has_errors, DefaultReedSolomon, RSState, ReedSolomon,
 };
+
 pub use spacepacket::*;
 pub use synchronizer::{Synchronizer, ASM};
