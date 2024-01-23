@@ -8,7 +8,7 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1.0.75"
-chrono = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
 ndarray = "0.15.6"
 rayon = "1.7.0"
 serde = { version = "1.0", features = ["derive"] }

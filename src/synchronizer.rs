@@ -189,9 +189,11 @@ impl<'a> Iterator for BlockIter<'_> {
     fn next(&mut self) -> Option<Self::Item> {
         match self.scanner.scan() {
             Ok(loc) => match loc {
+                // Ok result, but there is no Loc (EOF), so we're done
                 None => return None,
                 _ => (),
             },
+            // Scan resulted in a non-EOF error, let the consumer figure out what to do
             Err(err) => return Some(Err(err)),
         }
         match self.scanner.block() {

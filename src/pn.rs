@@ -6,8 +6,8 @@
 //!
 //! # References
 //! 1. CCSDS TM Synchronization and Channel Coding; Section 10.
-//!    - CCSDS 131.0-B-3
-//!    - https://public.ccsds.org/Pubs/131x0b2ec1s.pdf
+//!    - CCSDS 131.0-B-5
+//!    - <https://public.ccsds.org/Pubs/131x0b5.pdf>
 //!
 
 use ndarray::arr1;
@@ -154,17 +154,24 @@ fn _decode(buf: &mut [u8]) {
     }
 }
 
-/// Remove pseudo-noise in-place.
-pub fn decode(buf: &mut [u8]) -> Vec<u8> {
+/// An implementation of Pseudo-noise removal.
+pub type PNDecoder = fn(&[u8]) -> Vec<u8>;
+
+/// Remove pseudo-noise for data up to the length of [SEQUENCE]. 
+///
+/// # Panic 
+/// - If the provided data is longer than [SEQUENCE]
+///
+// FIXME: Support data longer than [SEQUENCE]
+pub fn decode(buf: &[u8]) -> Vec<u8> {
     if buf.len() > SEQUENCE.len() {
         panic!("")
     }
-    let arr = arr1(&buf);
+    let arr = arr1(buf);
     let seq = arr1(&SEQUENCE[..buf.len()]);
 
     let zult = arr ^ seq;
-    buf.clone_from_slice(zult.as_slice().unwrap());
-    return buf.to_vec();
+    zult.as_slice().unwrap().to_vec()
 }
 
 #[cfg(test)]
@@ -200,10 +207,10 @@ mod tests {
 
         let mut buf = [0u8; 6];
         buf.clone_from_slice(&dat[..]);
-        decode(&mut buf);
+        let zult = decode(&mut buf);
 
-        for (a, b) in buf.iter().zip(expected.iter()) {
-            assert_eq!(*a, *b);
+        for (i, (a, b)) in zult.iter().zip(expected.iter()).enumerate() {
+            assert_eq!(*a, *b, "failed at index {i}");
         }
     }
 

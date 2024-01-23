@@ -1,20 +1,15 @@
-mod timecode;
-
+use chrono::{DateTime, TimeZone, Utc};
 use std::cmp;
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::fmt::Display;
 use std::io::Read;
-use std::convert::TryInto;
-use chrono::{DateTime, TimeZone, Utc};
 
-pub use timecode::{
-    Timecode,
+pub use crate::timecode::{
+    parse_cds_timecode, parse_eoscuc_timecode, CDSTimecode, EOSCUCTimecode, Timecode,
     TimecodeParser,
-    CDSTimecode,
-    EOSCUCTimecode,
-    parse_cds_timecode,
-    parse_eoscuc_timecode,
 };
+use serde::{Deserialize, Serialize};
 
 const MAX_SEQ_NUM: i32 = 16383;
 
@@ -30,7 +25,7 @@ pub type APID = u16;
 /// Create a packet from the minumum number of bytes. This example includes
 /// bytes for a `CDSTimecode` in the data zone.
 /// ```
-/// use ccsds::spacepacket::{
+/// use ccsds::{
 ///     CDSTimecode,
 ///     parse_cds_timecode,
 ///     Packet,
@@ -47,19 +42,24 @@ pub type APID = u16;
 /// ];
 /// let mut r = std::io::BufReader::new(dat);
 /// let packet = Packet::read(&mut r).unwrap();
-/// let tc = parse_cds_timecode(&packet.data[PrimaryHeader::SIZE..]);
+/// let tc = parse_cds_timecode(&packet.data[PrimaryHeader::LEN..]);
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Packet {
     /// All packets have a primary header
     pub header: PrimaryHeader,
-    /// User data, which may include a secondary header
+    /// All packet bytes, including header and user data
     pub data: Vec<u8>,
 }
 
 impl Display for Packet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Packet{{header: {:?}, data:[len={}]}}", self.header, self.data.len())?;
+        write!(
+            f,
+            "Packet{{header: {:?}, data:[len={}]}}",
+            self.header,
+            self.data.len()
+        )?;
         Ok(())
     }
 }
@@ -79,6 +79,25 @@ impl Packet {
 
     pub fn is_standalone(&self) -> bool {
         self.header.sequence_flags == SEQ_STANDALONE
+    }
+
+    /// Decode from bytes. Retruns [None] if there are not enough bytes to construct the
+    /// header or if there are not enough bytes to construct the [Packet] of the length
+    /// indicated by the header.
+    pub fn decode(dat: &mut [u8]) -> Option<Packet> {
+        match PrimaryHeader::decode(dat) {
+            Some(header) => {
+                if dat.len() < header.len_minus1 as usize + 1 {
+                    None
+                } else {
+                    Some(Packet {
+                        header,
+                        data: dat.to_vec(),
+                    })
+                }
+            }
+            None => None,
+        }
     }
 
     pub fn read(r: &mut dyn Read) -> Result<Packet, std::io::Error> {
@@ -105,12 +124,12 @@ pub const SEQ_STANDALONE: u8 = 3;
 ///
 /// The primary header format is common to all CCSDS space packets.
 ///
-#[derive(Debug, Copy, Clone)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
 pub struct PrimaryHeader {
     pub version: u8,
     pub type_flag: u8,
     pub has_secondary_header: bool,
-    pub apid: u16,
+    pub apid: APID,
     pub sequence_flags: u8,
     pub sequence_id: u16,
     pub len_minus1: u16,
@@ -118,17 +137,26 @@ pub struct PrimaryHeader {
 
 impl PrimaryHeader {
     /// Size of a PrimaryHeader
-    pub const SIZE: usize = 6;
+    pub const LEN: usize = 6;
 
     pub fn read(r: &mut dyn Read) -> Result<PrimaryHeader, std::io::Error> {
-        let mut buf = [0u8; Self::SIZE];
+        let mut buf = [0u8; Self::LEN];
         r.read_exact(&mut buf)?;
 
+        Ok(Self::decode(&buf).unwrap())
+    }
+
+    /// Decode from bytes. Returns [None] if there are not enough bytes to construct the
+    /// header.
+    pub fn decode(buf: &[u8]) -> Option<Self> {
+        if buf.len() < Self::LEN {
+            return None;
+        }
         let d1 = u16::from_be_bytes([buf[0], buf[1]]);
         let d2 = u16::from_be_bytes([buf[2], buf[3]]);
         let d3 = u16::from_be_bytes([buf[4], buf[5]]);
 
-        Ok(PrimaryHeader {
+        Some(PrimaryHeader {
             version: (d1 >> 13 & 0x7) as u8,
             type_flag: (d1 >> 12 & 0x1) as u8,
             has_secondary_header: (d1 >> 11 & 0x1) == 1,
@@ -144,9 +172,9 @@ pub struct PacketIter<'a> {
     reader: &'a mut dyn Read,
 }
 
-impl <'a> PacketIter<'a> {
-    pub fn new(reader: &'a mut dyn Read) -> Self { 
-        PacketIter{reader}
+impl<'a> PacketIter<'a> {
+    pub fn new(reader: &'a mut dyn Read) -> Self {
+        PacketIter { reader }
     }
 }
 
@@ -155,12 +183,10 @@ impl<'a> Iterator for PacketIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match Packet::read(&mut self.reader) {
-            Ok(p) => {
-                return Some(Ok(p))
-            }
+            Ok(p) => return Some(Ok(p)),
             Err(err) => {
                 if err.kind() == std::io::ErrorKind::UnexpectedEof {
-                    return None
+                    return None;
                 }
                 Some(Err(err))
             }
@@ -168,9 +194,9 @@ impl<'a> Iterator for PacketIter<'a> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Group {
-    pub apid: u16,
+    pub apid: APID,
     pub packets: Vec<Packet>,
 }
 
@@ -180,10 +206,17 @@ pub struct GroupIter<'a> {
     done: bool,
 }
 
-impl <'a> GroupIter<'a> {
+impl<'a> GroupIter<'a> {
     pub fn new(reader: &'a mut dyn Read) -> Self {
         let packets = PacketIter::new(reader);
-        GroupIter{packets, group: Group{apid: 0, packets: vec![]}, done: false}
+        GroupIter {
+            packets,
+            group: Group {
+                apid: 0,
+                packets: vec![],
+            },
+            done: false,
+        }
     }
 }
 
@@ -193,14 +226,18 @@ impl<'a> GroupIter<'a> {
     }
 
     fn should_start_new_group(&self, packet: &Packet) -> bool {
-        packet.is_first() ||
-            (self.group.packets.len() > 0 && self.group.packets[0].header.apid != packet.header.apid)
-   }
+        packet.is_first()
+            || (self.group.packets.len() > 0
+                && self.group.packets[0].header.apid != packet.header.apid)
+    }
 
     /// Create a new group, returning the old, priming it with the packet
     fn new_group(&mut self, packet: Option<Packet>) -> Group {
         let group = self.group.clone();
-        self.group = Group{apid: 0, packets: vec![]};
+        self.group = Group {
+            apid: 0,
+            packets: vec![],
+        };
         if let Some(p) = packet {
             self.group.apid = p.header.apid;
             self.group.packets.push(p);
@@ -217,7 +254,7 @@ impl<'a> Iterator for GroupIter<'a> {
             return None;
         }
         'outer: loop {
-            // Get a packet from the iterator. Exit the iterator    
+            // Get a packet from the iterator. Exit the iterator
             let packet: Packet = match self.packets.next() {
                 Some(zult) => {
                     match zult {
@@ -227,19 +264,22 @@ impl<'a> Iterator for GroupIter<'a> {
                         // error to let the consumer decide what to do.
                         Err(err) => return Some(Err(err)),
                     }
-                },
+                }
                 None => break 'outer,
             };
             // Return group of one
             if packet.is_standalone() {
-                return Some(Ok(Group{apid: packet.header.apid, packets: vec![packet]})); 
+                return Some(Ok(Group {
+                    apid: packet.header.apid,
+                    packets: vec![packet],
+                }));
             }
             if self.should_start_new_group(&packet) {
                 if self.have_packets() {
                     return Some(Ok(self.new_group(Some(packet))));
                 }
                 self.new_group(None);
-            } 
+            }
             self.group.packets.push(packet);
         }
 
@@ -247,12 +287,12 @@ impl<'a> Iterator for GroupIter<'a> {
         // We're all done, so return any partial group
         if self.have_packets() {
             return Some(Ok(self.new_group(None)));
-        }    
+        }
         return None;
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Gap {
     // Number of packets in gap. There's no guarantee that rollover did not occur
     // which may occur if the gap is bigger than the max seq number.
@@ -263,22 +303,22 @@ pub struct Gap {
     pub offset: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ApidInfo {
-    total_count: u32,
-    total_bytes: usize,
-    gaps: Box<Vec<Gap>>,
-    first: DateTime<Utc>,
-    last: DateTime<Utc>,
+    pub total_count: u32,
+    pub total_bytes: usize,
+    pub gaps: Box<Vec<Gap>>,
+    pub first: DateTime<Utc>,
+    pub last: DateTime<Utc>,
 }
 
-#[derive(Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Summary {
-    apids: HashMap<u16, ApidInfo>,
-    total_count: u32,
-    total_bytes: usize,
-    first: DateTime<Utc>,
-    last: DateTime<Utc>,
+    pub apids: HashMap<u16, ApidInfo>,
+    pub total_count: u32,
+    pub total_bytes: usize,
+    pub first: DateTime<Utc>,
+    pub last: DateTime<Utc>,
 }
 
 pub struct Summarizer<'a> {
@@ -313,7 +353,7 @@ impl<'a> Summarizer<'a> {
 
         let hdr = pkt.header.clone();
         let seq = pkt.header.sequence_id as i32;
-        let total_bytes = PrimaryHeader::SIZE + pkt.data.len();
+        let total_bytes = PrimaryHeader::LEN + pkt.data.len();
 
         self.offset += total_bytes;
         self.summary.total_count += 1;
@@ -343,7 +383,7 @@ impl<'a> Summarizer<'a> {
                     count: (seq - prev_seq - 1) as u16,
                     start: prev_seq as u16,
                     // offset already includes packet, so subtract it out.
-                    offset: self.offset - (pkt.data.len() + PrimaryHeader::SIZE) as usize,
+                    offset: self.offset - (pkt.data.len() + PrimaryHeader::LEN) as usize,
                 });
             }
         };

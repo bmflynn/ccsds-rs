@@ -40,6 +40,7 @@
 //!    Figure 5.5.1-1
 //!
 use chrono::{DateTime, Duration, TimeZone, Utc};
+use serde::Serialize;
 use std::convert::TryInto;
 
 #[derive(thiserror::Error, Debug)]
@@ -63,7 +64,7 @@ pub type TimecodeParser = dyn Fn(&[u8]) -> Result<DateTime<Utc>, Error>;
 ///
 /// It also encodes the t-field fine-time LSB multiplier as 15.2 microseconds.
 ///
-#[derive(Debug)]
+#[derive(Serialize, Debug)]
 pub struct EOSCUCTimecode {
     pub has_extension: bool,
     pub epoch: u8,
@@ -159,6 +160,7 @@ mod eoscuc_tests {
 }
 
 /// CCSDS Day-Segmented Timecode
+#[derive(Serialize, Debug, Clone)]
 pub struct CDSTimecode {
     pub days: u16,
     pub millis: u32,

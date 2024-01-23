@@ -1,8 +1,7 @@
-use ccsds::spacepacket::{Group, GroupIter, Packet, PacketIter};
-use ccsds::framing::*;
+use ccsds::*;
+use std::env;
 use std::fs;
 use std::io::Error as IoError;
-use std::env;
 
 #[test]
 fn packet_iter() {
@@ -27,15 +26,18 @@ fn group_iter() {
 
     assert_eq!(groups.len(), 7);
 
-    // expected_counts is derived from edosl0util(0.16.0) collect_groups results 
+    // expected_counts is derived from edosl0util(0.16.0) collect_groups results
     let expected_counts = vec![1, 17, 17, 17, 17, 17, 14];
     for (idx, (group, expected_count)) in groups.iter().zip(expected_counts).enumerate() {
         let group = group.as_ref().unwrap();
         let count = group.packets.len();
-        assert_eq!(count, expected_count, "Expected {} packets in group at index {}, got {}", expected_count, idx, count);
+        assert_eq!(
+            count, expected_count,
+            "Expected {} packets in group at index {}, got {}",
+            expected_count, idx, count
+        );
     }
 }
-
 
 #[test]
 fn block_iter() {
@@ -54,7 +56,6 @@ fn block_iter() {
     }
     assert_eq!(count, 7, "expected 7 total cadus")
 }
-
 
 #[test]
 fn finds_first_asm() {

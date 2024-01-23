@@ -8,7 +8,7 @@ test:
   tags:
     - docker_exec
   only:
-    - master
+    - main
   script:
     - cargo test
 

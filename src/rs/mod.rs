@@ -1,3 +1,4 @@
+//! RS decoding internals.
 pub mod dual_basis;
 pub mod gf;
 
@@ -24,16 +25,19 @@ pub enum RSState {
     NotPerformed,
 }
 
-pub fn deinterlace(data: &Vec<u8>, interlacing: i32) -> Vec<[u8; 255]> {
-    if data.len() % interlacing as usize != 0 {
-        panic!("data not a mulitpile of interleave({})", interlacing);
+/// Deinterleave an interleaved RS block (code block + check symbols).
+///
+/// Ref: 130.1-G-2, Section 5.3
+pub fn deinterleave(data: &Vec<u8>, interleave: i32) -> Vec<[u8; 255]> {
+    if data.len() % interleave as usize != 0 {
+        panic!("data not a mulitpile of interleave({})", interleave);
     }
     let mut zult: Vec<[u8; 255]> = Vec::new();
-    for _ in 0..interlacing {
+    for _ in 0..interleave {
         zult.push([0u8; 255]);
     }
     for j in 0..data.len() as usize {
-        zult[j % interlacing as usize][j / interlacing as usize] = data[j]
+        zult[j % interleave as usize][j / interleave as usize] = data[j]
     }
     zult
 }
@@ -171,8 +175,9 @@ fn calc_syndromes(input: &[u8], parity_len: usize) -> Vec<u8> {
 }
 
 pub struct Block {
+    /// Resuting state of the RS process for all contained RS messages.
     pub state: RSState,
-    /// The checked codeblock without the RS parity bytes
+    /// The checked codeblock without the RS check symbols.
     pub message: Option<Vec<u8>>,
 }
 
@@ -273,57 +278,70 @@ pub fn has_errors(msg: &[u8]) -> bool {
     x != 0
 }
 
-/// Correct an interleaved code block. This returns the code block data without the
-/// RS check symbols/bytes and a state that will be [`RSState::Uncorrectable`] if any
-/// single contained message is uncorrectable. If all messages are correctable the returned
-/// state will be [`RSState::Corrected`] with the total number of corrected bytes for
-/// all contained messages. If there are no errors return [`RSState::Ok`].
-///
-/// The returned vector will be the original data without the RS parity bytes if 
-/// uncorrectable or ok, otherwise it will be the corrected data without the RS parity
-/// bytes.
-pub fn correct_codeblock(block: Vec<u8>, interleave: i32) -> (Vec<u8>, RSState) {
-    if block.len() as i32 % interleave != 0 {
-        panic!(
-            "invalid block length for interleave {}: {}",
-            interleave,
-            block.len()
-        );
-    }
+pub trait ReedSolomon: Send {
+    /// Correct an interleaved code block. This returns the code block data without the
+    /// RS check symbols/bytes and a state that will be [`RSState::Uncorrectable`] if any
+    /// single contained message is uncorrectable. If all messages are correctable the returned
+    /// state will be [`RSState::Corrected`] with the total number of corrected bytes for
+    /// all contained messages. If there are no errors return [`RSState::Ok`].
+    ///
+    /// The returned vector will be the original data without the RS parity bytes if
+    /// uncorrectable or ok, otherwise it will be the corrected data without the RS parity
+    /// bytes.
+    fn correct_codeblock(&self, block: &[u8], interleave: i32) -> (Vec<u8>, RSState);
+}
 
-    // Length without the RS parity bytes. This is effectively the frame 
-    let data_len = block.len() - (interleave as usize * PARITY_LEN);
+#[derive(Clone)]
+pub struct DefaultReedSolomon;
 
-    let mut corrected = vec![0u8; block.len()];
-    let mut num_corrected = 0;
-    let messages = deinterlace(&block, interleave);
-    for (idx, msg) in messages.iter().enumerate() {
-        let zult = correct_message(msg);
-        match zult.state {
-            RSState::Uncorrectable(msg) => {
-                return (
-                    block[..data_len].to_vec(),
-                    RSState::Uncorrectable(format!("message {} is uncorrectable: {}", idx, msg)),
-                );
-            }
-            RSState::Corrected(num) => {
-                num_corrected += num;
-            }
-            _ => {}
+impl ReedSolomon for DefaultReedSolomon {
+    fn correct_codeblock(&self, block: &[u8], interleave: i32) -> (Vec<u8>, RSState) {
+        let block: Vec<u8> = block.to_vec();
+        if block.len() as i32 % interleave != 0 {
+            panic!(
+                "invalid block length for interleave {}: {}",
+                interleave,
+                block.len()
+            );
         }
-        let message = zult.message.expect("corrected rs message has no data");
-        for j in 0..message.len() {
-            corrected[idx + j * 4] = message[j];
+
+        // Length without the RS parity bytes. This is effectively the frame
+        let data_len = block.len() - (interleave as usize * PARITY_LEN);
+
+        let mut corrected = vec![0u8; block.len()];
+        let mut num_corrected = 0;
+        let messages = deinterleave(&block, interleave);
+        for (idx, msg) in messages.iter().enumerate() {
+            let zult = correct_message(msg);
+            match zult.state {
+                RSState::Uncorrectable(msg) => {
+                    return (
+                        block[..data_len].to_vec(),
+                        RSState::Uncorrectable(format!(
+                            "message {} is uncorrectable: {}",
+                            idx, msg
+                        )),
+                    );
+                }
+                RSState::Corrected(num) => {
+                    num_corrected += num;
+                }
+                _ => {}
+            }
+            let message = zult.message.expect("corrected rs message has no data");
+            for j in 0..message.len() {
+                corrected[idx + j * 4] = message[j];
+            }
         }
+
+        (
+            corrected[..data_len].to_vec(),
+            match num_corrected {
+                0 => RSState::Ok, // no rs messages in block were corrected
+                _ => RSState::Corrected(num_corrected),
+            },
+        )
     }
-   
-    (
-        corrected[..data_len].to_vec(),
-        match num_corrected {
-            0 => RSState::Ok, // no rs messages in block were corrected
-            _ => RSState::Corrected(num_corrected),
-        }
-    )
 }
 
 #[cfg(test)]
@@ -354,7 +372,7 @@ mod tests {
     #[test]
     fn test_deinterlace() {
         let dat: Vec<u8> = vec![0, 1, 2, 3, 0, 1, 2, 3];
-        let blocks = deinterlace(&dat, 4);
+        let blocks = deinterleave(&dat, 4);
         for i in 0..4 {
             assert_eq!(blocks[i][0], i as u8);
             assert_eq!(blocks[i][1], i as u8);
@@ -389,7 +407,11 @@ mod tests {
         let block = correct_message(&msg);
 
         assert_eq!(block.message.unwrap().len(), 255);
-        assert_eq!(block.state, RSState::Ok, "correcting a message with no errors should be Ok");
+        assert_eq!(
+            block.state,
+            RSState::Ok,
+            "correcting a message with no errors should be Ok"
+        );
     }
 
     #[test]
@@ -454,14 +476,19 @@ mod tests {
             }
         }
         assert_eq!(block.len(), 1020); // sanity check
-        
+
         // introduce an error by just adding one with wrap to a byte
         block[100] = block[100] + 1 % 255;
         //let block = block;
 
-        let zult = correct_codeblock(block, interleave as i32);
+        let rs = DefaultReedSolomon {};
+        let zult = rs.correct_codeblock(&block, interleave as i32);
 
-        assert_eq!(zult.0.len(), 892, "expect length 892 for I=4 header and frame data");
+        assert_eq!(
+            zult.0.len(),
+            892,
+            "expect length 892 for I=4 header and frame data"
+        );
         assert_eq!(zult.1, RSState::Corrected(1));
     }
 }
