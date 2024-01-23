@@ -49,6 +49,7 @@ fn create_patterns(dat: &Vec<u8>) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
     (patterns, masks)
 }
 
+/// A sychronized block location.
 #[derive(Debug, PartialEq)]
 pub struct Loc {
     /// Offset (1-based) to the first byte after a found sync marker
@@ -57,10 +58,10 @@ pub struct Loc {
     pub bit: u8,
 }
 
-// Synchronizer scans a byte stream for data blocks indicated by a sync marker.
-//
-// The sync marker may be bit-shifted, in which case the bytes returned will also
-// be bit shifted.
+/// Synchronizer scans a byte stream for data blocks indicated by a sync marker.
+///
+/// The sync marker may be bit-shifted, in which case the bytes returned will also
+/// be bit shifted.
 pub struct Synchronizer<'a> {
     bytes: Bytes<'a>,
     // Size of the block of data expected after an ASM
@@ -89,9 +90,12 @@ impl<'a> Synchronizer<'a> {
         }
     }
 
-    /// Scan our stream until the next sync marker is found and return a option conatining
-    /// a Some(Loc) indicating the position of the data block and any left bit-shift currenty
+    /// Scan our stream until the next sync marker is found and return a option containing
+    /// a [Some(Loc)] indicating the position of the data block and any left bit-shift currently
     /// in effect. If there are not enough bytes to check the sync marker return Ok(None).
+    ///
+    /// On [ErrorKind::UnexpectedEof] this will return [Ok(None)]. Any other error will result
+    /// in [Err(err)].
     pub fn scan(&mut self) -> Result<Option<Loc>, Error> {
         let mut b: u8 = 0;
         let mut working: Vec<u8> = Vec::new();
@@ -101,7 +105,7 @@ impl<'a> Synchronizer<'a> {
                 b = match self.bytes.next() {
                     Err(err) => {
                         if err.kind() == ErrorKind::UnexpectedEof {
-                            return Ok(None)
+                            return Ok(None);
                         }
                         return Err(err);
                     }
@@ -180,9 +184,12 @@ impl<'a> IntoIterator for Synchronizer<'a> {
     }
 }
 
+/// Iterates over synchronized data in block size defined by the source [Synchronizer].
+/// Created using [Synchronizer::into_iter].
 pub struct BlockIter<'a> {
     scanner: Synchronizer<'a>,
 }
+
 impl<'a> Iterator for BlockIter<'_> {
     type Item = Result<Vec<u8>, Error>;
 

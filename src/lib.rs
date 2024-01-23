@@ -10,6 +10,13 @@
 //!     - Packet groups
 //!     - Some secondary header timecode support
 //!
+//! The primary way to use this library is through the iterators:
+//! - [PacketIter]
+//! - [GroupIter]
+//! - [DecodedFrameIter]
+//! - [BlockIter]
+//!     - See [Synchronizer::into_iter]
+//!
 //! References:
 //! * [`Space Packet Protocol`](https://public.ccsds.org/Pubs/133x0b1c2.pdf)
 //! * [`TM Synchronization and Channel Coding`](https://public.ccsds.org/Pubs/131x0b5.pdf)
@@ -30,4 +37,4 @@ pub use rs::{
 };
 
 pub use spacepacket::*;
-pub use synchronizer::{Synchronizer, ASM};
+pub use synchronizer::{Synchronizer, ASM, BlockIter};
