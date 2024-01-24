@@ -2,6 +2,7 @@ use super::bytes::Bytes;
 use std::io::{Error, ErrorKind};
 use std::{collections::HashMap, io};
 
+/// CCSDS attached sync marker.
 pub const ASM: [u8; 4] = [0x1a, 0xcf, 0xfc, 0x1d];
 
 /// Bit-shift each byte in dat by k bits to the left, without wrapping.

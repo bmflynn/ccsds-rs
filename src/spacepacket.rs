@@ -1,9 +1,7 @@
-use chrono::{DateTime, TimeZone, Utc};
-use std::cmp;
-use std::collections::HashMap;
-use std::convert::TryInto;
+use chrono::{DateTime, Utc};
 use std::fmt::Display;
 use std::io::Read;
+use std::{collections::HashMap, convert::TryInto};
 
 pub use crate::timecode::{
     parse_cds_timecode, parse_eoscuc_timecode, CDSTimecode, EOSCUCTimecode, Timecode,
@@ -11,7 +9,8 @@ pub use crate::timecode::{
 };
 use serde::{Deserialize, Serialize};
 
-const MAX_SEQ_NUM: i32 = 16383;
+/// Maximum packet sequence id before rollover.
+pub const MAX_SEQ_NUM: i32 = 16383;
 
 pub type APID = u16;
 
@@ -22,7 +21,7 @@ pub type APID = u16;
 /// `has_secondary_header` flag.
 ///
 /// # Example
-/// Create a packet from the minumum number of bytes. This example includes
+/// Create a packet from the minimum number of bytes. This example includes
 /// bytes for a `CDSTimecode` in the data zone.
 /// ```
 /// use ccsds::{
@@ -34,7 +33,7 @@ pub type APID = u16;
 ///
 /// let dat: &[u8] = &[
 ///     // primary header bytes
-///     0xd, 0x59, 0xd2, 0xab, 0x0, 0x7,
+///     0xd, 0x59, 0xd2, 0xab, 0x0, 07,
 ///     // CDS timecode bytes in secondary header
 ///     0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
 ///     // minimum 1 byte of user data
@@ -50,6 +49,10 @@ pub struct Packet {
     pub header: PrimaryHeader,
     /// All packet bytes, including header and user data
     pub data: Vec<u8>,
+    /// If there is a discontinuity in the sequence counter for the APID in the
+    /// header (sequence counters are per-APID), this will contain a [Gap]
+    /// with the gap details. If there is no discontinuity this will be `None`.
+    pub gap: Option<Gap>,
 }
 
 impl Display for Packet {
@@ -74,14 +77,14 @@ impl Packet {
     }
 
     pub fn is_cont(&self) -> bool {
-        self.header.sequence_flags == SEQ_CONT
+        self.header.sequence_flags == SEQ_CONTINUATION
     }
 
     pub fn is_standalone(&self) -> bool {
-        self.header.sequence_flags == SEQ_STANDALONE
+        self.header.sequence_flags == SEQ_UNSEGMENTED
     }
 
-    /// Decode from bytes. Retruns [None] if there are not enough bytes to construct the
+    /// Decode from bytes. Returns [None] if there are not enough bytes to construct the
     /// header or if there are not enough bytes to construct the [Packet] of the length
     /// indicated by the header.
     pub fn decode(dat: &mut [u8]) -> Option<Packet> {
@@ -93,6 +96,7 @@ impl Packet {
                     Some(Packet {
                         header,
                         data: dat.to_vec(),
+                        gap: None,
                     })
                 }
             }
@@ -100,6 +104,9 @@ impl Packet {
         }
     }
 
+    /// Read a single [Packet].
+    ///
+    /// [Packet::gap] will always be `None`.
     pub fn read(r: &mut dyn Read) -> Result<Packet, std::io::Error> {
         let ph = PrimaryHeader::read(r)?;
 
@@ -111,14 +118,19 @@ impl Packet {
         Ok(Packet {
             header: ph,
             data: buf,
+            gap: None,
         })
     }
 }
 
+/// Packet is the first packet in a packet group
 pub const SEQ_FIRST: u8 = 1;
-pub const SEQ_CONT: u8 = 0;
+/// Packet is a part of a packet group, but not first and not last
+pub const SEQ_CONTINUATION: u8 = 0;
+/// Packet is the last packet in a packet group
 pub const SEQ_LAST: u8 = 2;
-pub const SEQ_STANDALONE: u8 = 3;
+/// Packet is not part of a packet group, i.e., standalone.
+pub const SEQ_UNSEGMENTED: u8 = 3;
 
 /// CCSDS Primary Header
 ///
@@ -130,6 +142,7 @@ pub struct PrimaryHeader {
     pub type_flag: u8,
     pub has_secondary_header: bool,
     pub apid: APID,
+    /// Defines a packets grouping. See the `SEQ_*` values.
     pub sequence_flags: u8,
     pub sequence_id: u16,
     pub len_minus1: u16,
@@ -168,27 +181,76 @@ impl PrimaryHeader {
     }
 }
 
-/// An iterator providing [Packet] data read from a byte synchronized ungroupped 
+/// An iterator providing [Packet] data read from a byte synchronized ungrouped
 /// packet stream.
 ///
-/// For packet streams that may contain packets that utilize packet groupping
-/// see [GroupIter].
-pub struct PacketIter<'a> {
+/// For packet streams that may contain packets that utilize packet grouping
+/// see [PacketGroupIter].
+///
+/// # Examples
+/// ```
+/// use ccsds::PacketReaderIter;
+///
+/// let dat: &[u8] = &[
+///     // primary header bytes
+///     0xd, 0x59, 0xd2, 0xab, 0x0, 07,
+///     // CDS timecode bytes in secondary header
+///     0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
+///     // minimum 1 byte of user data
+///     0xff
+/// ];
+///
+/// let mut r = std::io::BufReader::new(dat);
+/// PacketReaderIter::new(&mut r).for_each(|zult| {
+///     let packet = zult.unwrap();
+///     assert_eq!(packet.header.apid, 1369);
+/// });
+/// ```
+pub struct PacketReaderIter<'a> {
     reader: &'a mut dyn Read,
+    offset: usize,
+    last: HashMap<APID, u16>,
 }
 
-impl<'a> PacketIter<'a> {
+impl<'a> PacketReaderIter<'a> {
     pub fn new(reader: &'a mut dyn Read) -> Self {
-        PacketIter { reader }
+        PacketReaderIter {
+            reader,
+            offset: 0,
+            last: HashMap::new(),
+        }
+    }
+
+    fn check_gap(&self, packet: &Packet) -> Option<Gap> {
+        match self.last.get(&packet.header.apid) {
+            Some(prev_seq) => {
+                let cur_seq = packet.header.apid as i32;
+                let prev_seq = *prev_seq as i32;
+                let expected = (prev_seq + 1) % (MAX_SEQ_NUM + 1);
+                if cur_seq != expected {
+                    return Some(Gap {
+                        count: (cur_seq - prev_seq - 1) as u16,
+                        start: prev_seq as u16,
+                        offset: self.offset,
+                    });
+                }
+                return None;
+            }
+            None => None,
+        }
     }
 }
 
-impl<'a> Iterator for PacketIter<'a> {
+impl<'a> Iterator for PacketReaderIter<'a> {
     type Item = Result<Packet, std::io::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match Packet::read(&mut self.reader) {
-            Ok(p) => return Some(Ok(p)),
+            Ok(mut p) => {
+                self.offset += PrimaryHeader::LEN + p.header.len_minus1 as usize + 1;
+                p.gap = self.check_gap(&p);
+                return Some(Ok(p));
+            }
             Err(err) => {
                 if err.kind() == std::io::ErrorKind::UnexpectedEof {
                     return None;
@@ -199,37 +261,72 @@ impl<'a> Iterator for PacketIter<'a> {
     }
 }
 
-/// Packet data representing a CCSDS packet group according to the packet 
-/// primary headers.
+pub type PacketIter<'a> = Box<dyn Iterator<Item = Result<Packet, std::io::Error>> + 'a>;
+
+/// Packet data representing a CCSDS packet group according to the packet
+/// sequencing value in primary header.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Group {
+pub struct PacketGroup {
     pub apid: APID,
     pub packets: Vec<Packet>,
 }
 
-/// An iterator providing [Packet] data read from a byte synchronized groupped 
-/// packet stream as [Group] structs.
-pub struct GroupIter<'a> {
+/// An [Iterator] providing [PacketGroup]s for all packets. This is necessary for
+/// packet streams containing APIDs that utilize packet grouping sequence flags values
+/// [SEQ_FIRST], [SEQ_CONTINUATION], and [SEQ_LAST]. It can also be used for non-grouped APIDs
+/// ([SEQ_UNSEGMENTED]), however, it is not necessary in such cases. See
+/// [PrimaryHeader::sequence_flags].
+///
+/// # Examples
+///
+/// Reading packets from data file of space packets (level-0) would look something
+/// like this:
+/// ```
+/// use ccsds::PacketGroupIter;
+///
+/// // data file stand-in
+/// let dat: &[u8] = &[
+///     // primary header bytes
+///     0xd, 0x59, 0xd2, 0xab, 0x0, 07,
+///     // CDS timecode bytes in secondary header
+///     0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
+///     // minimum 1 byte of user data
+///     0xff
+/// ];
+///
+/// let mut r = std::io::BufReader::new(dat);
+/// PacketGroupIter::with_reader(&mut r).for_each(|zult| {
+///     let packet = zult.unwrap();
+///     assert_eq!(packet.apid, 1369);
+/// });
+/// ```
+pub struct PacketGroupIter<'a> {
     packets: PacketIter<'a>,
-    group: Group,
+    group: PacketGroup,
     done: bool,
 }
 
-impl<'a> GroupIter<'a> {
-    pub fn new(reader: &'a mut dyn Read) -> Self {
-        let packets = PacketIter::new(reader);
-        GroupIter {
+impl<'a> PacketGroupIter<'a> {
+    /// Create an iterator that reads source packets from the provided reader.
+    pub fn with_reader(reader: &'a mut dyn Read) -> Self {
+        let packets = Box::new(PacketReaderIter::new(reader));
+        Self::with_packets(packets)
+    }
+
+    /// Create an iterator that sources packets directly from the provided iterator.
+    ///
+    /// This is typically used when a [PacketIter] was obtained from an upstream decoder,
+    /// such as provided by [crate::FrameDecoderBuilder].
+    pub fn with_packets(packets: PacketIter<'a>) -> Self {
+        PacketGroupIter {
             packets,
-            group: Group {
+            group: PacketGroup {
                 apid: 0,
                 packets: vec![],
             },
             done: false,
         }
     }
-}
-
-impl<'a> GroupIter<'a> {
 
     /// True when this group contains at least 1 packet.
     fn have_packets(&self) -> bool {
@@ -244,9 +341,9 @@ impl<'a> GroupIter<'a> {
     }
 
     /// Create a new group, returning the old, priming it with the packet
-    fn new_group(&mut self, packet: Option<Packet>) -> Group {
+    fn new_group(&mut self, packet: Option<Packet>) -> PacketGroup {
         let group = self.group.clone();
-        self.group = Group {
+        self.group = PacketGroup {
             apid: 0,
             packets: vec![],
         };
@@ -258,8 +355,8 @@ impl<'a> GroupIter<'a> {
     }
 }
 
-impl<'a> Iterator for GroupIter<'a> {
-    type Item = Result<Group, std::io::Error>;
+impl Iterator for PacketGroupIter<'_> {
+    type Item = Result<PacketGroup, std::io::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.done {
@@ -281,7 +378,7 @@ impl<'a> Iterator for GroupIter<'a> {
             };
             // Return group of one
             if packet.is_standalone() {
-                return Some(Ok(Group {
+                return Some(Ok(PacketGroup {
                     apid: packet.header.apid,
                     packets: vec![packet],
                 }));
@@ -307,12 +404,12 @@ impl<'a> Iterator for GroupIter<'a> {
 /// Provides information regarding apids in stream
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Gap {
-    // Number of packets in gap. There's no guarantee that rollover did not occur
-    // which may occur if the gap is bigger than the max seq number.
+    /// Number of packets in gap. There's no guarantee there was no rollover,
+    /// which may occur if the gap consists of more than [MAX_SEQ_NUM] counts.
     pub count: u16,
-    // starting sequence id
+    /// Starting sequence id
     pub start: u16,
-    // byte offset into reader for the first byte _after_ the gap.
+    /// byte offset into reader for the first byte _after_ the gap.
     pub offset: usize,
 }
 
@@ -326,106 +423,106 @@ pub struct ApidInfo {
     pub last: DateTime<Utc>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Summary {
-    pub apids: HashMap<u16, ApidInfo>,
-    pub total_count: u32,
-    pub total_bytes: usize,
-    pub first: DateTime<Utc>,
-    pub last: DateTime<Utc>,
-}
-
-pub struct Summarizer<'a> {
-    summary: Summary,
-    tc_parser: &'a TimecodeParser,
-    offset: usize,
-    tracker: HashMap<u16, PrimaryHeader>,
-    err: Option<std::io::Error>,
-}
-
-impl<'a> Summarizer<'a> {
-    pub fn new(tc_parser: &'a TimecodeParser) -> Self {
-        return Summarizer {
-            summary: Summary {
-                apids: HashMap::new(),
-                total_count: 0,
-                total_bytes: 0,
-                first: Utc::now(),
-                last: Utc.timestamp_opt(0, 0).single().unwrap(),
-            },
-            tracker: HashMap::new(),
-            tc_parser,
-            offset: 0,
-            err: None,
-        };
-    }
-    pub fn add(&mut self, pkt: &Packet) {
-        // can't add more if we've already encountered an error
-        if self.err.is_some() {
-            return;
-        }
-
-        let hdr = pkt.header.clone();
-        let seq = pkt.header.sequence_id as i32;
-        let total_bytes = PrimaryHeader::LEN + pkt.data.len();
-
-        self.offset += total_bytes;
-        self.summary.total_count += 1;
-        self.summary.total_bytes += total_bytes;
-
-        // Handle individual apid information
-        let mut apid = match self.summary.apids.remove(&pkt.header.apid) {
-            Some(a) => a,
-            None => ApidInfo {
-                total_count: 1,
-                total_bytes,
-                gaps: Box::new(Vec::new()),
-                first: Utc::now(),
-                last: Utc.timestamp_opt(0, 0).single().unwrap(),
-            },
-        };
-        apid.total_count += 1;
-        apid.total_bytes += total_bytes;
-
-        // Handle gap checking
-        if let Some(prev_hdr) = self.tracker.get(&hdr.apid) {
-            let prev_seq = prev_hdr.sequence_id as i32;
-            // check if sequence numbers are sequential w/ rollover
-            let expected = (prev_seq + 1) % (MAX_SEQ_NUM + 1);
-            if seq != expected {
-                apid.gaps.push(Gap {
-                    count: (seq - prev_seq - 1) as u16,
-                    start: prev_seq as u16,
-                    // offset already includes packet, so subtract it out.
-                    offset: self.offset - (pkt.data.len() + PrimaryHeader::LEN) as usize,
-                });
-            }
-        };
-        self.tracker.insert(hdr.apid, hdr);
-
-        // Handle first/last packet times
-        if pkt.header.has_secondary_header
-            && (pkt.header.sequence_flags == SEQ_FIRST
-                || pkt.header.sequence_flags == SEQ_STANDALONE)
-        {
-            match (self.tc_parser)(&pkt.data) {
-                Ok(dt) => {
-                    self.summary.first = cmp::min(self.summary.first, dt.clone());
-                    self.summary.last = cmp::max(self.summary.last, dt.clone());
-                    apid.first = cmp::min(apid.first, dt.clone());
-                    apid.last = cmp::max(apid.last, dt.clone());
-                }
-                _ => {}
-            };
-        };
-
-        self.summary.apids.insert(pkt.header.apid, apid);
-    }
-
-    pub fn result(&self) -> Summary {
-        self.summary.clone()
-    }
-}
+// #[derive(Serialize, Deserialize, Debug, Clone)]
+// pub struct Summary {
+//     pub apids: HashMap<u16, ApidInfo>,
+//     pub total_count: u32,
+//     pub total_bytes: usize,
+//     pub first: DateTime<Utc>,
+//     pub last: DateTime<Utc>,
+// }
+//
+// pub struct Summarizer<'a> {
+//     summary: Summary,
+//     tc_parser: &'a TimecodeParser,
+//     offset: usize,
+//     tracker: HashMap<u16, PrimaryHeader>,
+//     err: Option<std::io::Error>,
+// }
+//
+// impl<'a> Summarizer<'a> {
+//     pub fn new(tc_parser: &'a TimecodeParser) -> Self {
+//         return Summarizer {
+//             summary: Summary {
+//                 apids: HashMap::new(),
+//                 total_count: 0,
+//                 total_bytes: 0,
+//                 first: Utc::now(),
+//                 last: Utc.timestamp_opt(0, 0).single().unwrap(),
+//             },
+//             tracker: HashMap::new(),
+//             tc_parser,
+//             offset: 0,
+//             err: None,
+//         };
+//     }
+//     pub fn add(&mut self, pkt: &Packet) {
+//         // can't add more if we've already encountered an error
+//         if self.err.is_some() {
+//             return;
+//         }
+//
+//         let hdr = pkt.header.clone();
+//         let seq = pkt.header.sequence_id as i32;
+//         let total_bytes = PrimaryHeader::LEN + pkt.data.len();
+//
+//         self.offset += total_bytes;
+//         self.summary.total_count += 1;
+//         self.summary.total_bytes += total_bytes;
+//
+//         // Handle individual apid information
+//         let mut apid = match self.summary.apids.remove(&pkt.header.apid) {
+//             Some(a) => a,
+//             None => ApidInfo {
+//                 total_count: 1,
+//                 total_bytes,
+//                 gaps: Box::new(Vec::new()),
+//                 first: Utc::now(),
+//                 last: Utc.timestamp_opt(0, 0).single().unwrap(),
+//             },
+//         };
+//         apid.total_count += 1;
+//         apid.total_bytes += total_bytes;
+//
+//         // Handle gap checking
+//         if let Some(prev_hdr) = self.tracker.get(&hdr.apid) {
+//             let prev_seq = prev_hdr.sequence_id as i32;
+//             // check if sequence numbers are sequential w/ rollover
+//             let expected = (prev_seq + 1) % (MAX_SEQ_NUM + 1);
+//             if seq != expected {
+//                 apid.gaps.push(Gap {
+//                     count: (seq - prev_seq - 1) as u16,
+//                     start: prev_seq as u16,
+//                     // offset already includes packet, so subtract it out.
+//                     offset: self.offset - (pkt.data.len() + PrimaryHeader::LEN) as usize,
+//                 });
+//             }
+//         };
+//         self.tracker.insert(hdr.apid, hdr);
+//
+//         // Handle first/last packet times
+//         if pkt.header.has_secondary_header
+//             && (pkt.header.sequence_flags == SEQ_FIRST
+//                 || pkt.header.sequence_flags == SEQ_UNSEGMENTED)
+//         {
+//             match (self.tc_parser)(&pkt.data) {
+//                 Ok(dt) => {
+//                     self.summary.first = cmp::min(self.summary.first, dt.clone());
+//                     self.summary.last = cmp::max(self.summary.last, dt.clone());
+//                     apid.first = cmp::min(apid.first, dt.clone());
+//                     apid.last = cmp::max(apid.last, dt.clone());
+//                 }
+//                 _ => {}
+//             };
+//         };
+//
+//         self.summary.apids.insert(pkt.header.apid, apid);
+//     }
+//
+//     pub fn result(&self) -> Summary {
+//         self.summary.clone()
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
@@ -474,7 +571,7 @@ mod tests {
         ];
         let mut reader = std::io::BufReader::new(dat);
 
-        let packets: Vec<Packet> = PacketIter::new(&mut reader)
+        let packets: Vec<Packet> = PacketReaderIter::new(&mut reader)
             .filter(|r| r.is_ok())
             .map(|r| r.unwrap())
             .collect();
@@ -485,45 +582,45 @@ mod tests {
         assert_eq!(packets[1].header.sequence_id, 2);
     }
 
-    #[test]
-    fn summarize_test() {
-        #[rustfmt::skip]
-        let dat: &[u8] = &[
-            // Primary/secondary header and a single byte of user data
-            // byte 4 is sequence number 1 & 2
-            0xd, 0x59, 0xc0, 0x01, 0x0, 0x8, 0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
-            // gap
-            0xd, 0x59, 0xc0, 0x03, 0x0, 0x8, 0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
-            // gap
-            0xd, 0x59, 0xc0, 0x05, 0x0, 0x8, 0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
-            0xd, 0x59, 0xc0, 0x06, 0x0, 0x8, 0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
-        ];
-        let mut reader = std::io::BufReader::new(dat);
-        let packets: Vec<Packet> = PacketIter::new(&mut reader)
-            .filter(|r| r.is_ok())
-            .map(|r| r.unwrap())
-            .collect();
-        let mut summarizer = Summarizer::new(&parse_cds_timecode);
-        for packet in packets {
-            summarizer.add(&packet);
-        }
-
-        let summary = summarizer.result();
-        let mut gaps: Box<Vec<&Gap>> = Box::new(Vec::new());
-        for apid in summary.apids.values() {
-            for gap in apid.gaps.iter() {
-                gaps.push(gap);
-            }
-        }
-
-        assert_eq!(gaps.len(), 2, "expected 2 gaps");
-
-        assert_eq!(gaps[0].count, 1, "{:?}", gaps[0]);
-        assert_eq!(gaps[0].start, 1, "{:?}", gaps[0]);
-        assert_eq!(gaps[0].offset, 15, "{:?}", gaps[0]);
-
-        assert_eq!(gaps[1].count, 1, "{:?}", gaps[1]);
-        assert_eq!(gaps[1].start, 3, "{:?}", gaps[1]);
-        assert_eq!(gaps[1].offset, 30, "{:?}", gaps[1]);
-    }
+    // #[test]
+    // fn summarize_test() {
+    //     #[rustfmt::skip]
+    //     let dat: &[u8] = &[
+    //         // Primary/secondary header and a single byte of user data
+    //         // byte 4 is sequence number 1 & 2
+    //         0xd, 0x59, 0xc0, 0x01, 0x0, 0x8, 0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
+    //         // gap
+    //         0xd, 0x59, 0xc0, 0x03, 0x0, 0x8, 0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
+    //         // gap
+    //         0xd, 0x59, 0xc0, 0x05, 0x0, 0x8, 0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
+    //         0xd, 0x59, 0xc0, 0x06, 0x0, 0x8, 0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
+    //     ];
+    //     let mut reader = std::io::BufReader::new(dat);
+    //     let packets: Vec<Packet> = PacketReaderIter::new(&mut reader)
+    //         .filter(|r| r.is_ok())
+    //         .map(|r| r.unwrap())
+    //         .collect();
+    //     let mut summarizer = Summarizer::new(&parse_cds_timecode);
+    //     for packet in packets {
+    //         summarizer.add(&packet);
+    //     }
+    //
+    //     let summary = summarizer.result();
+    //     let mut gaps: Box<Vec<&Gap>> = Box::new(Vec::new());
+    //     for apid in summary.apids.values() {
+    //         for gap in apid.gaps.iter() {
+    //             gaps.push(gap);
+    //         }
+    //     }
+    //
+    //     assert_eq!(gaps.len(), 2, "expected 2 gaps");
+    //
+    //     assert_eq!(gaps[0].count, 1, "{:?}", gaps[0]);
+    //     assert_eq!(gaps[0].start, 1, "{:?}", gaps[0]);
+    //     assert_eq!(gaps[0].offset, 15, "{:?}", gaps[0]);
+    //
+    //     assert_eq!(gaps[1].count, 1, "{:?}", gaps[1]);
+    //     assert_eq!(gaps[1].start, 3, "{:?}", gaps[1]);
+    //     assert_eq!(gaps[1].offset, 30, "{:?}", gaps[1]);
+    // }
 }

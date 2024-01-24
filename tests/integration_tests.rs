@@ -8,7 +8,7 @@ fn packet_iter() {
     let dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let fpath = format!("{}/tests/fixtures/viirs_packets.dat", dir);
     let mut reader = fs::File::open(fpath).unwrap();
-    let iter = PacketIter::new(&mut reader);
+    let iter = PacketReaderIter::new(&mut reader);
 
     let packets: Vec<Result<Packet, IoError>> = iter.collect();
 
@@ -20,9 +20,9 @@ fn group_iter() {
     let dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let fpath = format!("{}/tests/fixtures/viirs_packets.dat", dir);
     let mut reader = fs::File::open(fpath).unwrap();
-    let iter = GroupIter::new(&mut reader);
+    let iter = PacketGroupIter::with_reader(&mut reader);
 
-    let groups: Vec<Result<Group, IoError>> = iter.collect();
+    let groups: Vec<Result<PacketGroup, IoError>> = iter.collect();
 
     assert_eq!(groups.len(), 7);
 

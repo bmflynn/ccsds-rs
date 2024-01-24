@@ -11,8 +11,8 @@
 //!     - Some secondary header timecode support
 //!
 //! The primary way to use this library is through the iterators:
-//! - [PacketIter]
-//! - [GroupIter]
+//! - [PacketReaderIter]
+//! - [PacketGroupIter]
 //! - [DecodedFrameIter]
 //! - [BlockIter]
 //!     - See [Synchronizer::into_iter]
@@ -32,9 +32,9 @@ mod timecode;
 
 pub use framing::*;
 pub use rs::{
-    correct_message as rs_correct_message, deinterleave as rs_deinterlace,
+    correct_message as rs_correct_message, deinterleave as rs_deinterleave,
     has_errors as rs_has_errors, DefaultReedSolomon, RSState, ReedSolomon,
 };
 
 pub use spacepacket::*;
-pub use synchronizer::{Synchronizer, ASM, BlockIter};
+pub use synchronizer::{BlockIter, Synchronizer, ASM};

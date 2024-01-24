@@ -25,7 +25,7 @@ pub struct RSConfig {
 pub struct Framing {
     pub asm: Vec<u8>,
     /// Length of the frame contained within a CADU, not including the ASM or
-    /// any Reed-solomon parity bytes.
+    /// any Reed-Solomon parity bytes.
     ///
     /// This length, along with the [Self::izone_length] and [Self::trailer_length] will effectively
     /// define the length of an MPDU.
@@ -58,8 +58,12 @@ impl Framing {
     }
 }
 
+/// VCID value indicating fill data
 pub const VCID_FILL: VCID = 63;
+/// MPDU first-header pointer value indicating fill data
 pub const MPDU_FILL: u16 = 0x7fe;
+/// MPDU first-header pointer value indicating this MPDU does not contain a packet
+/// primary header.
 pub const MPDU_NO_HEADER: u16 = 0x7ff;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -165,6 +169,7 @@ impl Frame {
     }
 }
 
+/// Provides [Frame]s based on configuration provided by the parent [FrameDecoderBuilder].
 pub struct DecodedFrameIter {
     done: bool,
     jobs: Receiver<Receiver<(Frame, RSState)>>,
@@ -231,8 +236,10 @@ impl FrameDecoderBuilder {
     /// Default number of frames to buffer in memory while waiting for RS.
     pub const DEFAULT_BUFFER_SIZE: usize = 1024;
 
-    /// Create a new [DecodedFrameIter] with default values. For most cases all that
-    /// should be necessary is the following:
+    /// Create a new [DecodedFrameIter] with default values suitable for decoding most (all?)
+    /// CCSDS compatible frame streams.
+    ///
+    /// For most cases all that should be necessary is the following:
     /// ```
     /// use ccsds::FrameDecoderBuilder;
     /// let r = &[0u8; 1][..]; // implements Read
@@ -268,22 +275,22 @@ impl FrameDecoderBuilder {
         self
     }
 
-    /// Set the Reed-solomon per-CADU implementation to use.
-    /// Defaults to [DefaultReedSolomon::correct_codeblock].
-    pub fn reed_solomon(mut self, rs: Box<dyn ReedSolomon + Sync>) -> Self {
-        self.reed_solomon = Some(rs);
+    /// Set the Reed-Solomon per-CADU implementation to use. Defaults to [DefaultReedSolomon].
+    pub fn reed_solomon(mut self, rs: Option<Box<dyn ReedSolomon + Sync>>) -> Self {
+        self.reed_solomon = rs;
         self
     }
 
-    /// Set the number of threads to use for Reed-Solomon.
-    /// Defaults to     
+    /// Set the number of threads to use for Reed-Solomon. If not explicitly set, the
+    /// number of threads is chosen automatically.
     pub fn reed_solomon_threads(mut self, num: usize) -> Self {
         self.reed_solomon_threads = num;
         self
     }
 
-    pub fn pn_decode(mut self, pn: PNDecoder) -> Self {
-        self.pn_decoder = Some(pn);
+    /// Set PN implementation.
+    pub fn pn_decode(mut self, pn: Option<PNDecoder>) -> Self {
+        self.pn_decoder = pn;
         self
     }
 
@@ -325,9 +332,11 @@ impl FrameDecoderBuilder {
                     let (future_tx, future_rx) = channel();
                     // spawn_fifo makes sure the frame order is maintained
                     pool.spawn_fifo(move || {
+                        // Only do PN if not None
                         if let Some(pn_decode) = pn_decoder {
                             pn_decode(&mut block);
                         }
+                        // Only do RS if not None
                         let (dat, state) = match reed_solomon.borrow() {
                             Some(rs) => rs.correct_codeblock(&block, interleave),
                             None => (block, RSState::NotPerformed),

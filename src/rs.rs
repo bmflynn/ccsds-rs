@@ -36,6 +36,7 @@ pub trait ReedSolomon: Send {
     fn correct_codeblock(&self, block: &[u8], interleave: i32) -> (Vec<u8>, RSState);
 }
 
+/// Implements the CCSDS documented Reed-Solomon FEC.
 #[derive(Clone)]
 pub struct DefaultReedSolomon;
 
