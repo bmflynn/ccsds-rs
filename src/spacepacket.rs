@@ -1,6 +1,5 @@
-use chrono::{DateTime, Utc};
 use std::fmt::Display;
-use std::io::Read;
+use std::io::{Read, Result as IOResult};
 use std::{collections::HashMap, convert::TryInto};
 
 pub use crate::timecode::{
@@ -84,7 +83,7 @@ impl Packet {
         self.header.sequence_flags == SEQ_UNSEGMENTED
     }
 
-    /// Decode from bytes. Returns [None] if there are not enough bytes to construct the
+    /// Decode from bytes. Returns `None` if there are not enough bytes to construct the
     /// header or if there are not enough bytes to construct the [Packet] of the length
     /// indicated by the header.
     pub fn decode(dat: &mut [u8]) -> Option<Packet> {
@@ -107,7 +106,7 @@ impl Packet {
     /// Read a single [Packet].
     ///
     /// [Packet::gap] will always be `None`.
-    pub fn read(r: &mut dyn Read) -> Result<Packet, std::io::Error> {
+    pub fn read(r: &mut dyn Read) -> IOResult<Packet> {
         let ph = PrimaryHeader::read(r)?;
 
         // read the user data, shouldn't panic since unpacking worked
@@ -152,14 +151,14 @@ impl PrimaryHeader {
     /// Size of a PrimaryHeader
     pub const LEN: usize = 6;
 
-    pub fn read(r: &mut dyn Read) -> Result<PrimaryHeader, std::io::Error> {
+    pub fn read(r: &mut dyn Read) -> IOResult<PrimaryHeader> {
         let mut buf = [0u8; Self::LEN];
         r.read_exact(&mut buf)?;
 
         Ok(Self::decode(&buf).unwrap())
     }
 
-    /// Decode from bytes. Returns [None] if there are not enough bytes to construct the
+    /// Decode from bytes. Returns `None` if there are not enough bytes to construct the
     /// header.
     pub fn decode(buf: &[u8]) -> Option<Self> {
         if buf.len() < Self::LEN {
@@ -181,39 +180,14 @@ impl PrimaryHeader {
     }
 }
 
-/// An iterator providing [Packet] data read from a byte synchronized ungrouped
-/// packet stream.
-///
-/// For packet streams that may contain packets that utilize packet grouping
-/// see [PacketGroupIter].
-///
-/// # Examples
-/// ```
-/// use ccsds::PacketReaderIter;
-///
-/// let dat: &[u8] = &[
-///     // primary header bytes
-///     0xd, 0x59, 0xd2, 0xab, 0x0, 07,
-///     // CDS timecode bytes in secondary header
-///     0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
-///     // minimum 1 byte of user data
-///     0xff
-/// ];
-///
-/// let mut r = std::io::BufReader::new(dat);
-/// PacketReaderIter::new(&mut r).for_each(|zult| {
-///     let packet = zult.unwrap();
-///     assert_eq!(packet.header.apid, 1369);
-/// });
-/// ```
-pub struct PacketReaderIter<'a> {
+struct PacketReaderIter<'a> {
     reader: &'a mut dyn Read,
     offset: usize,
     last: HashMap<APID, u16>,
 }
 
 impl<'a> PacketReaderIter<'a> {
-    pub fn new(reader: &'a mut dyn Read) -> Self {
+    fn new(reader: &'a mut dyn Read) -> Self {
         PacketReaderIter {
             reader,
             offset: 0,
@@ -242,7 +216,7 @@ impl<'a> PacketReaderIter<'a> {
 }
 
 impl<'a> Iterator for PacketReaderIter<'a> {
-    type Item = Result<Packet, std::io::Error>;
+    type Item = IOResult<Packet>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match Packet::read(&mut self.reader) {
@@ -261,7 +235,7 @@ impl<'a> Iterator for PacketReaderIter<'a> {
     }
 }
 
-pub type PacketIter<'a> = Box<dyn Iterator<Item = Result<Packet, std::io::Error>> + 'a>;
+type PacketIter<'a> = Box<dyn Iterator<Item = IOResult<Packet>> + 'a>;
 
 /// Packet data representing a CCSDS packet group according to the packet
 /// sequencing value in primary header.
@@ -271,36 +245,7 @@ pub struct PacketGroup {
     pub packets: Vec<Packet>,
 }
 
-/// An [Iterator] providing [PacketGroup]s for all packets. This is necessary for
-/// packet streams containing APIDs that utilize packet grouping sequence flags values
-/// [SEQ_FIRST], [SEQ_CONTINUATION], and [SEQ_LAST]. It can also be used for non-grouped APIDs
-/// ([SEQ_UNSEGMENTED]), however, it is not necessary in such cases. See
-/// [PrimaryHeader::sequence_flags].
-///
-/// # Examples
-///
-/// Reading packets from data file of space packets (level-0) would look something
-/// like this:
-/// ```
-/// use ccsds::PacketGroupIter;
-///
-/// // data file stand-in
-/// let dat: &[u8] = &[
-///     // primary header bytes
-///     0xd, 0x59, 0xd2, 0xab, 0x0, 07,
-///     // CDS timecode bytes in secondary header
-///     0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
-///     // minimum 1 byte of user data
-///     0xff
-/// ];
-///
-/// let mut r = std::io::BufReader::new(dat);
-/// PacketGroupIter::with_reader(&mut r).for_each(|zult| {
-///     let packet = zult.unwrap();
-///     assert_eq!(packet.apid, 1369);
-/// });
-/// ```
-pub struct PacketGroupIter<'a> {
+struct PacketGroupIter<'a> {
     packets: PacketIter<'a>,
     group: PacketGroup,
     done: bool,
@@ -308,16 +253,21 @@ pub struct PacketGroupIter<'a> {
 
 impl<'a> PacketGroupIter<'a> {
     /// Create an iterator that reads source packets from the provided reader.
-    pub fn with_reader(reader: &'a mut dyn Read) -> Self {
-        let packets = Box::new(PacketReaderIter::new(reader));
-        Self::with_packets(packets)
+    ///
+    ///
+    fn with_reader(reader: &'a mut dyn Read) -> Self {
+        let packets = PacketReaderIter::new(reader)
+            .filter(|zult| zult.is_ok())
+            .map(|zult| zult.unwrap());
+        Self::with_packets(Box::new(packets))
     }
 
-    /// Create an iterator that sources packets directly from the provided iterator.
+    /// Create an iterator that sources packets directly from the provided vanilla
+    /// iterator.
     ///
-    /// This is typically used when a [PacketIter] was obtained from an upstream decoder,
-    /// such as provided by [crate::FrameDecoderBuilder].
-    pub fn with_packets(packets: PacketIter<'a>) -> Self {
+    /// Results genreated by the iterator will always be `Ok`.
+    fn with_packets(packets: Box<dyn Iterator<Item = Packet> + 'a>) -> Self {
+        let packets: PacketIter = Box::new(packets.map(|p| IOResult::<Packet>::Ok(p)));
         PacketGroupIter {
             packets,
             group: PacketGroup {
@@ -356,7 +306,7 @@ impl<'a> PacketGroupIter<'a> {
 }
 
 impl Iterator for PacketGroupIter<'_> {
-    type Item = Result<PacketGroup, std::io::Error>;
+    type Item = IOResult<PacketGroup>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.done {
@@ -401,6 +351,70 @@ impl Iterator for PacketGroupIter<'_> {
     }
 }
 
+/// Return an iterator providing [Packet] data read from a byte synchronized ungrouped
+/// packet stream.
+///
+/// For packet streams that may contain packets that utilize packet grouping see
+/// [read_packet_groups].
+///
+/// # Examples
+/// ```
+/// use ccsds::read_packets;
+///
+/// let dat: &[u8] = &[
+///     // primary header bytes
+///     0xd, 0x59, 0xd2, 0xab, 0x0, 07,
+///     // CDS timecode bytes in secondary header
+///     0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
+///     // minimum 1 byte of user data
+///     0xff
+/// ];
+///
+/// let mut r = std::io::BufReader::new(dat);
+/// read_packets(&mut r).for_each(|zult| {
+///     let packet = zult.unwrap();
+///     assert_eq!(packet.header.apid, 1369);
+/// });
+/// ```
+pub fn read_packets<'a>(reader: &'a mut dyn Read) -> impl Iterator<Item = IOResult<Packet>> + 'a {
+    PacketReaderIter::new(reader)
+}
+
+/// Return an [Iterator] providing [PacketGroup]s for all packets. This is necessary for
+/// packet streams containing APIDs that utilize packet grouping sequence flags values
+/// [SEQ_FIRST], [SEQ_CONTINUATION], and [SEQ_LAST]. It can also be used for non-grouped APIDs
+/// ([SEQ_UNSEGMENTED]), however, it is not necessary in such cases. See
+/// [PrimaryHeader::sequence_flags].
+///
+/// # Examples
+///
+/// Reading packets from data file of space packets (level-0) would look something
+/// like this:
+/// ```
+/// use ccsds::read_packet_groups;
+///
+/// // data file stand-in
+/// let dat: &[u8] = &[
+///     // primary header bytes
+///     0xd, 0x59, 0xd2, 0xab, 0x0, 07,
+///     // CDS timecode bytes in secondary header
+///     0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
+///     // minimum 1 byte of user data
+///     0xff
+/// ];
+///
+/// let mut r = std::io::BufReader::new(dat);
+/// read_packet_groups(&mut r).for_each(|zult| {
+///     let packet = zult.unwrap();
+///     assert_eq!(packet.apid, 1369);
+/// });
+/// ```
+pub fn read_packet_groups<'a>(
+    reader: &'a mut dyn Read,
+) -> impl Iterator<Item = IOResult<PacketGroup>> + 'a {
+    PacketGroupIter::with_reader(reader)
+}
+
 /// Provides information regarding apids in stream
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Gap {
@@ -411,16 +425,6 @@ pub struct Gap {
     pub start: u16,
     /// byte offset into reader for the first byte _after_ the gap.
     pub offset: usize,
-}
-
-/// Provides summary information regarding apids in stream
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ApidInfo {
-    pub total_count: u32,
-    pub total_bytes: usize,
-    pub gaps: Box<Vec<Gap>>,
-    pub first: DateTime<Utc>,
-    pub last: DateTime<Utc>,
 }
 
 #[cfg(test)]

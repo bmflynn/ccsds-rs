@@ -6,16 +6,16 @@
 //!     - Pseudo-noise removal
 //!     - Reed-Solomon RS(223/255) FEC
 //! - Spacepacket decoding
+//!     - Telemetry packets, i.e., packets with type 0
 //!     - Sequencing
 //!     - Packet groups
 //!     - Some secondary header timecode support
 //!
-//! The primary way to use this library is through the iterators:
-//! - [PacketReaderIter]
-//! - [PacketGroupIter]
+//! The primary way to use this library is through the iterators returned by:
+//! - [read_packets]
+//! - [read_packet_groups]
+//! - [read_synchronized_blocks]
 //! - [DecodedFrameIter]
-//! - [BlockIter]
-//!     - See [Synchronizer::into_iter]
 //!
 //! References:
 //! * [`Space Packet Protocol`](https://public.ccsds.org/Pubs/133x0b1c2.pdf)
@@ -37,4 +37,4 @@ pub use rs::{
 };
 
 pub use spacepacket::*;
-pub use synchronizer::{BlockIter, Synchronizer, ASM};
+pub use synchronizer::{read_synchronized_blocks, Synchronizer, ASM};

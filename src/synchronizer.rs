@@ -1,8 +1,8 @@
 use super::bytes::Bytes;
-use std::io::{Error, ErrorKind};
+use std::io::{ErrorKind, Result};
 use std::{collections::HashMap, io};
 
-/// CCSDS attached sync marker.
+/// Default CCSDS attached sync marker.
 pub const ASM: [u8; 4] = [0x1a, 0xcf, 0xfc, 0x1d];
 
 /// Bit-shift each byte in dat by k bits to the left, without wrapping.
@@ -97,7 +97,7 @@ impl<'a> Synchronizer<'a> {
     ///
     /// On [ErrorKind::UnexpectedEof] this will return [Ok(None)]. Any other error will result
     /// in [Err(err)].
-    pub fn scan(&mut self) -> Result<Option<Loc>, Error> {
+    pub fn scan(&mut self) -> Result<Option<Loc>> {
         let mut b: u8 = 0;
         let mut working: Vec<u8> = Vec::new();
 
@@ -160,7 +160,7 @@ impl<'a> Synchronizer<'a> {
     }
 
     /// Fetch a block from the stream.
-    pub fn block(&mut self) -> Result<Vec<u8>, Error> {
+    pub fn block(&mut self) -> Result<Vec<u8>> {
         let mut buf = vec![0u8; self.block_size as usize];
         if self.pattern_idx != 0 {
             // Make room for bit-shifting
@@ -178,8 +178,9 @@ impl<'a> Synchronizer<'a> {
 }
 
 impl<'a> IntoIterator for Synchronizer<'a> {
-    type Item = Result<Vec<u8>, Error>;
+    type Item = Result<Vec<u8>>;
     type IntoIter = BlockIter<'a>;
+
     fn into_iter(self) -> Self::IntoIter {
         BlockIter { scanner: self }
     }
@@ -192,7 +193,7 @@ pub struct BlockIter<'a> {
 }
 
 impl<'a> Iterator for BlockIter<'_> {
-    type Item = Result<Vec<u8>, Error>;
+    type Item = Result<Vec<u8>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.scanner.scan() {
@@ -209,6 +210,26 @@ impl<'a> Iterator for BlockIter<'_> {
             Err(err) => Some(Err(err)),
         }
     }
+}
+
+/// Creates an iterator that produces byte-aligned data blocks.
+///
+/// The returned iterator produces synchronized blocks of `block_size` from a
+/// byte stream that are delimited by the `asm` byte sequence. The ASM and blocks
+/// do not need to be byte-aligned.
+///
+/// Data blocks are only produced if there are `block_size` bytes available, i.e.,
+/// any partial block at the end of the file is dropped.
+///
+/// Any errors reading from the stream will cause the iterator to exit.
+///
+/// For more control over the iteration process see [Synchronizer].
+pub fn read_synchronized_blocks<'a>(
+    reader: impl io::Read + Send + 'a,
+    asm: &Vec<u8>,
+    block_size: i32,
+) -> impl Iterator<Item = Result<Vec<u8>>> + 'a {
+    Synchronizer::new(reader, asm, block_size).into_iter()
 }
 
 #[cfg(test)]
