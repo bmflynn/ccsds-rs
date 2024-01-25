@@ -124,7 +124,10 @@ impl EOSCUCTimecode {
     }
 }
 
-pub fn parse_eoscuc_timecode(buf: &[u8]) -> Result<DateTime<Utc>, Error> {
+/// CCSDS unsegmneted timecode bytes used by NASA EOS Aqua & Terra to [DateTime].
+///
+/// Returns [Error::BufferTooShort] if there are not enough bytes.
+pub fn decode_eoscuc_timecode(buf: &[u8]) -> Result<DateTime<Utc>, Error> {
     if buf.len() < EOSCUCTimecode::SIZE {
         return Err(Error::BufferTooShort);
     }
@@ -152,7 +155,7 @@ mod eoscuc_tests {
         // bytes 7..15 from AIRS packet
         let dat: [u8; 8] = [0xae, 0x25, 0x74, 0xe3, 0xe5, 0xab, 0x5e, 0x2f];
 
-        let ts = parse_eoscuc_timecode(&dat).unwrap();
+        let ts = decode_eoscuc_timecode(&dat).unwrap();
         // FIXME: Needs absolute validation against known science data.
         //        This value is taken from parsed values.
         assert_eq!(ts.to_string(), "2020-02-22 19:56:00.366487200 UTC");
@@ -185,7 +188,10 @@ impl CDSTimecode {
     }
 }
 
-pub fn parse_cds_timecode(buf: &[u8]) -> Result<DateTime<Utc>, Error> {
+/// CCSDS day segmented timecode bytes to [DateTime].
+///
+/// Returns [Error::BufferTooShort] if there are not enough bytes.
+pub fn decode_cds_timecode(buf: &[u8]) -> Result<DateTime<Utc>, Error> {
     if buf.len() < CDSTimecode::SIZE {
         return Err(Error::BufferTooShort);
     }
@@ -212,7 +218,7 @@ mod cds_tests {
     fn test_cds_timecode() {
         let dat = [0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff];
 
-        let ts = parse_cds_timecode(&dat).unwrap();
+        let ts = decode_cds_timecode(&dat).unwrap();
         assert_eq!(ts.timestamp_millis(), 1451606400167);
     }
 }

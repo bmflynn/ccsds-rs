@@ -4,8 +4,8 @@ use std::io::{Read, Result as IOResult};
 use std::{collections::HashMap, convert::TryInto};
 
 pub use crate::timecode::{
-    parse_cds_timecode, parse_eoscuc_timecode, CDSTimecode, EOSCUCTimecode, Timecode,
-    TimecodeParser,
+    decode_cds_timecode, decode_eoscuc_timecode, CDSTimecode, EOSCUCTimecode, Timecode,
+    TimecodeParser, Error as TimecodeError,
 };
 use crate::{DecodedFrame, SCID, VCID};
 use serde::{Deserialize, Serialize};
@@ -27,7 +27,7 @@ pub type APID = u16;
 /// ```
 /// use ccsds::{
 ///     CDSTimecode,
-///     parse_cds_timecode,
+///     decode_cds_timecode,
 ///     Packet,
 ///     PrimaryHeader,
 /// };
@@ -42,7 +42,7 @@ pub type APID = u16;
 /// ];
 /// let mut r = std::io::BufReader::new(dat);
 /// let packet = Packet::read(&mut r).unwrap();
-/// let tc = parse_cds_timecode(&packet.data[PrimaryHeader::LEN..]);
+/// let tc = decode_cds_timecode(&packet.data[PrimaryHeader::LEN..]);
 /// ```
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Packet {
@@ -400,6 +400,7 @@ pub fn read_packet_groups<'a>(
     PacketGroupIter::with_reader(reader)
 }
 
+/// Collects the provided packets into [PacketGroup]s.
 pub fn collect_packet_groups<'a>(
     packets: Box<dyn Iterator<Item = Packet> + 'a>,
 ) -> impl Iterator<Item = IOResult<PacketGroup>> + 'a {
