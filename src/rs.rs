@@ -21,7 +21,9 @@ pub fn deinterleave(data: &Vec<u8>, interleave: i32) -> Vec<[u8; 255]> {
 }
 
 pub trait ReedSolomon: Send {
-    /// Correct an interleaved code block. This returns the code block data without the
+    /// Correct an interleaved code block.
+    ///
+    /// This returns the code block data without the
     /// RS check symbols/bytes and a state that will be [`RSState::Uncorrectable`] if any
     /// single contained message is uncorrectable. If all messages are correctable the returned
     /// state will be [`RSState::Corrected`] with the total number of corrected bytes for

@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::fmt::Display;
 use std::io::{Read, Result as IOResult};
 use std::{collections::HashMap, convert::TryInto};
@@ -6,6 +7,7 @@ pub use crate::timecode::{
     parse_cds_timecode, parse_eoscuc_timecode, CDSTimecode, EOSCUCTimecode, Timecode,
     TimecodeParser,
 };
+use crate::{DecodedFrame, SCID, VCID};
 use serde::{Deserialize, Serialize};
 
 /// Maximum packet sequence id before rollover.
@@ -48,10 +50,6 @@ pub struct Packet {
     pub header: PrimaryHeader,
     /// All packet bytes, including header and user data
     pub data: Vec<u8>,
-    /// If there is a discontinuity in the sequence counter for the APID in the
-    /// header (sequence counters are per-APID), this will contain a [Gap]
-    /// with the gap details. If there is no discontinuity this will be `None`.
-    pub gap: Option<Gap>,
 }
 
 impl Display for Packet {
@@ -95,7 +93,6 @@ impl Packet {
                     Some(Packet {
                         header,
                         data: dat.to_vec(),
-                        gap: None,
                     })
                 }
             }
@@ -104,8 +101,6 @@ impl Packet {
     }
 
     /// Read a single [Packet].
-    ///
-    /// [Packet::gap] will always be `None`.
     pub fn read(r: &mut dyn Read) -> IOResult<Packet> {
         let ph = PrimaryHeader::read(r)?;
 
@@ -117,7 +112,6 @@ impl Packet {
         Ok(Packet {
             header: ph,
             data: buf,
-            gap: None,
         })
     }
 }
@@ -183,36 +177,27 @@ impl PrimaryHeader {
 struct PacketReaderIter<'a> {
     reader: &'a mut dyn Read,
     offset: usize,
-    last: HashMap<APID, u16>,
 }
 
 impl<'a> PacketReaderIter<'a> {
     fn new(reader: &'a mut dyn Read) -> Self {
-        PacketReaderIter {
-            reader,
-            offset: 0,
-            last: HashMap::new(),
-        }
+        PacketReaderIter { reader, offset: 0 }
     }
 
-    fn check_gap(&self, packet: &Packet) -> Option<Gap> {
-        match self.last.get(&packet.header.apid) {
-            Some(prev_seq) => {
-                let cur_seq = packet.header.apid as i32;
-                let prev_seq = *prev_seq as i32;
-                let expected = (prev_seq + 1) % (MAX_SEQ_NUM + 1);
-                if cur_seq != expected {
-                    return Some(Gap {
-                        count: (cur_seq - prev_seq - 1) as u16,
-                        start: prev_seq as u16,
-                        offset: self.offset,
-                    });
-                }
-                return None;
-            }
-            None => None,
-        }
-    }
+    // fn _check_missing(&self, packet: &Packet) -> Option<u16> {
+    //     match self.last.get(&packet.header.apid) {
+    //         Some(prev_seq) => {
+    //             let cur_seq = packet.header.apid as i32;
+    //             let prev_seq = *prev_seq as i32;
+    //             let expected = (prev_seq + 1) % (MAX_SEQ_NUM + 1);
+    //             if cur_seq != expected {
+    //                 return Some((cur_seq - prev_seq - 1) as u16);
+    //             }
+    //             return None;
+    //         }
+    //         None => None,
+    //     }
+    // }
 }
 
 impl<'a> Iterator for PacketReaderIter<'a> {
@@ -220,9 +205,8 @@ impl<'a> Iterator for PacketReaderIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match Packet::read(&mut self.reader) {
-            Ok(mut p) => {
+            Ok(p) => {
                 self.offset += PrimaryHeader::LEN + p.header.len_minus1 as usize + 1;
-                p.gap = self.check_gap(&p);
                 return Some(Ok(p));
             }
             Err(err) => {
@@ -380,10 +364,11 @@ pub fn read_packets<'a>(reader: &'a mut dyn Read) -> impl Iterator<Item = IOResu
     PacketReaderIter::new(reader)
 }
 
-/// Return an [Iterator] providing [PacketGroup]s for all packets. This is necessary for
-/// packet streams containing APIDs that utilize packet grouping sequence flags values
-/// [SEQ_FIRST], [SEQ_CONTINUATION], and [SEQ_LAST]. It can also be used for non-grouped APIDs
-/// ([SEQ_UNSEGMENTED]), however, it is not necessary in such cases. See
+/// Return an [Iterator] that groups read packets into [PacketGroup]s.
+///
+/// This is necessary for packet streams containing APIDs that utilize packet grouping sequence
+/// flags values [SEQ_FIRST], [SEQ_CONTINUATION], and [SEQ_LAST]. It can also be used for
+/// non-grouped APIDs ([SEQ_UNSEGMENTED]), however, it is not necessary in such cases. See
 /// [PrimaryHeader::sequence_flags].
 ///
 /// # Examples
@@ -415,16 +400,159 @@ pub fn read_packet_groups<'a>(
     PacketGroupIter::with_reader(reader)
 }
 
-/// Provides information regarding apids in stream
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Gap {
-    /// Number of packets in gap. There's no guarantee there was no rollover,
-    /// which may occur if the gap consists of more than [MAX_SEQ_NUM] counts.
-    pub count: u16,
-    /// Starting sequence id
-    pub start: u16,
-    /// byte offset into reader for the first byte _after_ the gap.
-    pub offset: usize,
+pub fn collect_packet_groups<'a>(
+    packets: Box<dyn Iterator<Item = Packet> + 'a>,
+) -> impl Iterator<Item = IOResult<PacketGroup>> + 'a {
+    PacketGroupIter::with_packets(packets)
+}
+
+struct VcidTracker {
+    cache: Vec<u8>,
+    rs_corrected: bool,
+}
+
+struct FramedPacketIter<'a> {
+    frames: Box<dyn Iterator<Item = DecodedFrame> + 'a>,
+    izone_length: usize,
+    trailer_length: usize,
+
+    // True when a FHP has been found and data should be added to cache. False
+    // where there is a missing data due to RS failure or missing frames.
+    sync: bool,
+    // Cache of partial packet data from frames that has not yet been decoded into
+    // packets. There should only be up to about 1 frame worth of data in the cache
+    // per scid/vcid.
+    cache: HashMap<(SCID, VCID), VcidTracker>,
+    // Packets that have already been decoded and are waiting to be provided.
+    ready: VecDeque<Packet>,
+}
+
+impl<'a> Iterator for FramedPacketIter<'a> {
+    type Item = Packet;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        use rs2::RSState::*;
+
+        // If there are ready packets provide the oldest one
+        if let Some(packet) = self.ready.pop_front() {
+            return Some(packet);
+        }
+
+        // No packet ready, we have to find one
+        loop {
+            let frame = self.frames.next();
+            if frame.is_none() {
+                break;
+            }
+
+            let DecodedFrame {
+                frame,
+                missing,
+                rsstate,
+            } = frame.unwrap();
+
+            // If frame is fill, so is the MPDU
+            if frame.is_fill() {
+                continue;
+            }
+
+            let mpdu = frame.mpdu(self.izone_length, self.trailer_length);
+
+            // Data loss means we dump what we're working on and resync
+            if let Uncorrectable(_) = rsstate {
+                self.sync = false;
+                continue;
+            }
+
+            let key = (frame.header.scid, frame.header.vcid);
+            // A frame counter error only indicates that there are missing frames before this
+            // frame, however, this frame's data can still be used. The current vcid packet is now
+            // trash and we lose sync, but we do not have throw out the current frame so we let
+            // processing continue.
+            if missing.is_some() {
+                let _ = self.cache.remove(&key);
+                self.sync = false;
+            }
+
+            let tracker = self.cache.entry(key).or_insert(VcidTracker {
+                cache: vec![],
+                rs_corrected: false,
+            });
+
+            if self.sync {
+                // If we have sync add the VCID data to its cache
+                tracker.cache.extend_from_slice(mpdu.payload());
+            } else {
+                // No way to get sync if we don't have a header
+                if !mpdu.has_header() {
+                    continue;
+                }
+                tracker.cache = mpdu.payload()[mpdu.header_offset()..].to_vec();
+                if let Corrected(_) = rsstate {
+                    tracker.rs_corrected = true
+                }
+                self.sync = true;
+            }
+
+            // Collect all packets found in this frame/mpdu until we there's not
+            // enough data.
+            loop {
+                if tracker.cache.len() < PrimaryHeader::LEN {
+                    break;
+                }
+
+                // Construct the header w/o consuming the bytes
+                let header = PrimaryHeader::decode(&tracker.cache).unwrap();
+                let need = header.len_minus1 as usize + 1 + PrimaryHeader::LEN;
+                if tracker.cache.len() < need {
+                    break;
+                }
+
+                // Grab data we need and update the cache
+                let (data, tail) = tracker.cache.split_at(need);
+                let packet = Packet {
+                    header,
+                    data: data.to_vec(),
+                };
+                tracker.cache = tail.to_vec();
+
+                self.ready.push_back(packet);
+            }
+
+            // Decoding all done, provide what we found
+            return self.ready.pop_front();
+        }
+
+        // Attempted to read a frame, but the iterator is done.  Make sure to
+        // provide a ready frame if there are any.
+        return self.ready.pop_front();
+    }
+}
+
+/// Decodes the provided frames into a packets contained within the frames' MPDUs.
+///
+/// There are several cases when frame data cannot be fully recovered and is dropped,
+/// i.e., not used to construct packets:
+///
+/// 1. Missing frames
+/// 2. Frames with state [rs2::RSState::Uncorrectable]
+/// 3. Fill Frames
+/// 4. Frames before the first header is available in an MPDU
+///
+/// This will handle frames from multiple spacecrafts, i.e., with different SCIDs.
+pub fn decode_framed_packets<'a>(
+    frames: Box<dyn Iterator<Item = DecodedFrame> + 'a>,
+    izone_length: usize,
+    trailer_length: usize,
+) -> impl Iterator<Item = Packet> + 'a {
+    FramedPacketIter {
+        frames,
+        izone_length,
+        trailer_length,
+        sync: false,
+        cache: HashMap::new(),
+        ready: VecDeque::new(),
+    }
 }
 
 #[cfg(test)]

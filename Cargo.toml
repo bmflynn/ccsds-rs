@@ -1,14 +1,18 @@
 [package]
 name = "ccsds"
-version = "0.1.0"
+version = "0.1.0-alpha.0"
 authors = ["Bruce Flynn <brucef@ssec.wisc.edu>"]
-edition = "2018"
+edition = "2021"
+repository = "https://github.com/bmflynn/ccsds"
+description = "CCSDS spacecraft data stream decoding"
+keywords = ["ccsds"]
+categories = ["aerospace::space-protocols"]
+license_file = "LICENSE.txt"
 publish = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.75"
 chrono = { version = "0.4", features = ["serde"] }
 ndarray = "0.15.6"
 rayon = "1.7.0"

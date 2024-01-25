@@ -1,4 +1,5 @@
 use std::borrow::Borrow;
+use std::convert::TryInto;
 use std::io::Read;
 use std::sync::mpsc::{channel, sync_channel, Receiver};
 use std::sync::Arc;
@@ -60,11 +61,8 @@ impl Framing {
 
 /// VCID value indicating fill data
 pub const VCID_FILL: VCID = 63;
-/// MPDU first-header pointer value indicating fill data
-pub const MPDU_FILL: u16 = 0x7fe;
-/// MPDU first-header pointer value indicating this MPDU does not contain a packet
-/// primary header.
-pub const MPDU_NO_HEADER: u16 = 0x7ff;
+// Maximum value for the VCDU counter before rollover;
+pub const VCDU_COUNTER_MAX: u32 = 0xffffff - 1;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct VCDUHeader {
@@ -148,6 +146,40 @@ mod test {
     }
 }
 
+pub struct MPDU {
+    // the offset of the header minus 1
+    first_header: u16,
+    data: Vec<u8>,
+}
+
+impl MPDU {
+    /// MPDU first-header pointer value indicating fill data
+    pub const FILL: u16 = 0x7fe;
+    /// MPDU first-header pointer value indicating this MPDU does not contain a packet
+    /// primary header.
+    pub const NO_HEADER: u16 = 0x7ff;
+
+    pub fn is_fill(&self) -> bool {
+        self.first_header == Self::FILL
+    }
+
+    pub fn has_header(&self) -> bool {
+        self.first_header == Self::NO_HEADER
+    }
+
+    /// Get the payload bytes from this MPDU.
+    pub fn payload(&self) -> &[u8] {
+        if self.data.len() < 2 {
+            panic!("mpdu data too short");
+        }
+        &self.data[2..]
+    }
+
+    pub fn header_offset(&self) -> usize {
+        self.first_header as usize + 1
+    }
+}
+
 #[derive(Debug)]
 pub struct Frame {
     pub header: VCDUHeader,
@@ -161,11 +193,19 @@ impl Frame {
         Frame { header, data: dat }
     }
 
-    pub fn mpdu(&self, izone_length: i32, trailer_length: i32) -> Vec<u8> {
+    pub fn is_fill(&self) -> bool {
+        self.header.vcid == VCID_FILL
+    }
+
+    pub fn mpdu(&self, izone_length: usize, trailer_length: usize) -> MPDU {
         let start: usize = VCDUHeader::LEN + izone_length as usize;
         let end: usize = start + self.data.len() - trailer_length as usize;
+        let data = self.data[start..end].to_vec();
 
-        self.data[start..end].to_vec()
+        MPDU {
+            first_header: u16::from_be_bytes([data[0], data[1]]),
+            data,
+        }
     }
 }
 
@@ -175,6 +215,7 @@ pub struct DecodedFrameIter {
     jobs: Receiver<Receiver<(Frame, RSState)>>,
     errch: Receiver<std::io::Error>,
     handle: Option<JoinHandle<()>>,
+    last: Option<u32>,
 }
 
 impl DecodedFrameIter {
@@ -191,8 +232,14 @@ impl DecodedFrameIter {
     }
 }
 
+pub struct DecodedFrame {
+    pub frame: Frame,
+    pub missing: Option<u32>,
+    pub rsstate: RSState,
+}
+
 impl Iterator for DecodedFrameIter {
-    type Item = (Frame, RSState);
+    type Item = DecodedFrame;
 
     fn next(&mut self) -> Option<Self::Item> {
         return match self.jobs.recv() {
@@ -205,7 +252,29 @@ impl Iterator for DecodedFrameIter {
                     .expect("reedsolomon thread paniced");
                 None
             }
-            Ok(rx) => Some(rx.recv().expect("failed to receive future")),
+            Ok(rx) => {
+                let (frame, rsstate) = rx.recv().expect("failed to receive future");
+                let missing = match self.last {
+                    Some(last) => {
+                        let missing =
+                            missing_frames_count(frame.header.counter.into(), last.into());
+                        if missing > 0 {
+                            Some(missing)
+                        } else {
+                            None
+                        }
+                    }
+                    None => {
+                        self.last = Some(frame.header.counter);
+                        None
+                    }
+                };
+                Some(DecodedFrame {
+                    frame,
+                    missing,
+                    rsstate,
+                })
+            }
         };
     }
 }
@@ -358,6 +427,20 @@ impl FrameDecoderBuilder {
             jobs: jobs_rx,
             errch: err_rx,
             handle: Some(handle),
+            last: None,
         }
     }
+}
+
+fn missing_frames_count(cur: i64, last: i64) -> u32 {
+    let expected = (last + 1) % (VCDU_COUNTER_MAX + 1) as i64;
+    let mut missing: i64 = 0;
+    if cur != expected {
+        missing = cur - last - 1;
+        if missing < 0 {
+            missing += VCDU_COUNTER_MAX as i64;
+        }
+    }
+
+    missing.try_into().unwrap()
 }
