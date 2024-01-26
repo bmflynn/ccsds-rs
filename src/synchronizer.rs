@@ -295,7 +295,6 @@ mod tests {
         fn ccsds_asm_with_no_bitshift_succeeds() {
             let asm = ASM.to_vec();
             let r = &ASM[..];
-            // let r = fs::File::open("../dldecode/testdata/overpass_snpp_2017_7min.dat").unwrap();
             let mut scanner = Synchronizer::new(r, &asm, 0);
             let loc = scanner.scan().expect("Expected scan to succeed");
 
