@@ -214,16 +214,21 @@ impl<'a> Iterator for BlockIter<'_> {
 
 /// Creates an iterator that produces byte-aligned data blocks.
 ///
-/// The returned iterator produces synchronized blocks of `block_size` from a
-/// byte stream that are delimited by the `asm` byte sequence. The ASM and blocks
-/// do not need to be byte-aligned.
+/// `reader` is a [std::io::Read] implementation providing the byte stream. `asm` is the
+/// attached synchronization marker used to locate blocks in the data stream, and `block_size`
+/// is size of each block w/o the ASM.
+///
+/// The ASM need not be byte-aligned in the stream but it is expected that block data will
+/// follow immediately after the ASM. Blocks returned will be byte-aligned.
 ///
 /// Data blocks are only produced if there are `block_size` bytes available, i.e.,
 /// any partial block at the end of the file is dropped.
 ///
+/// For more control over the iteration process see [Synchronizer].
+///
+/// # Errors
 /// Any errors reading from the stream will cause the iterator to exit.
 ///
-/// For more control over the iteration process see [Synchronizer].
 pub fn read_synchronized_blocks<'a>(
     reader: impl io::Read + Send + 'a,
     asm: &Vec<u8>,

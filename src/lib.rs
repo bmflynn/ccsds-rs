@@ -29,8 +29,11 @@
 //!
 //! let file = fs::File::open("snpp.dat")
 //!     .expect("failed to open data file");
-//! let frames = FrameDecoderBuilder::new(1024, 4).build(file);
-//! let packets = decode_framed_packets(Box::new(frames), 0, 0);
+//! let frames = FrameDecoderBuilder::new(1024)
+//!     .reed_solomon_interleave(4)
+//!     .build(file);
+//! // Suomi-NPP has 0 length izone and trailer
+//! let packets = decode_framed_packets(157, Box::new(frames), 0, 0);
 //!
 //! // The VIIRS sensor on Suomi-NPP uses packet grouping, so here we collect the packets
 //! // into their associated groups.
@@ -63,7 +66,7 @@ mod pn;
 mod rs;
 mod spacepacket;
 mod synchronizer;
-mod timecode;
+pub mod timecode;
 
 pub use framing::*;
 pub use rs::{

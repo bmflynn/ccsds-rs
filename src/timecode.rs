@@ -2,9 +2,7 @@
 //!
 //! ## CCSDS Day Segmented Timecode (CDS) formats
 //!
-//! The following data types use the CDS format.
-//!
-//! Satellite/Sensors using this format
+//! Satellite/Sensors using this format (not a complete list!).
 //!
 //! | Mission   | Satellite | Types                   |
 //! |-----------|-----------|-------------------------|

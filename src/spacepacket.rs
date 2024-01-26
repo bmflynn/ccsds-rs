@@ -3,10 +3,6 @@ use std::fmt::Display;
 use std::io::{Read, Result as IOResult};
 use std::{collections::HashMap, convert::TryInto};
 
-pub use crate::timecode::{
-    decode_cds_timecode, decode_eoscuc_timecode, CDSTimecode, EOSCUCTimecode, Timecode,
-    TimecodeParser, Error as TimecodeError,
-};
 use crate::{DecodedFrame, SCID, VCID};
 use serde::{Deserialize, Serialize};
 
@@ -22,27 +18,20 @@ pub type APID = u16;
 /// `has_secondary_header` flag.
 ///
 /// # Example
-/// Create a packet from the minimum number of bytes. This example includes
-/// bytes for a `CDSTimecode` in the data zone.
+/// Create a packet from the minimum number of bytes.
 /// ```
-/// use ccsds::{
-///     CDSTimecode,
-///     decode_cds_timecode,
-///     Packet,
-///     PrimaryHeader,
-/// };
+/// use ccsds::{Packet, PrimaryHeader};
 ///
 /// let dat: &[u8] = &[
 ///     // primary header bytes
 ///     0xd, 0x59, 0xd2, 0xab, 0x0, 07,
-///     // CDS timecode bytes in secondary header
+///     // CDS timecode bytes in secondary header (not decoded here)
 ///     0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
 ///     // minimum 1 byte of user data
 ///     0xff
 /// ];
 /// let mut r = std::io::BufReader::new(dat);
 /// let packet = Packet::read(&mut r).unwrap();
-/// let tc = decode_cds_timecode(&packet.data[PrimaryHeader::LEN..]);
 /// ```
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Packet {
@@ -408,8 +397,43 @@ pub fn collect_packet_groups<'a>(
 }
 
 struct VcidTracker {
+    vcid: VCID,
+    /// Caches partial packets for this vcid
     cache: Vec<u8>,
+    // True when any frame used to fill the cache was rs corrected
     rs_corrected: bool,
+    // True when a FHP has been found and data should be added to cache. False
+    // where there is a missing data due to RS failure or missing frames.
+    sync: bool,
+}
+
+impl VcidTracker {
+    fn new(vcid: VCID) -> Self {
+        VcidTracker {
+            vcid,
+            sync: false,
+            cache: vec![],
+            rs_corrected: false,
+        }
+    }
+
+    fn clear(&mut self) {
+        self.cache.clear();
+        self.rs_corrected = false;
+    }
+}
+
+impl Display for VcidTracker {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "VcidTracker{{vcid={}, sync={}, cache_len={}, rs_corrected:{}}}",
+            self.vcid,
+            self.sync,
+            self.cache.len(),
+            self.rs_corrected
+        )
+    }
 }
 
 struct FramedPacketIter<'a> {
@@ -417,13 +441,9 @@ struct FramedPacketIter<'a> {
     izone_length: usize,
     trailer_length: usize,
 
-    // True when a FHP has been found and data should be added to cache. False
-    // where there is a missing data due to RS failure or missing frames.
-    sync: bool,
     // Cache of partial packet data from frames that has not yet been decoded into
     // packets. There should only be up to about 1 frame worth of data in the cache
-    // per scid/vcid.
-    cache: HashMap<(SCID, VCID), VcidTracker>,
+    cache: HashMap<VCID, VcidTracker>,
     // Packets that have already been decoded and are waiting to be provided.
     ready: VecDeque<Packet>,
 }
@@ -440,7 +460,7 @@ impl<'a> Iterator for FramedPacketIter<'a> {
         }
 
         // No packet ready, we have to find one
-        loop {
+        'next_frame: loop {
             let frame = self.frames.next();
             if frame.is_none() {
                 break;
@@ -451,37 +471,29 @@ impl<'a> Iterator for FramedPacketIter<'a> {
                 missing,
                 rsstate,
             } = frame.unwrap();
-
-            // If frame is fill, so is the MPDU
-            if frame.is_fill() {
-                continue;
-            }
-
             let mpdu = frame.mpdu(self.izone_length, self.trailer_length);
+            let tracker = self
+                .cache
+                .entry(frame.header.vcid)
+                .or_insert(VcidTracker::new(frame.header.vcid));
+            if let Corrected(_) = rsstate {
+                tracker.rs_corrected = true
+            }
 
-            // Data loss means we dump what we're working on and resync
+            // Data loss means we dump what we're working on and force resync
             if let Uncorrectable(_) = rsstate {
-                self.sync = false;
+                tracker.clear();
+                tracker.sync = false;
                 continue;
             }
-
-            let key = (frame.header.scid, frame.header.vcid);
-            // A frame counter error only indicates that there are missing frames before this
-            // frame, however, this frame's data can still be used. The current vcid packet is now
-            // trash and we lose sync, but we do not have throw out the current frame so we let
-            // processing continue.
-            if missing.is_some() {
-                let _ = self.cache.remove(&key);
-                self.sync = false;
+            // For counter errors, we can still utilize the current frame (no continue)
+            if missing > 0 {
+                tracker.clear();
+                tracker.sync = false;
             }
 
-            let tracker = self.cache.entry(key).or_insert(VcidTracker {
-                cache: vec![],
-                rs_corrected: false,
-            });
-
-            if self.sync {
-                // If we have sync add the VCID data to its cache
+            if tracker.sync {
+                // If we have sync all mpdu bytes are for this tracker/vcid
                 tracker.cache.extend_from_slice(mpdu.payload());
             } else {
                 // No way to get sync if we don't have a header
@@ -489,26 +501,19 @@ impl<'a> Iterator for FramedPacketIter<'a> {
                     continue;
                 }
                 tracker.cache = mpdu.payload()[mpdu.header_offset()..].to_vec();
-                if let Corrected(_) = rsstate {
-                    tracker.rs_corrected = true
-                }
-                self.sync = true;
+                tracker.sync = true;
             }
 
-            // Collect all packets found in this frame/mpdu until we there's not
-            // enough data.
+            if tracker.cache.len() < PrimaryHeader::LEN {
+                continue 'next_frame; // need more frame data for this vcid
+            }
+            let header = PrimaryHeader::decode(&tracker.cache).unwrap();
+            let mut need = header.len_minus1 as usize + 1 + PrimaryHeader::LEN;
+            if tracker.cache.len() < need {
+                continue; // need more frame data for this vcid
+            }
+
             loop {
-                if tracker.cache.len() < PrimaryHeader::LEN {
-                    break;
-                }
-
-                // Construct the header w/o consuming the bytes
-                let header = PrimaryHeader::decode(&tracker.cache).unwrap();
-                let need = header.len_minus1 as usize + 1 + PrimaryHeader::LEN;
-                if tracker.cache.len() < need {
-                    break;
-                }
-
                 // Grab data we need and update the cache
                 let (data, tail) = tracker.cache.split_at(need);
                 let packet = Packet {
@@ -516,11 +521,18 @@ impl<'a> Iterator for FramedPacketIter<'a> {
                     data: data.to_vec(),
                 };
                 tracker.cache = tail.to_vec();
-
                 self.ready.push_back(packet);
+
+                if tracker.cache.len() < PrimaryHeader::LEN {
+                    break;
+                }
+                let header = PrimaryHeader::decode(&tracker.cache).unwrap();
+                need = header.len_minus1 as usize + 1 + PrimaryHeader::LEN;
+                if tracker.cache.len() < need {
+                    break;
+                }
             }
 
-            // Decoding all done, provide what we found
             return self.ready.pop_front();
         }
 
@@ -542,15 +554,17 @@ impl<'a> Iterator for FramedPacketIter<'a> {
 ///
 /// This will handle frames from multiple spacecrafts, i.e., with different SCIDs.
 pub fn decode_framed_packets<'a>(
+    scid: SCID,
     frames: Box<dyn Iterator<Item = DecodedFrame> + 'a>,
     izone_length: usize,
     trailer_length: usize,
 ) -> impl Iterator<Item = Packet> + 'a {
     FramedPacketIter {
-        frames,
+        frames: Box::new(
+            frames.filter(move |dc| !dc.frame.is_fill() && dc.frame.header.scid == scid),
+        ),
         izone_length,
         trailer_length,
-        sync: false,
         cache: HashMap::new(),
         ready: VecDeque::new(),
     }

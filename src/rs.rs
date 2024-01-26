@@ -1,4 +1,4 @@
-pub use rs2::{correct_message, has_errors, RSState, PARITY_LEN};
+pub use rs2::{correct_message, has_errors, RSState, N, PARITY_LEN};
 
 /// Deinterleave an interleaved RS block (code block + check symbols).
 ///
@@ -6,7 +6,7 @@ pub use rs2::{correct_message, has_errors, RSState, PARITY_LEN};
 /// - If length of data is not a multiple of the interleave
 ///
 /// Ref: 130.1-G-2, Section 5.3
-pub fn deinterleave(data: &Vec<u8>, interleave: i32) -> Vec<[u8; 255]> {
+pub fn deinterleave(data: &Vec<u8>, interleave: u8) -> Vec<[u8; 255]> {
     if data.len() % interleave as usize != 0 {
         panic!("data not a mulitpile of interleave({})", interleave);
     }
@@ -21,6 +21,12 @@ pub fn deinterleave(data: &Vec<u8>, interleave: i32) -> Vec<[u8; 255]> {
 }
 
 pub trait ReedSolomon: Send {
+    /// Returns true if `block` meets the expectations of this implementation.
+    ///
+    /// For example, for RS(223/255) the block length must be a multple of 255 and contain
+    /// `interleave` RS messages.
+    fn can_correct(&self, block: &[u8], interleave: u8) -> bool;
+
     /// Correct an interleaved code block.
     ///
     /// This returns the code block data without the
@@ -29,13 +35,20 @@ pub trait ReedSolomon: Send {
     /// state will be [`RSState::Corrected`] with the total number of corrected bytes for
     /// all contained messages. If there are no errors return [`RSState::Ok`].
     ///
+    /// If the block cannot be correct by this implementation state will be
+    /// [RSState::NotPerformed].
+    ///
     /// The returned vector will be the original data without the RS parity bytes if
     /// uncorrectable or ok, otherwise it will be the corrected data without the RS parity
     /// bytes.
     ///
     /// # Panics
-    /// - If the length of block is not a multiple of interleave
-    fn correct_codeblock(&self, block: &[u8], interleave: i32) -> (Vec<u8>, RSState);
+    /// - If interleave is 0
+    ///
+    /// [can_correct]: Self::can_correct
+    fn correct_codeblock(&self, block: &[u8], interleave: u8) -> (Vec<u8>, RSState);
+
+    fn strip_parity(&self, block: &[u8], interleave: u8) -> Vec<u8>;
 }
 
 /// Implements the CCSDS documented Reed-Solomon FEC.
@@ -43,19 +56,26 @@ pub trait ReedSolomon: Send {
 pub struct DefaultReedSolomon;
 
 impl ReedSolomon for DefaultReedSolomon {
-    fn correct_codeblock(&self, block: &[u8], interleave: i32) -> (Vec<u8>, RSState) {
-        let block: Vec<u8> = block.to_vec();
-        if block.len() as i32 % interleave != 0 {
-            panic!(
-                "invalid block length for interleave {}: {}",
-                interleave,
-                block.len()
-            );
-        }
+    fn can_correct(&self, block: &[u8], interleave: u8) -> bool {
+        block.len() == N as usize * interleave as usize
+    }
 
+    fn strip_parity(&self, block: &[u8], interleave: u8) -> Vec<u8> {
         // Length without the RS parity bytes. This is effectively the frame
         let data_len = block.len() - (interleave as usize * PARITY_LEN);
+        block[..data_len].to_vec()
+    }
 
+    fn correct_codeblock(&self, block: &[u8], interleave: u8) -> (Vec<u8>, RSState) {
+        if interleave == 0 {
+            panic!("reed-solomon interleave cannot be 0");
+        }
+
+        if !self.can_correct(block, interleave) {
+            return (self.strip_parity(block, interleave), RSState::NotPerformed);
+        }
+
+        let block: Vec<u8> = block.to_vec();
         let mut corrected = vec![0u8; block.len()];
         let mut num_corrected = 0;
         let messages = deinterleave(&block, interleave);
@@ -64,10 +84,10 @@ impl ReedSolomon for DefaultReedSolomon {
             match zult.state {
                 RSState::Uncorrectable(msg) => {
                     return (
-                        block[..data_len].to_vec(),
+                        self.strip_parity(&corrected, interleave),
                         RSState::Uncorrectable(format!(
-                            "message {} is uncorrectable: {}",
-                            idx, msg
+                            "codeblock message {} of {} is uncorrectable: {}",
+                            idx, interleave, msg
                         )),
                     );
                 }
@@ -82,13 +102,13 @@ impl ReedSolomon for DefaultReedSolomon {
             }
         }
 
-        (
-            corrected[..data_len].to_vec(),
-            match num_corrected {
-                0 => RSState::Ok, // no rs messages in block were corrected
-                _ => RSState::Corrected(num_corrected),
-            },
-        )
+        let zult = self.strip_parity(&corrected, interleave);
+        let state = match num_corrected {
+            0 => RSState::Ok, // no rs messages in block were corrected
+            _ => RSState::Corrected(num_corrected),
+        };
+
+        (zult, state)
     }
 }
 
@@ -129,13 +149,13 @@ mod tests {
 
     #[test]
     fn test_correct_codeblock() {
-        let interleave = 4;
-        let mut block = vec![0u8; FIXTURE_MSG.len() * interleave];
+        let interleave: u8 = 4;
+        let mut block = vec![0u8; FIXTURE_MSG.len() * interleave as usize];
 
         // Interleave the same message interleave number of times
         for j in 0..FIXTURE_MSG.len() {
             for i in 0..interleave {
-                block[interleave * j + i] = FIXTURE_MSG[j];
+                block[interleave as usize * j + i as usize] = FIXTURE_MSG[j];
             }
         }
         assert_eq!(block.len(), 1020); // sanity check
@@ -145,7 +165,7 @@ mod tests {
         //let block = block;
 
         let rs = DefaultReedSolomon {};
-        let zult = rs.correct_codeblock(&block, interleave as i32);
+        let zult = rs.correct_codeblock(&block, interleave);
 
         assert_eq!(
             zult.0.len(),

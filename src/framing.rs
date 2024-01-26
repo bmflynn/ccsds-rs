@@ -159,12 +159,20 @@ impl MPDU {
     /// primary header.
     pub const NO_HEADER: u16 = 0x7ff;
 
+    pub fn decode(data: &[u8]) -> Self {
+        let x = u16::from_be_bytes([data[0], data[1]]);
+        MPDU {
+            first_header: x & 0x7ff,
+            data: data.to_vec(),
+        }
+    }
+
     pub fn is_fill(&self) -> bool {
         self.first_header == Self::FILL
     }
 
     pub fn has_header(&self) -> bool {
-        self.first_header == Self::NO_HEADER
+        !(self.first_header == Self::NO_HEADER)
     }
 
     /// Get the payload bytes from this MPDU.
@@ -176,7 +184,7 @@ impl MPDU {
     }
 
     pub fn header_offset(&self) -> usize {
-        self.first_header as usize + 1
+        self.first_header as usize
     }
 }
 
@@ -199,14 +207,17 @@ impl Frame {
 
     pub fn mpdu(&self, izone_length: usize, trailer_length: usize) -> MPDU {
         let start: usize = VCDUHeader::LEN + izone_length as usize;
-        let end: usize = start + self.data.len() - trailer_length as usize;
+        let end: usize = self.data.len() - trailer_length as usize;
         let data = self.data[start..end].to_vec();
 
-        MPDU {
-            first_header: u16::from_be_bytes([data[0], data[1]]),
-            data,
-        }
+        MPDU::decode(&data)
     }
+}
+
+pub struct DecodedFrame {
+    pub frame: Frame,
+    pub missing: u32,
+    pub rsstate: RSState,
 }
 
 /// Provides [Frame]s based on configuration provided by the parent [FrameDecoderBuilder].
@@ -232,16 +243,11 @@ impl DecodedFrameIter {
     }
 }
 
-pub struct DecodedFrame {
-    pub frame: Frame,
-    pub missing: Option<u32>,
-    pub rsstate: RSState,
-}
-
 impl Iterator for DecodedFrameIter {
     type Item = DecodedFrame;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // recv block current thread until data is available.
         return match self.jobs.recv() {
             Err(_) => {
                 self.done = true;
@@ -255,20 +261,11 @@ impl Iterator for DecodedFrameIter {
             Ok(rx) => {
                 let (frame, rsstate) = rx.recv().expect("failed to receive future");
                 let missing = match self.last {
-                    Some(last) => {
-                        let missing =
-                            missing_frames_count(frame.header.counter.into(), last.into());
-                        if missing > 0 {
-                            Some(missing)
-                        } else {
-                            None
-                        }
-                    }
-                    None => {
-                        self.last = Some(frame.header.counter);
-                        None
-                    }
+                    Some(last) => missing_frames_count(frame.header.counter.into(), last.into()),
+                    None => 0,
                 };
+                self.last = Some(frame.header.counter);
+
                 Some(DecodedFrame {
                     frame,
                     missing,
@@ -292,7 +289,7 @@ impl Iterator for DecodedFrameIter {
 /// and RS decoding is likewise performed concurrently.
 pub struct FrameDecoderBuilder {
     asm: Vec<u8>,
-    interleave: i32,
+    interleave: u8,
     cadu_length: i32,
     buffer_size: usize,
 
@@ -308,23 +305,30 @@ impl FrameDecoderBuilder {
     /// Create a new [DecodedFrameIter] with default values suitable for decoding most (all?)
     /// CCSDS compatible frame streams.
     ///
-    /// For most cases all that should be necessary is the following:
+    /// `cadu_length` should be the length of the attached sync marker and the Reed-Solomon
+    /// code block, if the stream uses Reed-Solomon, or the length of the transfer frame.
+    /// You _must_ include the length of the RS codeblock if the stream uses RS, even if you
+    /// have disabled RS FEC.
+    ///
+    /// Given the `interleave` for a spacecraft, for most cases all that should be necessary
+    /// is the following:
     /// ```
     /// use ccsds::FrameDecoderBuilder;
     /// let r = &[0u8; 1][..]; // implements Read
-    /// let builder = FrameDecoderBuilder::new(1024, 4);
-    /// builder.build(r);
+    /// let decoded_frames = FrameDecoderBuilder::new(1024)
+    ///     .reed_solomon_interleave(4)
+    ///     .build(r);
     /// ```
     ///
     /// It is possible, however, to twidle with default implementations using the provided
     /// builder functions.
-    pub fn new(cadu_length: i32, interleave: i32) -> Self {
+    pub fn new(cadu_length: i32) -> Self {
         FrameDecoderBuilder {
             cadu_length,
-            interleave,
+            interleave: 0,
             asm: ASM.to_vec(),
             pn_decoder: Some(pn_decode),
-            reed_solomon: Some(Box::new(DefaultReedSolomon {})),
+            reed_solomon: None,
             reed_solomon_threads: 0, // Let rayon decide
             buffer_size: Self::DEFAULT_BUFFER_SIZE,
         }
@@ -344,9 +348,28 @@ impl FrameDecoderBuilder {
         self
     }
 
+    /// Use the default Reed-Solomon with the specified interleave value.
+    ///
+    /// For more control over Reed-Solomon, see [reed_solomon].
+    ///
+    /// # Panics
+    /// If `interleave` is 0.
+    ///
+    /// [reed_solomon]: Self::reed_solomon
+    pub fn reed_solomon_interleave(self, interleave: u8) -> Self {
+        self.reed_solomon(Some(Box::new(DefaultReedSolomon {})), interleave)
+    }
+
     /// Set the Reed-Solomon per-CADU implementation to use. Defaults to [DefaultReedSolomon].
-    pub fn reed_solomon(mut self, rs: Option<Box<dyn ReedSolomon + Sync>>) -> Self {
+    ///
+    /// # Panics
+    /// If `interleave` is 0.
+    pub fn reed_solomon(mut self, rs: Option<Box<dyn ReedSolomon + Sync>>, interleave: u8) -> Self {
+        if interleave == 0 {
+            panic!("invalid rs interleave; must be > 0");
+        }
         self.reed_solomon = rs;
+        self.interleave = interleave;
         self
     }
 
@@ -403,13 +426,14 @@ impl FrameDecoderBuilder {
                     pool.spawn_fifo(move || {
                         // Only do PN if not None
                         if let Some(pn_decode) = pn_decoder {
-                            pn_decode(&mut block);
+                            block = pn_decode(&mut block);
                         }
                         // Only do RS if not None
                         let (dat, state) = match reed_solomon.borrow() {
                             Some(rs) => rs.correct_codeblock(&block, interleave),
                             None => (block, RSState::NotPerformed),
                         };
+
                         let frame = Frame::decode(dat);
                         future_tx
                             .send((frame, state))
@@ -443,4 +467,65 @@ fn missing_frames_count(cur: i64, last: i64) -> u32 {
     }
 
     missing.try_into().unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{fs, path::PathBuf};
+
+    fn fixture_path(name: &str) -> PathBuf {
+        let mut path = PathBuf::from(file!());
+        path.pop();
+        path.pop();
+        path.push(name.to_owned());
+        path
+    }
+
+    #[test]
+    fn test_decode_single_frame() {
+        let mut dat: Vec<u8> = vec![
+            0x67, 0x50, 0x96, 0x30, 0xbc, 0x80, // VCDU Header
+            0x07, 0xff, // MPDU header indicating no header
+        ];
+        for _ in 0..(892 - dat.len()) {
+            dat.push(0xff);
+        }
+
+        assert_eq!(dat.len(), 892);
+
+        let frame = Frame::decode(dat);
+        assert_eq!(frame.header.scid, 157);
+        assert_eq!(frame.header.vcid, 16);
+
+        let mpdu = frame.mpdu(0, 0);
+        assert!(!mpdu.is_fill());
+        assert!(
+            mpdu.first_header == MPDU::NO_HEADER,
+            "expected {} got {}",
+            MPDU::NO_HEADER,
+            mpdu.first_header
+        );
+        assert!(!mpdu.has_header());
+    }
+
+    #[test]
+    fn test_decode_frames() {
+        let fpath = fixture_path("tests/fixtures/snpp_7cadus_2vcids.dat");
+        let reader = fs::File::open(fpath).unwrap();
+
+        let frames: Vec<DecodedFrame> = FrameDecoderBuilder::new(1024)
+            .reed_solomon_interleave(4)
+            .build(reader)
+            .collect();
+        assert_eq!(frames.len(), 7, "expected frame count doesn't match");
+        for (idx, df) in frames.iter().enumerate() {
+            assert_eq!(df.frame.header.scid, 157);
+            if idx < 3 {
+                assert_eq!(df.frame.header.vcid, 16);
+            } else {
+                assert_eq!(df.frame.header.vcid, 6);
+            }
+        }
+    }
 }
