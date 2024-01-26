@@ -8,7 +8,7 @@ description = "CCSDS spacecraft data stream decoding"
 keywords = ["ccsds"]
 categories = ["aerospace::space-protocols"]
 license-file = "LICENSE.txt"
-publish = false
+repository = "https://github.com/bmflynn/ccsds-rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
