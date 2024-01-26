@@ -23,20 +23,25 @@ Supports:
 ### Examples
 The following example shows how to decode an unsynchrozied byte stream of CADUs for
 the Suomi-NPP spacecraft. This example code should work for any spacecraft data stream
-that conforms to CCSDS [TM Synchronization and Channel Codeing] and [Space Packet Protocol]
+that conforms to CCSDS [`TM Synchronization and Channel Coding`] and [`Space Packet Protocol`]
 documents.
 ```rust
 use std::fs;
-use ccsds::{FrameDecoderBuilder, decode_framed_packets, Packet};
+use ccsds::{FrameDecoderBuilder, decode_framed_packets, collect_packet_groups, PacketGroup};
 
 let file = fs::File::open("snpp.dat")
     .expect("failed to open data file");
-let mut frames = FrameDecoderBuilder::new(1024, 4).build(file);
-let packets = decode_framed_packets(&mut frames);
+let frames = FrameDecoderBuilder::new(1024)
+    .reed_solomon_interleave(4)
+    .build(file);
+// Suomi-NPP has 0 length izone and trailer
+let packets = decode_framed_packets(157, Box::new(frames), 0, 0);
 
 // The VIIRS sensor on Suomi-NPP uses packet grouping, so here we collect the packets
 // into their associated groups.
-let groups = PacketGroupIter::with_packets(packets).collect();
+let groups: Vec<PacketGroup> = collect_packet_groups(Box::new(packets))
+    .filter_map(|zult| zult.ok())
+    .collect();
 ```
 
 ### References:
