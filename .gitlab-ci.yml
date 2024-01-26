@@ -10,5 +10,5 @@ test:
   only:
     - main
   script:
-    - cargo test
+    - cargo test -- --include-ignored
 
