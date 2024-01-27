@@ -14,8 +14,8 @@ fn fixture_path(name: &str) -> PathBuf {
 #[test]
 fn packet_iter() {
     let fpath = fixture_path("tests/fixtures/viirs_packets.dat");
-    let mut reader = fs::File::open(fpath).unwrap();
-    let iter = read_packets(&mut reader);
+    let reader = fs::File::open(fpath).unwrap();
+    let iter = read_packets(Box::new(reader));
 
     let packets: Vec<Result<Packet, IoError>> = iter.collect();
 
@@ -25,8 +25,8 @@ fn packet_iter() {
 #[test]
 fn group_iter() {
     let fpath = fixture_path("tests/fixtures/viirs_packets.dat");
-    let mut reader = fs::File::open(fpath).unwrap();
-    let iter = read_packet_groups(&mut reader);
+    let reader = fs::File::open(fpath).unwrap();
+    let iter = read_packet_groups(Box::new(reader));
 
     let groups: Vec<Result<PacketGroup, IoError>> = iter.collect();
 
