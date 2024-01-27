@@ -61,7 +61,6 @@ fn block_iter() {
 }
 
 #[test]
-#[ignore]
 fn full_decode() {
     let fpath = fixture_path("tests/fixtures/snpp_synchronized_cadus.dat");
     let reader = fs::File::open(fpath).unwrap();

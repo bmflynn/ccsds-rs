@@ -164,12 +164,12 @@ impl PrimaryHeader {
 }
 
 struct PacketReaderIter {
-    reader: Box<dyn Read>,
+    reader: Box<dyn Read + Send>,
     offset: usize,
 }
 
 impl PacketReaderIter {
-    fn new(reader: Box<dyn Read>) -> Self {
+    fn new(reader: Box<dyn Read + Send>) -> Self {
         PacketReaderIter { reader, offset: 0 }
     }
 
@@ -208,8 +208,6 @@ impl Iterator for PacketReaderIter {
     }
 }
 
-type PacketIter<'a> = Box<dyn Iterator<Item = IOResult<Packet>> + 'a>;
-
 /// Packet data representing a CCSDS packet group according to the packet
 /// sequencing value in primary header.
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -219,7 +217,7 @@ pub struct PacketGroup {
 }
 
 struct PacketGroupIter<'a> {
-    packets: PacketIter<'a>,
+    packets: Box<dyn Iterator<Item = IOResult<Packet>> + Send + 'a>,
     group: PacketGroup,
     done: bool,
 }
@@ -228,7 +226,7 @@ impl<'a> PacketGroupIter<'a> {
     /// Create an iterator that reads source packets from the provided reader.
     ///
     ///
-    fn with_reader(reader: Box<dyn Read>) -> Self {
+    fn with_reader(reader: Box<dyn Read + Send>) -> Self {
         let packets = PacketReaderIter::new(reader)
             .filter(|zult| zult.is_ok())
             .map(|zult| zult.unwrap());
@@ -239,8 +237,8 @@ impl<'a> PacketGroupIter<'a> {
     /// iterator.
     ///
     /// Results genreated by the iterator will always be `Ok`.
-    fn with_packets(packets: Box<dyn Iterator<Item = Packet> + 'a>) -> Self {
-        let packets: PacketIter = Box::new(packets.map(|p| IOResult::<Packet>::Ok(p)));
+    fn with_packets(packets: Box<dyn Iterator<Item = Packet> + Send + 'a>) -> Self {
+        let packets: Box<dyn Iterator<Item = IOResult<Packet>> + Send + 'a> = Box::new(packets.map(|p| IOResult::<Packet>::Ok(p)));
         PacketGroupIter {
             packets,
             group: PacketGroup {
@@ -349,7 +347,7 @@ impl Iterator for PacketGroupIter<'_> {
 ///     assert_eq!(packet.header.apid, 1369);
 /// });
 /// ```
-pub fn read_packets(reader: Box<dyn Read>) -> impl Iterator<Item = IOResult<Packet>> {
+pub fn read_packets(reader: Box<dyn Read + Send>) -> impl Iterator<Item = IOResult<Packet>> + Send{
     PacketReaderIter::new(reader)
 }
 
@@ -384,15 +382,15 @@ pub fn read_packets(reader: Box<dyn Read>) -> impl Iterator<Item = IOResult<Pack
 /// });
 /// ```
 pub fn read_packet_groups(
-    reader: Box<dyn Read>,
+    reader: Box<dyn Read + Send>,
 ) -> impl Iterator<Item = IOResult<PacketGroup>> {
     PacketGroupIter::with_reader(reader)
 }
 
 /// Collects the provided packets into [PacketGroup]s.
 pub fn collect_packet_groups(
-    packets: Box<dyn Iterator<Item = Packet>>,
-) -> impl Iterator<Item = IOResult<PacketGroup>> {
+    packets: Box<dyn Iterator<Item = Packet> + Send>,
+) -> impl Iterator<Item = IOResult<PacketGroup>> + Send {
     PacketGroupIter::with_packets(packets)
 }
 
@@ -437,7 +435,7 @@ impl Display for VcidTracker {
 }
 
 struct FramedPacketIter<'a> {
-    frames: Box<dyn Iterator<Item = DecodedFrame> + 'a>,
+    frames: Box<dyn Iterator<Item = DecodedFrame> + Send + 'a>,
     izone_length: usize,
     trailer_length: usize,
 
@@ -555,10 +553,10 @@ impl<'a> Iterator for FramedPacketIter<'a> {
 /// This will handle frames from multiple spacecrafts, i.e., with different SCIDs.
 pub fn decode_framed_packets<'a>(
     scid: SCID,
-    frames: Box<dyn Iterator<Item = DecodedFrame> + 'a>,
+    frames: Box<dyn Iterator<Item = DecodedFrame> + Send + 'a>,
     izone_length: usize,
     trailer_length: usize,
-) -> impl Iterator<Item = Packet> + 'a {
+) -> impl Iterator<Item = Packet> + Send + 'a {
     FramedPacketIter {
         frames: Box::new(
             frames.filter(move |dc| !dc.frame.is_fill() && dc.frame.header.scid == scid),
