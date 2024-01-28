@@ -624,4 +624,11 @@ mod tests {
         assert_eq!(packets[0].header.sequence_id, 1);
         assert_eq!(packets[1].header.sequence_id, 2);
     }
+
+    #[test]
+    fn test_missing_packets() {
+        assert_eq!(missing_packets(5, 4), 0);
+        assert_eq!(missing_packets(5, 3), 1);
+        assert_eq!(missing_packets(1, u16::MAX), 1);
+    }
 }

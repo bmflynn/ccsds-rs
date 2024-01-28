@@ -541,4 +541,11 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_missing_frames() {
+        assert_eq!(missing_frames(5, 4), 0);
+        assert_eq!(missing_frames(5, 3), 1);
+        assert_eq!(missing_frames(1, u32::MAX), 1);
+    }
 }
