@@ -163,6 +163,19 @@ impl PrimaryHeader {
     }
 }
 
+/// Calculate the number of missing sequence ids.
+///
+/// `cur` is the current sequence id. `last` is the sequence id seen before `cur`.
+pub fn missing_packets(cur: u16, last: u16) -> u16 {
+    let cur: i32 = cur.into();
+    let last: i32 = last.into();
+    let expected = (last + 1) as i32 % (MAX_SEQ_NUM + 1);
+    if cur != expected {
+        return (cur - last - 1) as u16;
+    }
+    return 0;
+}
+
 struct PacketReaderIter {
     reader: Box<dyn Read + Send>,
     offset: usize,
@@ -173,20 +186,6 @@ impl PacketReaderIter {
         PacketReaderIter { reader, offset: 0 }
     }
 
-    // fn _check_missing(&self, packet: &Packet) -> Option<u16> {
-    //     match self.last.get(&packet.header.apid) {
-    //         Some(prev_seq) => {
-    //             let cur_seq = packet.header.apid as i32;
-    //             let prev_seq = *prev_seq as i32;
-    //             let expected = (prev_seq + 1) % (MAX_SEQ_NUM + 1);
-    //             if cur_seq != expected {
-    //                 return Some((cur_seq - prev_seq - 1) as u16);
-    //             }
-    //             return None;
-    //         }
-    //         None => None,
-    //     }
-    // }
 }
 
 impl Iterator for PacketReaderIter {

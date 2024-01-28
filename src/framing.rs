@@ -456,6 +456,19 @@ impl FrameDecoderBuilder {
     }
 }
 
+/// Calculate the number of missing frame sequence counts.
+///
+/// `cur` is the current frame counter. `last` is the frame counter seen before `cur`.
+pub fn missing_frames(cur: u32, last: u32) -> u32 {
+    let cur: i64 = cur.into();
+    let last: i64 = last.into();
+    let expected = (last + 1) as i64 % (VCDU_COUNTER_MAX as i64 + 1);
+    if cur != expected {
+        return (cur - last - 1) as u32;
+    }
+    return 0;
+}
+
 fn missing_frames_count(cur: i64, last: i64) -> u32 {
     let expected = (last + 1) % (VCDU_COUNTER_MAX + 1) as i64;
     let mut missing: i64 = 0;
