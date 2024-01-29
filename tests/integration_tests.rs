@@ -1,4 +1,5 @@
 use ccsds::*;
+use md5::{Digest, Md5};
 use std::fs;
 use std::io::Error as IoError;
 use std::path::PathBuf;
@@ -74,6 +75,15 @@ fn full_decode() {
     let packets: Vec<Packet> =
         decode_framed_packets(157, Box::new(frames.into_iter()), 0, 0).collect();
     assert_eq!(packets.len(), 12, "expected packet count doesn't match");
+
+    let mut hasher = Md5::new();
+    packets.iter().for_each(|p| hasher.update(&p.data));
+    let result = hasher.finalize();
+    assert_eq!(
+        result[..],
+        hex::decode("5e11051d86c46ddc3500904c99bbe978").expect("bad fixture checksum"),
+        "output checksum does not match fixture file checksum"
+    );
 
     // The VIIRS sensor on Suomi-NPP uses packet grouping, so here we collect the packets
     // into their associated groups.

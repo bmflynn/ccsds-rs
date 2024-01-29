@@ -504,7 +504,7 @@ impl<'a> Iterator for FramedPacketIter<'a> {
             if tracker.cache.len() < PrimaryHeader::LEN {
                 continue 'next_frame; // need more frame data for this vcid
             }
-            let header = PrimaryHeader::decode(&tracker.cache).unwrap();
+            let mut header = PrimaryHeader::decode(&tracker.cache).unwrap();
             let mut need = header.len_minus1 as usize + 1 + PrimaryHeader::LEN;
             if tracker.cache.len() < need {
                 continue; // need more frame data for this vcid
@@ -514,16 +514,17 @@ impl<'a> Iterator for FramedPacketIter<'a> {
                 // Grab data we need and update the cache
                 let (data, tail) = tracker.cache.split_at(need);
                 let packet = Packet {
-                    header,
+                    header: PrimaryHeader::decode(&data)?,
                     data: data.to_vec(),
                 };
+                println!("{:?}", packet.header);
                 tracker.cache = tail.to_vec();
                 self.ready.push_back(packet);
 
                 if tracker.cache.len() < PrimaryHeader::LEN {
                     break;
                 }
-                let header = PrimaryHeader::decode(&tracker.cache).unwrap();
+                header = PrimaryHeader::decode(&tracker.cache).unwrap();
                 need = header.len_minus1 as usize + 1 + PrimaryHeader::LEN;
                 if tracker.cache.len() < need {
                     break;

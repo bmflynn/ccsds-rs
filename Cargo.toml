@@ -26,4 +26,7 @@ name = "ccsds"
 path = "src/lib.rs"
 
 [dev-dependencies]
+hex = "0.4.3"
+md-5 = "0.10.6"
 rand = "0.8.5"
+tempfile = "3.9.0"
