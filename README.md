@@ -1,7 +1,7 @@
 # ccsds
 
 [![Crates.io](https://img.shields.io/crates/v/ccsds.svg?logo=rust&style=flat-square)](https://crates.io/crates/ccsds)
-[![Actions Status](https://img.shields.io/github/actions/workflow/status/bmflynn/ccsds/test.yml?branch=main&logo=github&style=flat-square)](https://github.com/bmflynn/ccsds/actions)
+[![Actions Status](https://img.shields.io/github/actions/workflow/status/bmflynn/ccsds/rust.yml?branch=main&logo=github&style=flat-square)](https://github.com/bmflynn/ccsds/actions)
 
 ## CCSDS Spacecraft Data Stream Decoding
 
