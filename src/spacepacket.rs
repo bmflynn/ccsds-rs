@@ -517,7 +517,6 @@ impl<'a> Iterator for FramedPacketIter<'a> {
                     header: PrimaryHeader::decode(&data)?,
                     data: data.to_vec(),
                 };
-                println!("{:?}", packet.header);
                 tracker.cache = tail.to_vec();
                 self.ready.push_back(packet);
 
