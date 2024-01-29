@@ -3,6 +3,9 @@
 [![Crates.io](https://img.shields.io/crates/v/ccsds.svg?logo=rust&style=flat-square)](https://crates.io/crates/ccsds)
 [![Actions Status](https://img.shields.io/github/actions/workflow/status/bmflynn/ccsds-rs/rust.yml?branch=main&logo=github&style=flat-square)](https://github.com/bmflynn/ccsds-rs/actions)
 
+> This is an early release of this project. Its API is likely to change slightly in incompatible
+> ways.
+
 ## CCSDS Spacecraft Data Stream Decoding
 
 The project provides tools for decoding spacecraft downlink telemetry streams conforming
@@ -46,6 +49,10 @@ let groups: Vec<PacketGroup> = collect_packet_groups(Box::new(packets))
     .filter_map(|zult| zult.ok())
     .collect();
 ```
+
+## Python
+Python bindings for this crate created using [PyO3](https://pyo3.rs) can be found at
+<https://github.com/bmflynn/ccsdspy>.
 
 ### References:
 * [`CCSDS`]
