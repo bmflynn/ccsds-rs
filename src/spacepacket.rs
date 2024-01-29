@@ -73,7 +73,7 @@ impl Packet {
     /// Decode from bytes. Returns `None` if there are not enough bytes to construct the
     /// header or if there are not enough bytes to construct the [Packet] of the length
     /// indicated by the header.
-    pub fn decode(dat: &mut [u8]) -> Option<Packet> {
+    pub fn decode(dat: &[u8]) -> Option<Packet> {
         match PrimaryHeader::decode(dat) {
             Some(header) => {
                 if dat.len() < header.len_minus1 as usize + 1 {
@@ -185,7 +185,6 @@ impl PacketReaderIter {
     fn new(reader: Box<dyn Read + Send>) -> Self {
         PacketReaderIter { reader, offset: 0 }
     }
-
 }
 
 impl Iterator for PacketReaderIter {
@@ -237,7 +236,8 @@ impl<'a> PacketGroupIter<'a> {
     ///
     /// Results genreated by the iterator will always be `Ok`.
     fn with_packets(packets: Box<dyn Iterator<Item = Packet> + Send + 'a>) -> Self {
-        let packets: Box<dyn Iterator<Item = IOResult<Packet>> + Send + 'a> = Box::new(packets.map(|p| IOResult::<Packet>::Ok(p)));
+        let packets: Box<dyn Iterator<Item = IOResult<Packet>> + Send + 'a> =
+            Box::new(packets.map(|p| IOResult::<Packet>::Ok(p)));
         PacketGroupIter {
             packets,
             group: PacketGroup {
@@ -346,7 +346,7 @@ impl Iterator for PacketGroupIter<'_> {
 ///     assert_eq!(packet.header.apid, 1369);
 /// });
 /// ```
-pub fn read_packets(reader: Box<dyn Read + Send>) -> impl Iterator<Item = IOResult<Packet>> + Send{
+pub fn read_packets(reader: Box<dyn Read + Send>) -> impl Iterator<Item = IOResult<Packet>> + Send {
     PacketReaderIter::new(reader)
 }
 
