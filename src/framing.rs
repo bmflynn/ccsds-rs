@@ -494,7 +494,7 @@ pub fn missing_frames(cur: u32, last: u32) -> u32 {
         last + 1
     };
     if cur != expected {
-        if last > cur {
+        if last + 1 > cur {
             return cur + VCDUHeader::COUNTER_MAX - last;
         }
         return cur - last - 1;
@@ -566,5 +566,6 @@ mod tests {
         assert_eq!(missing_frames(5, 3), 1);
         assert_eq!(missing_frames(0, VCDUHeader::COUNTER_MAX), 0);
         assert_eq!(missing_frames(0, VCDUHeader::COUNTER_MAX - 1), 1);
+        assert_eq!(missing_frames(0, 0), VCDUHeader::COUNTER_MAX);
     }
 }

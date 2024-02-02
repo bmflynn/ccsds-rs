@@ -6,9 +6,6 @@ use std::io::{Read, Result as IOResult};
 use crate::{DecodedFrame, SCID, VCID};
 use serde::{Deserialize, Serialize};
 
-/// Maximum packet sequence id before rollover.
-pub const MAX_SEQ_NUM: u16 = 16383;
-
 pub type APID = u16;
 
 /// Packet represents a single CCSDS space packet and its associated data.
@@ -141,6 +138,7 @@ pub struct PrimaryHeader {
 impl PrimaryHeader {
     /// Size of a ``PrimaryHeader``
     pub const LEN: usize = 6;
+    pub const SEQ_MAX: u16 = 16383;
 
     /// Read header from `r`.
     ///
@@ -181,10 +179,14 @@ impl PrimaryHeader {
 /// `cur` is the current sequence id. `last` is the sequence id seen before `cur`.
 #[must_use]
 pub fn missing_packets(cur: u16, last: u16) -> u16 {
-    let expected = if last + 1 > MAX_SEQ_NUM { 0 } else { last + 1 };
+    let expected = if last + 1 > PrimaryHeader::SEQ_MAX {
+        0
+    } else {
+        last + 1
+    };
     if cur != expected {
-        if last > cur {
-            return cur + MAX_SEQ_NUM - last;
+        if last + 1 > cur {
+            return cur + PrimaryHeader::SEQ_MAX - last;
         }
         return cur - last - 1;
     }
@@ -644,7 +646,8 @@ mod tests {
     fn test_missing_packets() {
         assert_eq!(missing_packets(5, 4), 0);
         assert_eq!(missing_packets(5, 3), 1);
-        assert_eq!(missing_packets(0, MAX_SEQ_NUM), 0);
-        assert_eq!(missing_packets(0, MAX_SEQ_NUM - 1), 1);
+        assert_eq!(missing_packets(0, PrimaryHeader::SEQ_MAX), 0);
+        assert_eq!(missing_packets(0, PrimaryHeader::SEQ_MAX - 1), 1);
+        assert_eq!(missing_packets(0, 0), PrimaryHeader::SEQ_MAX);
     }
 }

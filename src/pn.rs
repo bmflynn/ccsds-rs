@@ -168,7 +168,8 @@ pub type PNDecoder = fn(&[u8]) -> Vec<u8>;
 pub fn decode(buf: &[u8]) -> Vec<u8> {
     assert!(
         buf.len() < SEQUENCE.len(),
-        "data longer than the PN sequence"
+        "data longer than the PN sequence: got {}, wanted < {}",
+        buf.len(), SEQUENCE.len()
     );
     let arr = arr1(buf);
     let seq = arr1(&SEQUENCE[..buf.len()]);
