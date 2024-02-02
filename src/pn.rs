@@ -98,7 +98,7 @@ const SEQUENCE: [u8; 1275] = [
 
 fn flip_bits(b: u8) -> u8 {
     let mut x: u8 = 0;
-    for (i, shft) in (&[7, 5, 3, 1, -1, -3, -5, -7]).iter().enumerate() {
+    for (i, shft) in ([7, 5, 3, 1, -1, -3, -5, -7]).iter().enumerate() {
         if *shft > 0 {
             x |= (b & (1 << i)) << shft;
         } else {
@@ -121,7 +121,7 @@ fn flip_bits(b: u8) -> u8 {
 #[allow(dead_code)]
 fn generate_pn_sequence(poly: u8, gen: u8) -> [u8; 255] {
     let mut table = [0u8; 255];
-    table[0] = gen.clone();
+    table[0] = gen;
 
     for num in 1..255 {
         // logic works in a different order than byte ordering
@@ -145,8 +145,10 @@ fn generate_pn_sequence(poly: u8, gen: u8) -> [u8; 255] {
 
 fn _decode(buf: &mut [u8]) {
     let mut k = 0;
-    for n in 0..buf.len() {
-        buf[n] = buf[n] ^ SEQUENCE[k];
+    // for n in 0..buf.len() {
+    //    buf[n] ^= SEQUENCE[k];
+    for b in buf {
+        *b ^= SEQUENCE[k];
         k += 1;
         if k == SEQUENCE.len() {
             k = 0;
@@ -157,16 +159,17 @@ fn _decode(buf: &mut [u8]) {
 /// An implementation of Pseudo-noise removal.
 pub type PNDecoder = fn(&[u8]) -> Vec<u8>;
 
-/// Remove pseudo-noise for data up to the length of [SEQUENCE]. 
+/// Remove pseudo-noise for data up to the length of [SEQUENCE].
 ///
-/// # Panic 
+/// # Panic
 /// - If the provided data is longer than [SEQUENCE]
 ///
 // FIXME: Support data longer than [SEQUENCE]
 pub fn decode(buf: &[u8]) -> Vec<u8> {
-    if buf.len() > SEQUENCE.len() {
-        panic!("")
-    }
+    assert!(
+        buf.len() < SEQUENCE.len(),
+        "data longer than the PN sequence"
+    );
     let arr = arr1(buf);
     let seq = arr1(&SEQUENCE[..buf.len()]);
 
@@ -207,7 +210,7 @@ mod tests {
 
         let mut buf = [0u8; 6];
         buf.clone_from_slice(&dat[..]);
-        let zult = decode(&mut buf);
+        let zult = decode(&buf);
 
         for (i, (a, b)) in zult.iter().zip(expected.iter()).enumerate() {
             assert_eq!(*a, *b, "failed at index {i}");

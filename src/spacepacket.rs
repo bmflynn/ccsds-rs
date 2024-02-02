@@ -1,13 +1,13 @@
+use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::fmt::Display;
 use std::io::{Read, Result as IOResult};
-use std::{collections::HashMap, convert::TryInto};
 
 use crate::{DecodedFrame, SCID, VCID};
 use serde::{Deserialize, Serialize};
 
 /// Maximum packet sequence id before rollover.
-pub const MAX_SEQ_NUM: i32 = 16383;
+pub const MAX_SEQ_NUM: u16 = 16383;
 
 pub type APID = u16;
 
@@ -54,18 +54,22 @@ impl Display for Packet {
 }
 
 impl Packet {
+    #[must_use]
     pub fn is_first(&self) -> bool {
         self.header.sequence_flags == SEQ_FIRST
     }
 
+    #[must_use]
     pub fn is_last(&self) -> bool {
         self.header.sequence_flags == SEQ_LAST
     }
 
+    #[must_use]
     pub fn is_cont(&self) -> bool {
         self.header.sequence_flags == SEQ_CONTINUATION
     }
 
+    #[must_use]
     pub fn is_standalone(&self) -> bool {
         self.header.sequence_flags == SEQ_UNSEGMENTED
     }
@@ -73,6 +77,7 @@ impl Packet {
     /// Decode from bytes. Returns `None` if there are not enough bytes to construct the
     /// header or if there are not enough bytes to construct the [Packet] of the length
     /// indicated by the header.
+    #[must_use]
     pub fn decode(dat: &[u8]) -> Option<Packet> {
         match PrimaryHeader::decode(dat) {
             Some(header) => {
@@ -90,11 +95,14 @@ impl Packet {
     }
 
     /// Read a single [Packet].
+    ///
+    /// # Errors
+    /// Any ``std::io::Error`` reading
     pub fn read(r: &mut dyn Read) -> IOResult<Packet> {
         let ph = PrimaryHeader::read(r)?;
 
         // read the user data, shouldn't panic since unpacking worked
-        let mut buf = vec![0u8; (ph.len_minus1 + 1).try_into().unwrap()];
+        let mut buf = vec![0u8; (ph.len_minus1 + 1).into()];
 
         r.read_exact(&mut buf)?;
 
@@ -131,9 +139,13 @@ pub struct PrimaryHeader {
 }
 
 impl PrimaryHeader {
-    /// Size of a PrimaryHeader
+    /// Size of a ``PrimaryHeader``
     pub const LEN: usize = 6;
 
+    /// Read header from `r`.
+    ///
+    /// # Errors
+    /// Any ``std::io::Error`` reading
     pub fn read(r: &mut dyn Read) -> IOResult<PrimaryHeader> {
         let mut buf = [0u8; Self::LEN];
         r.read_exact(&mut buf)?;
@@ -143,6 +155,7 @@ impl PrimaryHeader {
 
     /// Decode from bytes. Returns `None` if there are not enough bytes to construct the
     /// header.
+    #[must_use]
     pub fn decode(buf: &[u8]) -> Option<Self> {
         if buf.len() < Self::LEN {
             return None;
@@ -155,9 +168,9 @@ impl PrimaryHeader {
             version: (d1 >> 13 & 0x7) as u8,
             type_flag: (d1 >> 12 & 0x1) as u8,
             has_secondary_header: (d1 >> 11 & 0x1) == 1,
-            apid: (d1 & 0x7ff) as u16,
+            apid: (d1 & 0x7ff),
             sequence_flags: (d2 >> 14 & 0x3) as u8,
-            sequence_id: (d2 & 0x3fff) as u16,
+            sequence_id: (d2 & 0x3fff),
             len_minus1: d3,
         })
     }
@@ -166,14 +179,16 @@ impl PrimaryHeader {
 /// Calculate the number of missing sequence ids.
 ///
 /// `cur` is the current sequence id. `last` is the sequence id seen before `cur`.
+#[must_use]
 pub fn missing_packets(cur: u16, last: u16) -> u16 {
-    let cur: i32 = cur.into();
-    let last: i32 = last.into();
-    let expected = (last + 1) as i32 % (MAX_SEQ_NUM + 1);
+    let expected = if last + 1 > MAX_SEQ_NUM { 0 } else { last + 1 };
     if cur != expected {
-        return (cur - last - 1) as u16;
+        if last > cur {
+            return cur + MAX_SEQ_NUM - last;
+        }
+        return cur - last - 1;
     }
-    return 0;
+    0
 }
 
 struct PacketReaderIter {
@@ -194,7 +209,7 @@ impl Iterator for PacketReaderIter {
         match Packet::read(&mut self.reader) {
             Ok(p) => {
                 self.offset += PrimaryHeader::LEN + p.header.len_minus1 as usize + 1;
-                return Some(Ok(p));
+                Some(Ok(p))
             }
             Err(err) => {
                 if err.kind() == std::io::ErrorKind::UnexpectedEof {
@@ -226,8 +241,8 @@ impl<'a> PacketGroupIter<'a> {
     ///
     fn with_reader(reader: Box<dyn Read + Send>) -> Self {
         let packets = PacketReaderIter::new(reader)
-            .filter(|zult| zult.is_ok())
-            .map(|zult| zult.unwrap());
+            .filter(Result::is_ok)
+            .map(Result::unwrap);
         Self::with_packets(Box::new(packets))
     }
 
@@ -237,7 +252,7 @@ impl<'a> PacketGroupIter<'a> {
     /// Results genreated by the iterator will always be `Ok`.
     fn with_packets(packets: Box<dyn Iterator<Item = Packet> + Send + 'a>) -> Self {
         let packets: Box<dyn Iterator<Item = IOResult<Packet>> + Send + 'a> =
-            Box::new(packets.map(|p| IOResult::<Packet>::Ok(p)));
+            Box::new(packets.map(IOResult::<Packet>::Ok));
         PacketGroupIter {
             packets,
             group: PacketGroup {
@@ -250,13 +265,13 @@ impl<'a> PacketGroupIter<'a> {
 
     /// True when this group contains at least 1 packet.
     fn have_packets(&self) -> bool {
-        self.group.packets.len() > 0
+        !self.group.packets.is_empty()
     }
 
     /// Given our current state, does packet indicate we should start a new group.
     fn should_start_new_group(&self, packet: &Packet) -> bool {
         packet.is_first()
-            || (self.group.packets.len() > 0
+            || (!self.group.packets.is_empty()
                 && self.group.packets[0].header.apid != packet.header.apid)
     }
 
@@ -317,7 +332,7 @@ impl Iterator for PacketGroupIter<'_> {
         if self.have_packets() {
             return Some(Ok(self.new_group(None)));
         }
-        return None;
+        None
     }
 }
 
@@ -325,7 +340,7 @@ impl Iterator for PacketGroupIter<'_> {
 /// packet stream.
 ///
 /// For packet streams that may contain packets that utilize packet grouping see
-/// [read_packet_groups].
+/// ``read_packet_groups``.
 ///
 /// # Examples
 /// ```
@@ -350,12 +365,12 @@ pub fn read_packets(reader: Box<dyn Read + Send>) -> impl Iterator<Item = IOResu
     PacketReaderIter::new(reader)
 }
 
-/// Return an [Iterator] that groups read packets into [PacketGroup]s.
+/// Return an [Iterator] that groups read packets into ``PacketGroup``s.
 ///
 /// This is necessary for packet streams containing APIDs that utilize packet grouping sequence
-/// flags values [SEQ_FIRST], [SEQ_CONTINUATION], and [SEQ_LAST]. It can also be used for
-/// non-grouped APIDs ([SEQ_UNSEGMENTED]), however, it is not necessary in such cases. See
-/// [PrimaryHeader::sequence_flags].
+/// flags values ``SEQ_FIRST``, ``SEQ_CONTINUATION``, and ``SEQ_LAST``. It can also be used for
+/// non-grouped APIDs (``SEQ_UNSEGMENTED``), however, it is not necessary in such cases. See
+/// ``PrimaryHeader::sequence_flags``.
 ///
 /// # Examples
 ///
@@ -386,7 +401,7 @@ pub fn read_packet_groups(
     PacketGroupIter::with_reader(reader)
 }
 
-/// Collects the provided packets into [PacketGroup]s.
+/// Collects the provided packets into ``PacketGroup``s.
 pub fn collect_packet_groups(
     packets: Box<dyn Iterator<Item = Packet> + Send>,
 ) -> impl Iterator<Item = IOResult<PacketGroup>> + Send {
@@ -449,7 +464,7 @@ impl<'a> Iterator for FramedPacketIter<'a> {
     type Item = Packet;
 
     fn next(&mut self) -> Option<Self::Item> {
-        use rs2::RSState::*;
+        use rs2::RSState::{Corrected, Uncorrectable};
 
         // If there are ready packets provide the oldest one
         if let Some(packet) = self.ready.pop_front() {
@@ -474,7 +489,7 @@ impl<'a> Iterator for FramedPacketIter<'a> {
                 .entry(frame.header.vcid)
                 .or_insert(VcidTracker::new(frame.header.vcid));
             if let Corrected(_) = rsstate {
-                tracker.rs_corrected = true
+                tracker.rs_corrected = true;
             }
 
             // Data loss means we dump what we're working on and force resync
@@ -514,7 +529,7 @@ impl<'a> Iterator for FramedPacketIter<'a> {
                 // Grab data we need and update the cache
                 let (data, tail) = tracker.cache.split_at(need);
                 let packet = Packet {
-                    header: PrimaryHeader::decode(&data)?,
+                    header: PrimaryHeader::decode(data)?,
                     data: data.to_vec(),
                 };
                 tracker.cache = tail.to_vec();
@@ -535,7 +550,7 @@ impl<'a> Iterator for FramedPacketIter<'a> {
 
         // Attempted to read a frame, but the iterator is done.  Make sure to
         // provide a ready frame if there are any.
-        return self.ready.pop_front();
+        self.ready.pop_front()
     }
 }
 
@@ -545,7 +560,7 @@ impl<'a> Iterator for FramedPacketIter<'a> {
 /// i.e., not used to construct packets:
 ///
 /// 1. Missing frames
-/// 2. Frames with state [rs2::RSState::Uncorrectable]
+/// 2. Frames with state ``rs2::RSState::Uncorrectable``
 /// 3. Fill Frames
 /// 4. Frames before the first header is available in an MPDU
 ///
@@ -596,7 +611,7 @@ mod tests {
 
         assert_eq!(ph.version, 0);
         assert_eq!(ph.type_flag, 0);
-        assert_eq!(ph.has_secondary_header, true);
+        assert!(ph.has_secondary_header);
         assert_eq!(ph.apid, 1369);
         assert_eq!(ph.sequence_flags, 3);
         assert_eq!(ph.sequence_id, 4779);
@@ -615,8 +630,8 @@ mod tests {
         let reader = std::io::BufReader::new(dat);
 
         let packets: Vec<Packet> = PacketReaderIter::new(Box::new(reader))
-            .filter(|r| r.is_ok())
-            .map(|r| r.unwrap())
+            .filter(Result::is_ok)
+            .map(Result::unwrap)
             .collect();
 
         assert_eq!(packets.len(), 2);
@@ -629,6 +644,7 @@ mod tests {
     fn test_missing_packets() {
         assert_eq!(missing_packets(5, 4), 0);
         assert_eq!(missing_packets(5, 3), 1);
-        assert_eq!(missing_packets(1, u16::MAX), 1);
+        assert_eq!(missing_packets(0, MAX_SEQ_NUM), 0);
+        assert_eq!(missing_packets(0, MAX_SEQ_NUM - 1), 1);
     }
 }

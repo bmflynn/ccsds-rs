@@ -6,16 +6,18 @@ pub use rs2::{correct_message, has_errors, RSState, N, PARITY_LEN};
 /// - If length of data is not a multiple of the interleave
 ///
 /// Ref: 130.1-G-2, Section 5.3
+#[must_use]
 pub fn deinterleave(data: &Vec<u8>, interleave: u8) -> Vec<[u8; 255]> {
-    if data.len() % interleave as usize != 0 {
-        panic!("data not a mulitpile of interleave({})", interleave);
-    }
+    assert!(
+        data.len() % interleave as usize == 0,
+        "data length must be multiple of interleave"
+    );
     let mut zult: Vec<[u8; 255]> = Vec::new();
     for _ in 0..interleave {
         zult.push([0u8; 255]);
     }
-    for j in 0..data.len() as usize {
-        zult[j % interleave as usize][j / interleave as usize] = data[j]
+    for j in 0..data.len() {
+        zult[j % interleave as usize][j / interleave as usize] = data[j];
     }
     zult
 }
@@ -36,7 +38,7 @@ pub trait ReedSolomon: Send {
     /// all contained messages. If there are no errors return [`RSState::Ok`].
     ///
     /// If the block cannot be correct by this implementation state will be
-    /// [RSState::NotPerformed].
+    /// ``RSState::NotPerformed``.
     ///
     /// The returned vector will be the original data without the RS parity bytes if
     /// uncorrectable or ok, otherwise it will be the corrected data without the RS parity
@@ -67,9 +69,7 @@ impl ReedSolomon for DefaultReedSolomon {
     }
 
     fn correct_codeblock(&self, block: &[u8], interleave: u8) -> (Vec<u8>, RSState) {
-        if interleave == 0 {
-            panic!("reed-solomon interleave cannot be 0");
-        }
+        assert!(interleave != 0, "interleave cannot be 0");
 
         if !self.can_correct(block, interleave) {
             return (self.strip_parity(block, interleave), RSState::NotPerformed);
@@ -86,8 +86,7 @@ impl ReedSolomon for DefaultReedSolomon {
                     return (
                         self.strip_parity(&corrected, interleave),
                         RSState::Uncorrectable(format!(
-                            "codeblock message {} of {} is uncorrectable: {}",
-                            idx, interleave, msg
+                            "codeblock message {idx} of {interleave} is uncorrectable: {msg}",
                         )),
                     );
                 }

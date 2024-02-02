@@ -1,5 +1,4 @@
 use std::borrow::Borrow;
-use std::convert::TryInto;
 use std::io::Read;
 use std::sync::mpsc::{channel, sync_channel, Receiver};
 use std::sync::Arc;
@@ -16,9 +15,9 @@ pub type VCID = u16;
 /// Spacecraft Reed-solomon configuration
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct RSConfig {
-    pub interleave: i32,
-    pub correctable: i32,
-    pub vfill_length: i32,
+    pub interleave: usize,
+    pub correctable: usize,
+    pub vfill_length: usize,
 }
 
 /// Spacecraft framing configuration.
@@ -30,10 +29,10 @@ pub struct Framing {
     ///
     /// This length, along with the [Self::izone_length] and [Self::trailer_length] will effectively
     /// define the length of an MPDU.
-    pub frame_length: i32,
+    pub frame_length: usize,
     pub pseudo_randomized: bool,
-    pub izone_length: i32,
-    pub trailer_length: i32,
+    pub izone_length: usize,
+    pub trailer_length: usize,
     pub rs: Option<RSConfig>,
 }
 
@@ -44,25 +43,24 @@ impl Framing {
     /// So, for example, with standard RS(223/255) with an interleave of 4 this
     /// will return 1024, which is 4 bytes for the ASM, 128 bits for the Reed-Solomon
     /// code block and the frame bytes.
-    pub fn cadu_len(&self) -> i32 {
+    #[must_use]
+    pub fn cadu_len(&self) -> usize {
         let rslen = match self.rs {
             Some(ref rs) => (rs.correctable * 2) * rs.interleave,
             None => 0,
         };
-        self.asm.len() as i32 + self.frame_length + rslen
+        self.asm.len() + self.frame_length + rslen
     }
 
-    /// Return the length of a MPDU. This will be the [Self::frame_length] minus any bytes
+    /// Return the length of a MPDU. This will be the ``Self::frame_length`` minus any bytes
     /// for the insert zone or trailer.
-    pub fn mpdu_len(&self) -> i32 {
+    #[must_use]
+    pub fn mpdu_len(&self) -> usize {
         self.frame_length - self.izone_length - self.trailer_length
     }
 }
 
-/// VCID value indicating fill data
 pub const VCID_FILL: VCID = 63;
-// Maximum value for the VCDU counter before rollover;
-pub const VCDU_COUNTER_MAX: u32 = 0xffffff - 1;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct VCDUHeader {
@@ -76,22 +74,30 @@ pub struct VCDUHeader {
 }
 
 impl VCDUHeader {
+    /// VCDU header length in bytes
     pub const LEN: usize = 6;
-    pub const COUNTER_MAX: u32 = 0xffffff - 1;
 
+    /// Maximum value for the zero-based VCDU counter before rollover;
+    pub const COUNTER_MAX: u32 = 0xff_ffff;
+
+    /// Construct from the provided bytes.
+    ///
+    /// # Panics
+    /// - If `dat` does not contain enough bytes to create the header
+    #[must_use]
     pub fn decode(dat: &Vec<u8>) -> Self {
-        if dat.len() < Self::LEN as usize {
-            panic!(
-                "vcdu header requires {} bytes, got {}",
-                Self::LEN,
-                dat.len()
-            );
-        }
+        assert!(
+            dat.len() >= Self::LEN,
+            "vcdu header requires {} bytes, got {}",
+            Self::LEN,
+            dat.len()
+        );
+
         let x = u16::from_be_bytes([dat[0], dat[1]]);
         VCDUHeader {
             version: (dat[0] >> 6) & 0x3,
-            scid: ((x >> 6) & 0xff).into(),
-            vcid: (x & 0x3f).into(),
+            scid: ((x >> 6) & 0xff),
+            vcid: (x & 0x3f),
             counter: u32::from_be_bytes([0, dat[2], dat[3], dat[4]]),
             replay: (dat[5] >> 7) & 0x1 == 1,
             cycle: (dat[5] >> 6) & 0x1 == 1,
@@ -119,7 +125,7 @@ mod test {
         assert_eq!(header.version, 1);
         assert_eq!(header.scid, 85);
         assert_eq!(header.vcid, 33);
-        assert_eq!(header.counter, 123456);
+        assert_eq!(header.counter, 123_456);
         assert!(!header.replay);
         assert!(!header.cycle);
         assert_eq!(header.counter_cycle, 5);
@@ -159,6 +165,7 @@ impl MPDU {
     /// primary header.
     pub const NO_HEADER: u16 = 0x7ff;
 
+    #[must_use]
     pub fn decode(data: &[u8]) -> Self {
         let x = u16::from_be_bytes([data[0], data[1]]);
         MPDU {
@@ -167,22 +174,27 @@ impl MPDU {
         }
     }
 
+    #[must_use]
     pub fn is_fill(&self) -> bool {
         self.first_header == Self::FILL
     }
 
+    #[must_use]
     pub fn has_header(&self) -> bool {
-        !(self.first_header == Self::NO_HEADER)
+        self.first_header != Self::NO_HEADER
     }
 
     /// Get the payload bytes from this MPDU.
+    ///
+    /// # Panics
+    /// If there are not enough bytes to construct the MPDU
+    #[must_use]
     pub fn payload(&self) -> &[u8] {
-        if self.data.len() < 2 {
-            panic!("mpdu data too short");
-        }
+        assert!(self.data.len() >= 2, "mpdu data too short");
         &self.data[2..]
     }
 
+    #[must_use]
     pub fn header_offset(&self) -> usize {
         self.first_header as usize
     }
@@ -196,18 +208,21 @@ pub struct Frame {
 }
 
 impl Frame {
+    #[must_use]
     pub fn decode(dat: Vec<u8>) -> Self {
         let header = VCDUHeader::decode(&dat);
         Frame { header, data: dat }
     }
 
+    #[must_use]
     pub fn is_fill(&self) -> bool {
         self.header.vcid == VCID_FILL
     }
 
+    #[must_use]
     pub fn mpdu(&self, izone_length: usize, trailer_length: usize) -> MPDU {
-        let start: usize = VCDUHeader::LEN + izone_length as usize;
-        let end: usize = self.data.len() - trailer_length as usize;
+        let start: usize = VCDUHeader::LEN + izone_length;
+        let end: usize = self.data.len() - trailer_length;
         let data = self.data[start..end].to_vec();
 
         MPDU::decode(&data)
@@ -220,7 +235,7 @@ pub struct DecodedFrame {
     pub rsstate: RSState,
 }
 
-/// Provides [Frame]s based on configuration provided by the parent [FrameDecoderBuilder].
+/// Provides [Frame]s based on configuration provided by the parent ``FrameDecoderBuilder``.
 pub struct DecodedFrameIter {
     done: bool,
     jobs: Receiver<Receiver<(Frame, RSState)>>,
@@ -232,6 +247,7 @@ pub struct DecodedFrameIter {
 impl DecodedFrameIter {
     // Return the error that caused decoding to fail early, or None. This will always
     // return [None] if the iterator is not finished.
+    #[must_use]
     pub fn err(&self) -> Option<std::io::Error> {
         if !self.done {
             return None;
@@ -248,7 +264,7 @@ impl Iterator for DecodedFrameIter {
 
     fn next(&mut self) -> Option<Self::Item> {
         // recv block current thread until data is available.
-        return match self.jobs.recv() {
+        match self.jobs.recv() {
             Err(_) => {
                 self.done = true;
                 self.handle
@@ -261,7 +277,7 @@ impl Iterator for DecodedFrameIter {
             Ok(rx) => {
                 let (frame, rsstate) = rx.recv().expect("failed to receive future");
                 let missing = match self.last {
-                    Some(last) => missing_frames_count(frame.header.counter.into(), last.into()),
+                    Some(last) => missing_frames(frame.header.counter, last),
                     None => 0,
                 };
                 self.last = Some(frame.header.counter);
@@ -272,15 +288,15 @@ impl Iterator for DecodedFrameIter {
                     rsstate,
                 })
             }
-        };
+        }
     }
 }
 
-/// Builds a [DecodedFrameIter] that will return all frames decoded from the stream read
+/// Builds a ``DecodedFrameIter`` that will return all frames decoded from the stream read
 /// from reader.
 ///
 /// Reads are only performed when a [Frame] is requested from the returned iterator, i.e.,
-/// when [Iterator::next] is called. More bytes than the size of the frame may be read if the
+/// when ``Iterator::next`` is called. More bytes than the size of the frame may be read if the
 /// underlying stream is not synchronized.
 ///
 /// Frames will generated in the order in which they occur in the original byte stream.
@@ -290,7 +306,7 @@ impl Iterator for DecodedFrameIter {
 pub struct FrameDecoderBuilder {
     asm: Vec<u8>,
     interleave: u8,
-    cadu_length: i32,
+    cadu_length: usize,
     buffer_size: usize,
 
     pn_decoder: Option<PNDecoder>,
@@ -302,7 +318,7 @@ impl FrameDecoderBuilder {
     /// Default number of frames to buffer in memory while waiting for RS.
     pub const DEFAULT_BUFFER_SIZE: usize = 1024;
 
-    /// Create a new [DecodedFrameIter] with default values suitable for decoding most (all?)
+    /// Create a new ``DecodedFrameIter`` with default values suitable for decoding most (all?)
     /// CCSDS compatible frame streams.
     ///
     /// `cadu_length` should be the length of the attached sync marker and the Reed-Solomon
@@ -322,7 +338,7 @@ impl FrameDecoderBuilder {
     ///
     /// It is possible, however, to twidle with default implementations using the provided
     /// builder functions.
-    pub fn new(cadu_length: i32) -> Self {
+    pub fn new(cadu_length: usize) -> Self {
         FrameDecoderBuilder {
             cadu_length,
             interleave: 0,
@@ -335,7 +351,8 @@ impl FrameDecoderBuilder {
     }
 
     /// Limits the number of block waiting in memory for RS.
-    /// See [FrameDecoderBuilder::DEFAULT_BUFFER_SIZE].
+    /// See ``FrameDecoderBuilder::DEFAULT_BUFFER_SIZE``.
+    #[must_use]
     pub fn buffer_size(mut self, size: usize) -> Self {
         self.buffer_size = size;
         self
@@ -343,6 +360,7 @@ impl FrameDecoderBuilder {
 
     /// Set the CADU Attached Sync Marker used to synchronize the incoming stream.
     /// Defaults to [ASM];
+    #[must_use]
     pub fn attached_sync_marker(mut self, asm: &[u8]) -> Self {
         self.asm = asm.to_vec();
         self
@@ -350,24 +368,24 @@ impl FrameDecoderBuilder {
 
     /// Use the default Reed-Solomon with the specified interleave value.
     ///
-    /// For more control over Reed-Solomon, see [reed_solomon].
+    /// For more control over Reed-Solomon, see ``reed_solomon``.
     ///
     /// # Panics
     /// If `interleave` is 0.
     ///
     /// [reed_solomon]: Self::reed_solomon
+    #[must_use]
     pub fn reed_solomon_interleave(self, interleave: u8) -> Self {
         self.reed_solomon(Some(Box::new(DefaultReedSolomon {})), interleave)
     }
 
-    /// Set the Reed-Solomon per-CADU implementation to use. Defaults to [DefaultReedSolomon].
+    /// Set the Reed-Solomon per-CADU implementation to use. Defaults to ``DefaultReedSolomon``.
     ///
     /// # Panics
     /// If `interleave` is 0.
+    #[must_use]
     pub fn reed_solomon(mut self, rs: Option<Box<dyn ReedSolomon + Sync>>, interleave: u8) -> Self {
-        if interleave == 0 {
-            panic!("invalid rs interleave; must be > 0");
-        }
+        assert!(interleave > 0, "invalid rs interleave; must be > 0");
         self.reed_solomon = rs;
         self.interleave = interleave;
         self
@@ -375,18 +393,24 @@ impl FrameDecoderBuilder {
 
     /// Set the number of threads to use for Reed-Solomon. If not explicitly set, the
     /// number of threads is chosen automatically.
+    #[must_use]
     pub fn reed_solomon_threads(mut self, num: usize) -> Self {
         self.reed_solomon_threads = num;
         self
     }
 
     /// Set PN implementation.
+    #[must_use]
     pub fn pn_decode(mut self, pn: Option<PNDecoder>) -> Self {
         self.pn_decoder = pn;
         self
     }
 
-    /// Returns a [DecodedFrameIter] configured according to the provided options.
+    /// Returns a ``DecodedFrameIter`` configured according to the provided options.
+    ///
+    /// # Panics
+    /// If the processing thread cannot be spawned.
+    #[must_use]
     pub fn build(self, reader: impl Read + Send + 'static) -> DecodedFrameIter {
         // A "job" in this context is the processing of 1 block. Receivers on which the
         // RS results are delivered as sent on this channel, one for each block.
@@ -410,7 +434,7 @@ impl FrameDecoderBuilder {
 
                 let jobs_tx = jobs_tx.clone();
                 let synchronizer =
-                    Synchronizer::new(reader, &self.asm, self.cadu_length - self.asm.len() as i32);
+                    Synchronizer::new(reader, &self.asm, self.cadu_length - self.asm.len());
                 let reed_solomon = Arc::new(self.reed_solomon);
 
                 for block in synchronizer {
@@ -426,7 +450,7 @@ impl FrameDecoderBuilder {
                     pool.spawn_fifo(move || {
                         // Only do PN if not None
                         if let Some(pn_decode) = pn_decoder {
-                            block = pn_decode(&mut block);
+                            block = pn_decode(&block);
                         }
                         // Only do RS if not None
                         let (dat, state) = match reed_solomon.borrow() {
@@ -459,27 +483,23 @@ impl FrameDecoderBuilder {
 /// Calculate the number of missing frame sequence counts.
 ///
 /// `cur` is the current frame counter. `last` is the frame counter seen before `cur`.
+///
+/// # Panics
+/// If the frame couner goes out of bounds
+#[must_use]
 pub fn missing_frames(cur: u32, last: u32) -> u32 {
-    let cur: i64 = cur.into();
-    let last: i64 = last.into();
-    let expected = (last + 1) as i64 % (VCDU_COUNTER_MAX as i64 + 1);
+    let expected = if last + 1 > VCDUHeader::COUNTER_MAX {
+        0
+    } else {
+        last + 1
+    };
     if cur != expected {
-        return (cur - last - 1) as u32;
-    }
-    return 0;
-}
-
-fn missing_frames_count(cur: i64, last: i64) -> u32 {
-    let expected = (last + 1) % (VCDU_COUNTER_MAX + 1) as i64;
-    let mut missing: i64 = 0;
-    if cur != expected {
-        missing = cur - last - 1;
-        if missing < 0 {
-            missing += VCDU_COUNTER_MAX as i64;
+        if last > cur {
+            return cur + VCDUHeader::COUNTER_MAX - last;
         }
+        return cur - last - 1;
     }
-
-    missing.try_into().unwrap()
+    0
 }
 
 #[cfg(test)]
@@ -491,7 +511,7 @@ mod tests {
         let mut path = PathBuf::from(file!());
         path.pop();
         path.pop();
-        path.push(name.to_owned());
+        path.push(name);
         path
     }
 
@@ -501,9 +521,7 @@ mod tests {
             0x67, 0x50, 0x96, 0x30, 0xbc, 0x80, // VCDU Header
             0x07, 0xff, // MPDU header indicating no header
         ];
-        for _ in 0..(892 - dat.len()) {
-            dat.push(0xff);
-        }
+        dat.resize(892, 0xff);
 
         assert_eq!(dat.len(), 892);
 
@@ -546,6 +564,7 @@ mod tests {
     fn test_missing_frames() {
         assert_eq!(missing_frames(5, 4), 0);
         assert_eq!(missing_frames(5, 3), 1);
-        assert_eq!(missing_frames(1, u32::MAX), 1);
+        assert_eq!(missing_frames(0, VCDUHeader::COUNTER_MAX), 0);
+        assert_eq!(missing_frames(0, VCDUHeader::COUNTER_MAX - 1), 1);
     }
 }
