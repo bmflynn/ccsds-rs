@@ -24,22 +24,25 @@
 //! that conforms to CCSDS [`TM Synchronization and Channel Coding`] and [`Space Packet Protocol`]
 //! documents.
 //! ```no_run
-//! use std::fs;
-//! use ccsds::{FrameDecoderBuilder, decode_framed_packets, collect_packet_groups, PacketGroup};
+//! use std::fs::File;
+//! use std::io::BufReader;
+//! use ccsds::{ASM, FrameDecoderBuilder, Synchronizer, decode_framed_packets, collect_packet_groups, PacketGroup};
 //!
-//! let file = fs::File::open("snpp.dat")
-//!     .expect("failed to open data file");
-//! let frames = FrameDecoderBuilder::new(1024)
+//! // 1. Synchronize stream and extract blocks (CADUs w/o ASM)
+//! let file = BufReader::new(File::open("snpp.dat")
+//!     .expect("failed to open data file"));
+//! let blocks = Synchronizer::new(file, &ASM.to_vec(), 1020)
+//!     .into_iter()
+//!     .filter_map(Result::ok);
+//!
+//! // 2. Decode those blocks into Frames
+//! let frames = FrameDecoderBuilder::default()
 //!     .reed_solomon_interleave(4)
-//!     .build(file);
+//!     .build(blocks);
+//!
+//! // 3. Extract packets from Frames
 //! // Suomi-NPP has 0 length izone and trailer
 //! let packets = decode_framed_packets(157, Box::new(frames), 0, 0);
-//!
-//! // The VIIRS sensor on Suomi-NPP uses packet grouping, so here we collect the packets
-//! // into their associated groups.
-//! let groups: Vec<PacketGroup> = collect_packet_groups(Box::new(packets))
-//!     .filter_map(|zult| zult.ok())
-//!     .collect();
 //! ```
 //!
 //! ## References:
@@ -73,6 +76,5 @@ pub use rs::{
     correct_message as rs_correct_message, deinterleave as rs_deinterleave,
     has_errors as rs_has_errors, DefaultReedSolomon, RSState, ReedSolomon,
 };
-
 pub use spacepacket::*;
 pub use synchronizer::{read_synchronized_blocks, Synchronizer, ASM};

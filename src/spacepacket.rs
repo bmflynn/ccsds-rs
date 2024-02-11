@@ -144,10 +144,12 @@ impl PrimaryHeader {
     ///
     /// # Errors
     /// Any ``std::io::Error`` reading
+    #[allow(clippy::missing_panics_doc)]
     pub fn read(r: &mut dyn Read) -> IOResult<PrimaryHeader> {
         let mut buf = [0u8; Self::LEN];
         r.read_exact(&mut buf)?;
 
+        // Can't panic because of read_exact
         Ok(Self::decode(&buf).unwrap())
     }
 
@@ -450,6 +452,13 @@ impl Display for VcidTracker {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct DecodedPacket {
+    pub scid: SCID,
+    pub vcid: VCID,
+    pub packet: Packet,
+}
+
 struct FramedPacketIter<'a> {
     frames: Box<dyn Iterator<Item = DecodedFrame> + Send + 'a>,
     izone_length: usize,
@@ -459,11 +468,11 @@ struct FramedPacketIter<'a> {
     // packets. There should only be up to about 1 frame worth of data in the cache
     cache: HashMap<VCID, VcidTracker>,
     // Packets that have already been decoded and are waiting to be provided.
-    ready: VecDeque<Packet>,
+    ready: VecDeque<DecodedPacket>,
 }
 
 impl<'a> Iterator for FramedPacketIter<'a> {
-    type Item = Packet;
+    type Item = DecodedPacket;
 
     fn next(&mut self) -> Option<Self::Item> {
         use rs2::RSState::{Corrected, Uncorrectable};
@@ -485,7 +494,7 @@ impl<'a> Iterator for FramedPacketIter<'a> {
                 missing,
                 rsstate,
             } = frame.unwrap();
-            let mpdu = frame.mpdu(self.izone_length, self.trailer_length);
+            let mpdu = frame.mpdu(self.izone_length, self.trailer_length).unwrap();
             let tracker = self
                 .cache
                 .entry(frame.header.vcid)
@@ -530,9 +539,13 @@ impl<'a> Iterator for FramedPacketIter<'a> {
             loop {
                 // Grab data we need and update the cache
                 let (data, tail) = tracker.cache.split_at(need);
-                let packet = Packet {
-                    header: PrimaryHeader::decode(data)?,
-                    data: data.to_vec(),
+                let packet = DecodedPacket {
+                    scid: frame.header.scid,
+                    vcid: frame.header.vcid,
+                    packet: Packet {
+                        header: PrimaryHeader::decode(data)?,
+                        data: data.to_vec(),
+                    },
                 };
                 tracker.cache = tail.to_vec();
                 self.ready.push_back(packet);
@@ -572,7 +585,7 @@ pub fn decode_framed_packets<'a>(
     frames: Box<dyn Iterator<Item = DecodedFrame> + Send + 'a>,
     izone_length: usize,
     trailer_length: usize,
-) -> impl Iterator<Item = Packet> + Send + 'a {
+) -> impl Iterator<Item = DecodedPacket> + Send + 'a {
     FramedPacketIter {
         frames: Box::new(
             frames.filter(move |dc| !dc.frame.is_fill() && dc.frame.header.scid == scid),

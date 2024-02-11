@@ -1,12 +1,12 @@
 use super::bytes::Bytes;
-use std::io::{ErrorKind, Result};
+use std::io::{ErrorKind, Read, Result};
 use std::{collections::HashMap, io};
 
 /// Default CCSDS attached sync marker.
 pub const ASM: [u8; 4] = [0x1a, 0xcf, 0xfc, 0x1d];
 
 /// Bit-shift each byte in dat by k bits to the left, without wrapping.
-pub(crate) fn left_shift(dat: &Vec<u8>, k: u8) -> Vec<u8> {
+pub(crate) fn left_shift(dat: &Vec<u8>, k: usize) -> Vec<u8> {
     let mut out: Vec<u8> = vec![0; dat.len()];
     // left shift each byte the correct nufdcmber of bits
     for i in 0..dat.len() {
@@ -43,7 +43,7 @@ fn create_patterns(dat: &Vec<u8>) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
 
     // Bit-shift other bytes such that the first byte of the pattern is the first
     // byte of dat shifted *RIGHT* by 1.
-    for i in 1..8u8 {
+    for i in 1..8usize {
         patterns.push(left_shift(&padded_pattern, 8 - i));
         masks.push(left_shift(&padded_mask, 8 - i));
     }
@@ -101,7 +101,7 @@ impl<'a> Synchronizer<'a> {
     /// in [Err(err)].
     ///
     /// # Panics
-    /// On unexpected state handling bit-shifting
+    /// On unexpected state handling bit-shifting.
     pub fn scan(&mut self) -> Result<Option<Loc>> {
         let mut b: u8 = 0;
         let mut working: Vec<u8> = Vec::new();
@@ -180,7 +180,7 @@ impl<'a> Synchronizer<'a> {
             self.bytes.push(&[buf[buf.len() - 1]]);
         }
         #[allow(clippy::cast_possible_truncation)]
-        let buf = left_shift(&buf, self.pattern_idx as u8)[..self.block_size].to_vec();
+        let buf = left_shift(&buf, self.pattern_idx)[..self.block_size].to_vec();
 
         Ok(buf)
     }
@@ -236,11 +236,13 @@ impl Iterator for BlockIter<'_> {
 /// # Errors
 /// Any errors reading from the stream will cause the iterator to exit.
 ///
-pub fn read_synchronized_blocks<'a>(
-    reader: impl io::Read + Send + 'a,
+pub fn read_synchronized_blocks<'a, R>(
+    reader: R,
     asm: &Vec<u8>,
     block_size: usize,
-) -> impl Iterator<Item = Result<Vec<u8>>> + 'a {
+) -> impl Iterator<Item = Result<Vec<u8>>> + 'a
+    where R: Read + Send + 'a
+{
     Synchronizer::new(reader, asm, block_size).into_iter()
 }
 
@@ -262,7 +264,7 @@ mod tests {
             [0, 53, 159, 248, 58],
         ];
         for i in expected.len()..0 {
-            let zult = left_shift(&input[..].to_vec(), u8::try_from(i).unwrap());
+            let zult = left_shift(&input[..].to_vec(), i);
             zult.iter().zip(expected[i]).for_each(|(x, y)| {
                 assert_eq!(
                     x, &y,
@@ -280,7 +282,7 @@ mod tests {
             assert_eq!(patterns[0][i], *x, "missmatch at index {i}");
         }
 
-        let expected = vec![
+        let expected = [
             [13, 103, 254, 14, 128],
             [6, 179, 255, 7, 64],
             [3, 89, 255, 131, 160],
@@ -322,14 +324,14 @@ mod tests {
             for (i, pat) in patterns.iter().enumerate() {
                 let asm = ASM.to_vec();
                 let mut scanner = Synchronizer::new(&pat[..], &asm, 0);
-                let msg = format!("expected sync for {:?}", pat);
+                let msg = format!("expected sync for {pat:?}");
                 let loc = scanner.scan().expect(msg.as_str());
 
                 let expected = Loc {
                     offset: 5,
-                    bit: 7 - i as u8,
+                    bit: 7 - u8::try_from(i).unwrap(),
                 };
-                assert_eq!(loc.unwrap(), expected, "pattern {:?}", pat);
+                assert_eq!(loc.unwrap(), expected, "pattern {pat:?}");
             }
         }
 
@@ -381,7 +383,7 @@ mod tests {
                 0b0000_0000,
                 0b0000_0000,
             ];
-            let mut scanner = Synchronizer::new(&r[..], &asm, 2);
+            let mut scanner = Synchronizer::new(r, &asm, 2);
 
             // First block
             let loc = scanner.scan().expect("Expected scan 1 to succeed");

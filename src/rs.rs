@@ -22,7 +22,7 @@ pub fn deinterleave(data: &Vec<u8>, interleave: u8) -> Vec<[u8; 255]> {
     zult
 }
 
-pub trait ReedSolomon: Send {
+pub trait ReedSolomon: Send + Sync {
     /// Returns true if `block` meets the expectations of this implementation.
     ///
     /// For example, for RS(223/255) the block length must be a multple of 255 and contain
