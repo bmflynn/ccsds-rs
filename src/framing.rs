@@ -33,6 +33,7 @@ impl VCDUHeader {
     pub const COUNTER_MAX: u32 = 0xff_ffff;
 
     /// Construct from the provided bytes, or `None` if there are not enough bytes.
+    #[must_use]
     pub fn decode(dat: &Vec<u8>) -> Option<Self> {
         if dat.len() < Self::LEN {
             return None
@@ -112,6 +113,7 @@ impl MPDU {
     pub const NO_HEADER: u16 = 0x7ff;
 
     /// Decode `data` into a ``VCDUHeader``.
+    #[must_use]
     pub fn decode(data: &[u8]) -> Option<Self> {
         if data.len() < 2 {
             return None

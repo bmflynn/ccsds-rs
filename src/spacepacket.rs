@@ -195,18 +195,27 @@ pub fn missing_packets(cur: u16, last: u16) -> u16 {
     0
 }
 
-struct PacketReaderIter {
-    reader: Box<dyn Read + Send>,
+struct PacketReaderIter<R>
+where
+    R: Read + Send,
+{
+    reader: R,
     offset: usize,
 }
 
-impl PacketReaderIter {
-    fn new(reader: Box<dyn Read + Send>) -> Self {
+impl<R> PacketReaderIter<R>
+where
+    R: Read + Send,
+{
+    fn new(reader: R) -> Self {
         PacketReaderIter { reader, offset: 0 }
     }
 }
 
-impl Iterator for PacketReaderIter {
+impl<R> Iterator for PacketReaderIter<R>
+where
+    R: Read + Send,
+{
     type Item = IOResult<Packet>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -233,30 +242,34 @@ pub struct PacketGroup {
     pub packets: Vec<Packet>,
 }
 
-struct PacketGroupIter<'a> {
-    packets: Box<dyn Iterator<Item = IOResult<Packet>> + Send + 'a>,
+struct PacketGroupIter<I>
+where
+    I: Iterator<Item = Packet> + Send,
+{
+    packets: I,
     group: PacketGroup,
     done: bool,
 }
 
-impl<'a> PacketGroupIter<'a> {
+impl<I> PacketGroupIter<I>
+where
+    I: Iterator<Item = Packet> + Send,
+{
     /// Create an iterator that reads source packets from the provided reader.
     ///
     ///
-    fn with_reader(reader: Box<dyn Read + Send>) -> Self {
-        let packets = PacketReaderIter::new(reader)
-            .filter(Result::is_ok)
-            .map(Result::unwrap);
-        Self::with_packets(Box::new(packets))
-    }
+    // fn with_reader<R>(reader: R) -> Self where R: Read + Send {
+    //     let packets = PacketReaderIter::new(reader)
+    //         .filter(Result::is_ok)
+    //         .map(Result::unwrap);
+    //     Self::with_packets(packets)
+    // }
 
     /// Create an iterator that sources packets directly from the provided vanilla
     /// iterator.
     ///
     /// Results genreated by the iterator will always be `Ok`.
-    fn with_packets(packets: Box<dyn Iterator<Item = Packet> + Send + 'a>) -> Self {
-        let packets: Box<dyn Iterator<Item = IOResult<Packet>> + Send + 'a> =
-            Box::new(packets.map(IOResult::<Packet>::Ok));
+    fn with_packets(packets: I) -> Self {
         PacketGroupIter {
             packets,
             group: PacketGroup {
@@ -294,7 +307,10 @@ impl<'a> PacketGroupIter<'a> {
     }
 }
 
-impl Iterator for PacketGroupIter<'_> {
+impl<I> Iterator for PacketGroupIter<I>
+where
+    I: Iterator<Item = Packet> + Send,
+{
     type Item = IOResult<PacketGroup>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -304,15 +320,16 @@ impl Iterator for PacketGroupIter<'_> {
         'outer: loop {
             // Get a packet from the iterator. Exit the iterator
             let packet: Packet = match self.packets.next() {
-                Some(zult) => {
-                    match zult {
-                        // Got a packet from the packet iter
-                        Ok(packet) => packet,
-                        // Got an error from the packet iter. Return a result with the
-                        // error to let the consumer decide what to do.
-                        Err(err) => return Some(Err(err)),
-                    }
-                }
+                Some(packet) => packet,
+                // Some(zult) => {
+                //     match zult {
+                //         // Got a packet from the packet iter
+                //         Ok(packet) => packet,
+                //         // Got an error from the packet iter. Return a result with the
+                //         // error to let the consumer decide what to do.
+                //         Err(err) => return Some(Err(err)),
+                //     }
+                // }
                 None => break 'outer,
             };
             // Return group of one
@@ -360,12 +377,15 @@ impl Iterator for PacketGroupIter<'_> {
 /// ];
 ///
 /// let r = std::io::BufReader::new(dat);
-/// read_packets(Box::new(r)).for_each(|zult| {
+/// read_packets(r).for_each(|zult| {
 ///     let packet = zult.unwrap();
 ///     assert_eq!(packet.header.apid, 1369);
 /// });
 /// ```
-pub fn read_packets(reader: Box<dyn Read + Send>) -> impl Iterator<Item = IOResult<Packet>> + Send {
+pub fn read_packets<R>(reader: R) -> impl Iterator<Item = IOResult<Packet>> + Send
+where
+    R: Read + Send,
+{
     PacketReaderIter::new(reader)
 }
 
@@ -394,21 +414,26 @@ pub fn read_packets(reader: Box<dyn Read + Send>) -> impl Iterator<Item = IOResu
 /// ];
 ///
 /// let r = std::io::BufReader::new(dat);
-/// read_packet_groups(Box::new(r)).for_each(|zult| {
+/// read_packet_groups(r).for_each(|zult| {
 ///     let packet = zult.unwrap();
 ///     assert_eq!(packet.apid, 1369);
 /// });
 /// ```
-pub fn read_packet_groups(
-    reader: Box<dyn Read + Send>,
-) -> impl Iterator<Item = IOResult<PacketGroup>> {
-    PacketGroupIter::with_reader(reader)
+pub fn read_packet_groups<R>(reader: R) -> impl Iterator<Item = IOResult<PacketGroup>>
+where
+    R: Read + Send,
+{
+    let packets = PacketReaderIter::new(reader)
+        .filter(Result::is_ok)
+        .map(Result::unwrap);
+    PacketGroupIter::with_packets(packets)
 }
 
 /// Collects the provided packets into ``PacketGroup``s.
-pub fn collect_packet_groups(
-    packets: Box<dyn Iterator<Item = Packet> + Send>,
-) -> impl Iterator<Item = IOResult<PacketGroup>> + Send {
+pub fn collect_packet_groups<I>(packets: I) -> impl Iterator<Item = IOResult<PacketGroup>> + Send
+where
+    I: Iterator<Item = Packet> + Send,
+{
     PacketGroupIter::with_packets(packets)
 }
 
@@ -644,7 +669,7 @@ mod tests {
         ];
         let reader = std::io::BufReader::new(dat);
 
-        let packets: Vec<Packet> = PacketReaderIter::new(Box::new(reader))
+        let packets: Vec<Packet> = PacketReaderIter::new(reader)
             .filter(Result::is_ok)
             .map(Result::unwrap)
             .collect();
