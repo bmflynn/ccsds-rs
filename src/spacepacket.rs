@@ -95,8 +95,11 @@ impl Packet {
     ///
     /// # Errors
     /// Any ``std::io::Error`` reading
-    pub fn read(r: &mut dyn Read) -> IOResult<Packet> {
-        let ph = PrimaryHeader::read(r)?;
+    pub fn read<R>(mut r: R) -> IOResult<Packet>
+    where
+        R: Read + Send,
+    {
+        let ph = PrimaryHeader::read(&mut r)?;
 
         // read the user data, shouldn't panic since unpacking worked
         let mut buf = vec![0u8; (ph.len_minus1 + 1).into()];
@@ -145,7 +148,10 @@ impl PrimaryHeader {
     /// # Errors
     /// Any ``std::io::Error`` reading
     #[allow(clippy::missing_panics_doc)]
-    pub fn read(r: &mut dyn Read) -> IOResult<PrimaryHeader> {
+    pub fn read<R>(mut r: R) -> IOResult<PrimaryHeader>
+    where
+        R: Read + Send,
+    {
         let mut buf = [0u8; Self::LEN];
         r.read_exact(&mut buf)?;
 
@@ -484,8 +490,11 @@ pub struct DecodedPacket {
     pub packet: Packet,
 }
 
-struct FramedPacketIter<'a> {
-    frames: Box<dyn Iterator<Item = DecodedFrame> + Send + 'a>,
+struct FramedPacketIter<I>
+where
+    I: Iterator<Item = DecodedFrame> + Send,
+{
+    frames: I,
     izone_length: usize,
     trailer_length: usize,
 
@@ -496,7 +505,10 @@ struct FramedPacketIter<'a> {
     ready: VecDeque<DecodedPacket>,
 }
 
-impl<'a> Iterator for FramedPacketIter<'a> {
+impl<I> Iterator for FramedPacketIter<I>
+where
+    I: Iterator<Item = DecodedFrame> + Send,
+{
     type Item = DecodedPacket;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -605,16 +617,17 @@ impl<'a> Iterator for FramedPacketIter<'a> {
 /// 4. Frames before the first header is available in an MPDU
 ///
 /// This will handle frames from multiple spacecrafts, i.e., with different SCIDs.
-pub fn decode_framed_packets<'a>(
+pub fn decode_framed_packets<I>(
     scid: SCID,
-    frames: Box<dyn Iterator<Item = DecodedFrame> + Send + 'a>,
+    frames: I,
     izone_length: usize,
     trailer_length: usize,
-) -> impl Iterator<Item = DecodedPacket> + Send + 'a {
+) -> impl Iterator<Item = DecodedPacket> + Send
+where
+    I: Iterator<Item = DecodedFrame> + Send,
+{
     FramedPacketIter {
-        frames: Box::new(
-            frames.filter(move |dc| !dc.frame.is_fill() && dc.frame.header.scid == scid),
-        ),
+        frames: frames.filter(move |dc| !dc.frame.is_fill() && dc.frame.header.scid == scid),
         izone_length,
         trailer_length,
         cache: HashMap::new(),

@@ -42,7 +42,7 @@
 //!
 //! // 3. Extract packets from Frames
 //! // Suomi-NPP has 0 length izone and trailer
-//! let packets = decode_framed_packets(157, Box::new(frames), 0, 0);
+//! let packets = decode_framed_packets(157, frames, 0, 0);
 //! ```
 //!
 //! ## References:

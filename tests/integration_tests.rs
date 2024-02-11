@@ -9,7 +9,7 @@ fn fixture_path(name: &str) -> PathBuf {
     let mut path = PathBuf::from(file!());
     path.pop();
     path.pop();
-    path.push(name.to_owned());
+    path.push(name);
     path
 }
 
@@ -17,7 +17,7 @@ fn fixture_path(name: &str) -> PathBuf {
 fn packet_iter() {
     let fpath = fixture_path("tests/fixtures/viirs_packets.dat");
     let reader = fs::File::open(fpath).unwrap();
-    let iter = read_packets(Box::new(reader));
+    let iter = read_packets(reader);
 
     let packets: Vec<Result<Packet, IoError>> = iter.collect();
 
@@ -28,7 +28,7 @@ fn packet_iter() {
 fn group_iter() {
     let fpath = fixture_path("tests/fixtures/viirs_packets.dat");
     let reader = fs::File::open(fpath).unwrap();
-    let iter = read_packet_groups(Box::new(reader));
+    let iter = read_packet_groups(reader);
 
     let groups: Vec<Result<PacketGroup, IoError>> = iter.collect();
 
@@ -76,7 +76,7 @@ fn full_decode() {
     assert_eq!(frames.len(), 65, "expected frame count doesn't match");
 
     let packets: Vec<DecodedPacket> =
-        decode_framed_packets(157, Box::new(frames.into_iter()), 0, 0).collect();
+        decode_framed_packets(157, frames.into_iter(), 0, 0).collect();
     assert_eq!(packets.len(), 12, "expected packet count doesn't match");
 
     let mut hasher = Md5::new();
@@ -91,7 +91,7 @@ fn full_decode() {
     // The VIIRS sensor on Suomi-NPP uses packet grouping, so here we collect the packets
     // into their associated groups.
     let packets: Vec<Packet> = packets.iter().map(|p| p.packet.clone()).collect();
-    let groups: Vec<PacketGroup> = collect_packet_groups(Box::new(packets.into_iter()))
+    let groups: Vec<PacketGroup> = collect_packet_groups(packets.into_iter())
         .filter_map(Result::ok)
         .collect();
 

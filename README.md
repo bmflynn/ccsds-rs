@@ -1,11 +1,5 @@
 # ccsds
 
-[![Crates.io](https://img.shields.io/crates/v/ccsds.svg?logo=rust&style=flat-square)](https://crates.io/crates/ccsds)
-[![Actions Status](https://img.shields.io/github/actions/workflow/status/bmflynn/ccsds-rs/rust.yml?branch=main&logo=github&style=flat-square)](https://github.com/bmflynn/ccsds-rs/actions)
-
-> This is an early release of this project. Its API is likely to change slightly in incompatible
-> ways.
-
 ## CCSDS Spacecraft Data Stream Decoding
 
 The project provides tools for decoding spacecraft downlink telemetry streams conforming
@@ -32,27 +26,26 @@ the Suomi-NPP spacecraft. This example code should work for any spacecraft data 
 that conforms to CCSDS [`TM Synchronization and Channel Coding`] and [`Space Packet Protocol`]
 documents.
 ```rust
-use std::fs;
-use ccsds::{FrameDecoderBuilder, decode_framed_packets, collect_packet_groups, PacketGroup};
+use std::fs::File;
+use std::io::BufReader;
+use ccsds::{ASM, FrameDecoderBuilder, Synchronizer, decode_framed_packets, collect_packet_groups, PacketGroup};
 
-let file = fs::File::open("snpp.dat")
-    .expect("failed to open data file");
-let frames = FrameDecoderBuilder::new(1024)
+// 1. Synchronize stream and extract blocks (CADUs w/o ASM)
+let file = BufReader::new(File::open("snpp.dat")
+    .expect("failed to open data file"));
+let blocks = Synchronizer::new(file, &ASM.to_vec(), 1020)
+    .into_iter()
+    .filter_map(Result::ok);
+
+// 2. Decode those blocks into Frames
+let frames = FrameDecoderBuilder::default()
     .reed_solomon_interleave(4)
-    .build(file);
+    .build(blocks);
+
+// 3. Extract packets from Frames
 // Suomi-NPP has 0 length izone and trailer
-let packets = decode_framed_packets(157, Box::new(frames), 0, 0);
-
-// The VIIRS sensor on Suomi-NPP uses packet grouping, so here we collect the packets
-// into their associated groups.
-let groups: Vec<PacketGroup> = collect_packet_groups(Box::new(packets))
-    .filter_map(|zult| zult.ok())
-    .collect();
+let packets = decode_framed_packets(157, frames, 0, 0);
 ```
-
-## Python
-Python bindings for this crate created using [PyO3](https://pyo3.rs) can be found at
-<https://github.com/bmflynn/ccsdspy>.
 
 ### References:
 * [`CCSDS`]

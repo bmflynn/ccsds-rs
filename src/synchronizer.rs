@@ -1,6 +1,6 @@
 use super::bytes::Bytes;
+use std::collections::HashMap;
 use std::io::{ErrorKind, Read, Result};
-use std::{collections::HashMap, io};
 
 /// Default CCSDS attached sync marker.
 pub const ASM: [u8; 4] = [0x1a, 0xcf, 0xfc, 0x1d];
@@ -64,8 +64,11 @@ pub struct Loc {
 ///
 /// The sync marker may be bit-shifted, in which case the bytes returned will also
 /// be bit shifted.
-pub struct Synchronizer<'a> {
-    bytes: Bytes<'a>,
+pub struct Synchronizer<R>
+where
+    R: Read + Send,
+{
+    bytes: Bytes<R>,
     // Size of the block of data expected after an ASM
     block_size: usize,
     // All 8 possible bit patterns
@@ -78,10 +81,13 @@ pub struct Synchronizer<'a> {
     pub pattern_hits: HashMap<u8, i32>,
 }
 
-impl<'a> Synchronizer<'a> {
-    pub fn new(reader: impl io::Read + Send + 'a, asm: &Vec<u8>, block_size: usize) -> Self {
+impl<R> Synchronizer<R>
+where
+    R: Read + Send,
+{
+    pub fn new(reader: R, asm: &Vec<u8>, block_size: usize) -> Self {
         let (patterns, masks) = create_patterns(asm);
-        let bytes = Bytes::new(io::BufReader::new(reader));
+        let bytes = Bytes::new(reader);
         Synchronizer {
             bytes,
             block_size,
@@ -186,9 +192,12 @@ impl<'a> Synchronizer<'a> {
     }
 }
 
-impl<'a> IntoIterator for Synchronizer<'a> {
+impl<R> IntoIterator for Synchronizer<R>
+where
+    R: Read + Send,
+{
     type Item = Result<Vec<u8>>;
-    type IntoIter = BlockIter<'a>;
+    type IntoIter = BlockIter<R>;
 
     fn into_iter(self) -> Self::IntoIter {
         BlockIter { scanner: self }
@@ -197,11 +206,17 @@ impl<'a> IntoIterator for Synchronizer<'a> {
 
 /// Iterates over synchronized data in block size defined by the source [Synchronizer].
 /// Created using ``Synchronizer::into_iter``.
-pub struct BlockIter<'a> {
-    scanner: Synchronizer<'a>,
+pub struct BlockIter<R>
+where
+    R: Read + Send,
+{
+    scanner: Synchronizer<R>,
 }
 
-impl Iterator for BlockIter<'_> {
+impl<R> Iterator for BlockIter<R>
+where
+    R: Read + Send,
+{
     type Item = Result<Vec<u8>>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -241,7 +256,8 @@ pub fn read_synchronized_blocks<'a, R>(
     asm: &Vec<u8>,
     block_size: usize,
 ) -> impl Iterator<Item = Result<Vec<u8>>> + 'a
-    where R: Read + Send + 'a
+where
+    R: Read + Send + 'a,
 {
     Synchronizer::new(reader, asm, block_size).into_iter()
 }
