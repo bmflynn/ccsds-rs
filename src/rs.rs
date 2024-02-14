@@ -1,8 +1,18 @@
 pub use rs2::{correct_message, has_errors, RSState, N, PARITY_LEN};
 
+
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("input is not valid for this algorithm")]
+    InvalidInput,     
+    #[error("input failed integrity check")]
+    Failed,
+}
+
+
 /// Deinterleave an interleaved RS block (code block + check symbols).
 ///
-/// # Panics
+/// ## Panics
 /// - If length of data is not a multiple of the interleave
 ///
 /// Ref: 130.1-G-2, Section 5.3
@@ -23,56 +33,51 @@ pub fn deinterleave(data: &Vec<u8>, interleave: u8) -> Vec<[u8; 255]> {
 }
 
 pub trait ReedSolomon: Send + Sync {
-    /// Returns true if `block` meets the expectations of this implementation.
+    /// Correct an interleaved code block, i.e., a codeblock that is `255 * interleave` in length.
     ///
-    /// For example, for RS(223/255) the block length must be a multple of 255 and contain
-    /// `interleave` RS messages.
-    fn can_correct(&self, block: &[u8], interleave: u8) -> bool;
-
-    /// Correct an interleaved code block.
+    /// This returns the code block data without the RS check symbols/bytes and a state indicating
+    /// the algorithm disposition.
     ///
-    /// This returns the code block data without the
-    /// RS check symbols/bytes and a state that will be [`RSState::Uncorrectable`] if any
-    /// single contained message is uncorrectable. If all messages are correctable the returned
-    /// state will be [`RSState::Corrected`] with the total number of corrected bytes for
-    /// all contained messages. If there are no errors return [`RSState::Ok`].
+    /// ## Errors
+    /// This returns ``Error::InvalidInput`` if length of `block` is not `255 * interleave`.
+    /// ``Error::Failed`` will be returned if correction is attempted but failed, likely 
+    /// because there were more errors found than could be corrected.
     ///
-    /// If the block cannot be correct by this implementation state will be
-    /// ``RSState::NotPerformed``.
-    ///
-    /// The returned vector will be the original data without the RS parity bytes if
-    /// uncorrectable or ok, otherwise it will be the corrected data without the RS parity
-    /// bytes.
-    ///
-    /// # Panics
+    /// ## Panics
     /// - If interleave is 0
     ///
     /// [can_correct]: Self::can_correct
-    fn correct_codeblock(&self, block: &[u8], interleave: u8) -> (Vec<u8>, RSState);
+    fn correct_codeblock(&self, block: &[u8], interleave: u8) -> Result<(Vec<u8>, RSState), Error>;
 
+    /// Return `block` with the parity check symbols removed.
     fn strip_parity(&self, block: &[u8], interleave: u8) -> Vec<u8>;
 }
 
-/// Implements the CCSDS documented Reed-Solomon FEC.
+/// Implements the CCSDS documented Reed-Solomon (223/255) Forward Error Correct.
+///
+/// All blocks must must be a multiple of 255 bytes, otherwise ``Self::correct_codeblock`` will
+/// return ``Error::InvalidInput``.
 #[derive(Clone)]
 pub struct DefaultReedSolomon;
 
-impl ReedSolomon for DefaultReedSolomon {
-    fn can_correct(&self, block: &[u8], interleave: u8) -> bool {
+impl DefaultReedSolomon {
+    fn can_correct(block: &[u8], interleave: u8) -> bool {
         block.len() == N as usize * interleave as usize
     }
+}
 
+impl ReedSolomon for DefaultReedSolomon {
     fn strip_parity(&self, block: &[u8], interleave: u8) -> Vec<u8> {
         // Length without the RS parity bytes. This is effectively the frame
         let data_len = block.len() - (interleave as usize * PARITY_LEN);
         block[..data_len].to_vec()
     }
 
-    fn correct_codeblock(&self, block: &[u8], interleave: u8) -> (Vec<u8>, RSState) {
+    fn correct_codeblock(&self, block: &[u8], interleave: u8) -> Result<(Vec<u8>, RSState), Error> {
         assert!(interleave != 0, "interleave cannot be 0");
 
-        if !self.can_correct(block, interleave) {
-            return (self.strip_parity(block, interleave), RSState::NotPerformed);
+        if !DefaultReedSolomon::can_correct(block, interleave) {
+            return Err(Error::InvalidInput);
         }
 
         let block: Vec<u8> = block.to_vec();
@@ -82,13 +87,8 @@ impl ReedSolomon for DefaultReedSolomon {
         for (idx, msg) in messages.iter().enumerate() {
             let zult = correct_message(msg);
             match zult.state {
-                RSState::Uncorrectable(msg) => {
-                    return (
-                        self.strip_parity(&corrected, interleave),
-                        RSState::Uncorrectable(format!(
-                            "codeblock message {idx} of {interleave} is uncorrectable: {msg}",
-                        )),
-                    );
+                RSState::Uncorrectable(_) => {
+                    return Err(Error::Failed);
                 }
                 RSState::Corrected(num) => {
                     num_corrected += num;
@@ -107,7 +107,7 @@ impl ReedSolomon for DefaultReedSolomon {
             _ => RSState::Corrected(num_corrected),
         };
 
-        (zult, state)
+        Ok((zult, state))
     }
 }
 
@@ -140,9 +140,9 @@ mod tests {
     fn test_deinterlace() {
         let dat: Vec<u8> = vec![0, 1, 2, 3, 0, 1, 2, 3];
         let blocks = deinterleave(&dat, 4);
-        for i in 0..4 {
-            assert_eq!(blocks[i][0], i as u8);
-            assert_eq!(blocks[i][1], i as u8);
+        for (i, block) in blocks.iter().enumerate().take(4) {
+            assert_eq!(block[0], u8::try_from(i).unwrap());
+            assert_eq!(block[1], u8::try_from(i).unwrap());
         }
     }
 
@@ -160,17 +160,18 @@ mod tests {
         assert_eq!(block.len(), 1020); // sanity check
 
         // introduce an error by just adding one with wrap to a byte
-        block[100] = block[100] + 1 % 255;
+        block[100] += 1;
         //let block = block;
 
         let rs = DefaultReedSolomon {};
         let zult = rs.correct_codeblock(&block, interleave);
 
+        let (block, state) = zult.unwrap();
         assert_eq!(
-            zult.0.len(),
+            block.len(),
             892,
             "expect length 892 for I=4 header and frame data"
         );
-        assert_eq!(zult.1, RSState::Corrected(1));
+        assert_eq!(state, RSState::Corrected(1));
     }
 }

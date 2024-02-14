@@ -206,6 +206,10 @@ where
 
 /// Iterates over synchronized data in block size defined by the source [Synchronizer].
 /// Created using ``Synchronizer::into_iter``.
+///
+/// ## Errors
+/// If a full block cannot be constructed the iterator simply ends, i.e., next returns 
+/// `None`, however, any other error is passed on. 
 pub struct BlockIter<R>
 where
     R: Read + Send,
@@ -221,9 +225,8 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.scanner.scan() {
-            Ok(loc) => {
-                loc.as_ref()?;
-            }
+            Ok(Some(_)) => (), // got a valid Loc
+            Ok(None) => return None, // no loc, must be done
             // Scan resulted in a non-EOF error, let the consumer figure out what to do
             Err(err) => return Some(Err(err)),
         }

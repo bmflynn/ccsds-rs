@@ -557,9 +557,13 @@ where
                 tracker.cache.extend_from_slice(mpdu.payload());
             } else {
                 // No way to get sync if we don't have a header
-                if !mpdu.has_header() {
+                if !mpdu.has_header() { 
                     continue;
                 }
+                assert!(
+                    mpdu.header_offset() < mpdu.payload().len() + 1,
+                    "MPDU header offset too large; likely due to an incorrect frame length",
+                );
                 tracker.cache = mpdu.payload()[mpdu.header_offset()..].to_vec();
                 tracker.sync = true;
             }

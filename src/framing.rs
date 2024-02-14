@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
 use crate::pn::{decode as pn_decode, PNDecoder};
-use crate::rs::{DefaultReedSolomon, RSState, ReedSolomon};
+use crate::rs::{DefaultReedSolomon, RSState, ReedSolomon, Error as RSError};
 use crate::synchronizer::ASM;
 use serde::{Deserialize, Serialize};
 
@@ -193,7 +193,7 @@ pub struct DecodedFrame {
 /// Provides [Frame]s based on configuration provided by the parent ``FrameDecoderBuilder``.
 pub struct DecodedFrameIter {
     done: bool,
-    jobs: Receiver<Receiver<(Frame, RSState)>>,
+    jobs: Receiver<Receiver<Result<(Frame, RSState), RSError>>>,
     handle: Option<JoinHandle<()>>,
     last: Option<u32>,
 }
@@ -214,18 +214,25 @@ impl Iterator for DecodedFrameIter {
                 None
             }
             Ok(rx) => {
-                let (frame, rsstate) = rx.recv().expect("failed to receive future");
-                let missing = match self.last {
-                    Some(last) => missing_frames(frame.header.counter, last),
-                    None => 0,
-                };
-                self.last = Some(frame.header.counter);
+                match rx.recv().expect("failed to receive future") {
+                    Ok((frame, rsstate)) => {
+                        let missing = match self.last {
+                            Some(last) => missing_frames(frame.header.counter, last),
+                            None => 0,
+                        };
+                        self.last = Some(frame.header.counter);
 
-                Some(DecodedFrame {
-                    frame,
-                    missing,
-                    rsstate,
-                })
+                        Some(DecodedFrame {
+                            frame,
+                            missing,
+                            rsstate,
+                        })
+                    },
+                    Err(_) => {
+                        // FIXME: Return Result with this err
+                        return None
+                    }
+                }
             }
         }
     }
@@ -400,24 +407,26 @@ impl FrameDecoderBuilder {
                             block = pn_decode(&block);
                         }
 
-                        let (dat, state) = match reed_solomon.borrow() {
+                        let zult = match reed_solomon.borrow() {
                             Some(rs) => {
                                 // Don't do RS on fill VCIDs
                                 // Blocks will never be short, so unwrap
                                 let vcid = VCDUHeader::decode(&block).unwrap().vcid;
                                 if reed_solomon_skip_vcids.contains(&vcid) {
-                                    (block, RSState::NotPerformed)
+                                    Ok((block, RSState::NotPerformed))
                                 } else {
                                     rs.correct_codeblock(&block, interleave)
                                 }
                             }
-                            None => (block, RSState::NotPerformed),
+                            None => Ok((block, RSState::NotPerformed)),
                         };
-
-                        // block should always contain enough bytes for a frame
-                        let frame = Frame::decode(dat).unwrap();
+                       
                         future_tx
-                            .send((frame, state))
+                            .send(zult.map(|(block, state)| {
+                                // block should always contain the minimum bytes for a frame
+                                let frame = Frame::decode(block).unwrap();
+                                (frame, state)
+                            }))
                             .expect("failed to send frame");
                     });
                     jobs_tx
