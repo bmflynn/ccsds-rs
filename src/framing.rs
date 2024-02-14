@@ -1,12 +1,12 @@
 use std::borrow::Borrow;
 use std::collections::HashSet;
-use std::sync::mpsc::{channel, sync_channel, Receiver};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
 use crate::pn::{decode as pn_decode, PNDecoder};
-use crate::rs::{DefaultReedSolomon, RSState, ReedSolomon, Error as RSError};
+use crate::rs::{DefaultReedSolomon, IntegrityError, RSState, ReedSolomon};
 use crate::synchronizer::ASM;
+use crossbeam::channel::{bounded, unbounded, Receiver};
 use serde::{Deserialize, Serialize};
 
 pub type SCID = u16;
@@ -36,7 +36,7 @@ impl VCDUHeader {
     #[must_use]
     pub fn decode(dat: &Vec<u8>) -> Option<Self> {
         if dat.len() < Self::LEN {
-            return None
+            return None;
         }
 
         let x = u16::from_be_bytes([dat[0], dat[1]]);
@@ -116,7 +116,7 @@ impl MPDU {
     #[must_use]
     pub fn decode(data: &[u8]) -> Option<Self> {
         if data.len() < 2 {
-            return None
+            return None;
         }
         let x = u16::from_be_bytes([data[0], data[1]]);
 
@@ -193,13 +193,13 @@ pub struct DecodedFrame {
 /// Provides [Frame]s based on configuration provided by the parent ``FrameDecoderBuilder``.
 pub struct DecodedFrameIter {
     done: bool,
-    jobs: Receiver<Receiver<Result<(Frame, RSState), RSError>>>,
+    jobs: Receiver<Receiver<Result<(Frame, RSState), IntegrityError>>>,
     handle: Option<JoinHandle<()>>,
     last: Option<u32>,
 }
 
 impl Iterator for DecodedFrameIter {
-    type Item = DecodedFrame;
+    type Item = Result<DecodedFrame, IntegrityError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         // recv blocks current thread until data is available.
@@ -213,27 +213,22 @@ impl Iterator for DecodedFrameIter {
                     .expect("reedsolomon thread paniced");
                 None
             }
-            Ok(rx) => {
-                match rx.recv().expect("failed to receive future") {
-                    Ok((frame, rsstate)) => {
-                        let missing = match self.last {
-                            Some(last) => missing_frames(frame.header.counter, last),
-                            None => 0,
-                        };
-                        self.last = Some(frame.header.counter);
+            Ok(rx) => match rx.recv().expect("failed to receive frame future") {
+                Ok((frame, rsstate)) => {
+                    let missing = match self.last {
+                        Some(last) => missing_frames(frame.header.counter, last),
+                        None => 0,
+                    };
+                    self.last = Some(frame.header.counter);
 
-                        Some(DecodedFrame {
-                            frame,
-                            missing,
-                            rsstate,
-                        })
-                    },
-                    Err(_) => {
-                        // FIXME: Return Result with this err
-                        return None
-                    }
+                    Some(Ok(DecodedFrame {
+                        frame,
+                        missing,
+                        rsstate,
+                    }))
                 }
-            }
+                Err(err) => Some(Err(err)),
+            },
         }
     }
 }
@@ -249,7 +244,7 @@ impl Iterator for DecodedFrameIter {
 ///
 /// IO is performed concurrently so the iterator can be returned immediately. All PN
 /// and RS decoding is likewise performed concurrently.
-pub struct FrameDecoderBuilder{
+pub struct FrameDecoderBuilder {
     asm: Vec<u8>,
     interleave: u8,
     buffer_size: usize,
@@ -376,7 +371,7 @@ impl FrameDecoderBuilder {
     {
         // A "job" in this context is the processing of 1 block. Receivers on which the
         // RS results are delivered as sent on this channel, one for each block.
-        let (jobs_tx, jobs_rx) = sync_channel(self.buffer_size);
+        let (jobs_tx, jobs_rx) = bounded(self.buffer_size);
 
         let interleave = self.interleave;
         let pn_decoder = self.pn_decoder;
@@ -399,7 +394,7 @@ impl FrameDecoderBuilder {
                 for mut block in blocks {
                     let reed_solomon = reed_solomon.clone();
                     let reed_solomon_skip_vcids = reed_solomon_skip_vcids.clone();
-                    let (future_tx, future_rx) = channel();
+                    let (future_tx, future_rx) = unbounded();
                     // spawn_fifo makes sure the frame order is maintained
                     pool.spawn_fifo(move || {
                         // Only do PN if not None
@@ -420,18 +415,19 @@ impl FrameDecoderBuilder {
                             }
                             None => Ok((block, RSState::NotPerformed)),
                         };
-                       
+
                         future_tx
                             .send(zult.map(|(block, state)| {
                                 // block should always contain the minimum bytes for a frame
-                                let frame = Frame::decode(block).unwrap();
+                                let frame = Frame::decode(block).expect("failed to decode frame");
                                 (frame, state)
                             }))
                             .expect("failed to send frame");
                     });
-                    jobs_tx
-                        .send(future_rx)
-                        .expect("failed to send future receiver");
+
+                    if let Err(err) = jobs_tx.send(future_rx) {
+                        println!("failed to send frame future: {err}");
+                    }
                 }
             })
             .unwrap();
@@ -520,13 +516,14 @@ mod tests {
             .into_iter()
             .filter_map(std::io::Result::ok);
 
-        let frames: Vec<DecodedFrame> = FrameDecoderBuilder::new()
+        let frames: Vec<Result<DecodedFrame, IntegrityError>> = FrameDecoderBuilder::new()
             .reed_solomon_interleave(4)
             .build(blocks)
             .collect();
 
         assert_eq!(frames.len(), 7, "expected frame count doesn't match");
-        for (idx, df) in frames.iter().enumerate() {
+        for (idx, df) in frames.into_iter().enumerate() {
+            let df = df.unwrap();
             assert_eq!(df.frame.header.scid, 157);
             if idx < 3 {
                 assert_eq!(df.frame.header.vcid, 16);

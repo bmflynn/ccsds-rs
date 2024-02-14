@@ -72,6 +72,8 @@ fn full_decode() {
     let frames: Vec<DecodedFrame> = FrameDecoderBuilder::new()
         .reed_solomon_interleave(4)
         .build(blocks)
+        .filter(Result::is_ok)
+        .map(Result::unwrap)
         .collect();
     assert_eq!(frames.len(), 65, "expected frame count doesn't match");
 

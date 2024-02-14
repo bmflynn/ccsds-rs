@@ -35,10 +35,12 @@
 //!     .into_iter()
 //!     .filter_map(Result::ok);
 //!
-//! // 2. Decode those blocks into Frames
+//! // 2. Decode those blocks into Frames, ignoring frames with errors
 //! let frames = FrameDecoderBuilder::default()
 //!     .reed_solomon_interleave(4)
-//!     .build(blocks);
+//!     .build(blocks)
+//!     .filter(Result::is_ok)
+//!     .map(Result::unwrap);
 //!
 //! // 3. Extract packets from Frames
 //! // Suomi-NPP has 0 length izone and trailer
@@ -74,7 +76,7 @@ pub mod timecode;
 pub use framing::*;
 pub use rs::{
     correct_message as rs_correct_message, deinterleave as rs_deinterleave,
-    has_errors as rs_has_errors, DefaultReedSolomon, RSState, ReedSolomon,
+    has_errors as rs_has_errors, DefaultReedSolomon, IntegrityError, RSState, ReedSolomon,
 };
 pub use spacepacket::*;
 pub use synchronizer::{read_synchronized_blocks, Synchronizer, ASM};

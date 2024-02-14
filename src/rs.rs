@@ -1,14 +1,12 @@
 pub use rs2::{correct_message, has_errors, RSState, N, PARITY_LEN};
 
-
 #[derive(thiserror::Error, Debug)]
-pub enum Error {
+pub enum IntegrityError {
     #[error("input is not valid for this algorithm")]
-    InvalidInput,     
+    InvalidInput,
     #[error("input failed integrity check")]
     Failed,
 }
-
 
 /// Deinterleave an interleaved RS block (code block + check symbols).
 ///
@@ -39,15 +37,19 @@ pub trait ReedSolomon: Send + Sync {
     /// the algorithm disposition.
     ///
     /// ## Errors
-    /// This returns ``Error::InvalidInput`` if length of `block` is not `255 * interleave`.
-    /// ``Error::Failed`` will be returned if correction is attempted but failed, likely 
+    /// This returns ``IntegrityError::InvalidInput`` if length of `block` is not `255 * interleave`.
+    /// ``IntegrityError::Failed`` will be returned if correction is attempted but failed, likely
     /// because there were more errors found than could be corrected.
     ///
     /// ## Panics
     /// - If interleave is 0
     ///
     /// [can_correct]: Self::can_correct
-    fn correct_codeblock(&self, block: &[u8], interleave: u8) -> Result<(Vec<u8>, RSState), Error>;
+    fn correct_codeblock(
+        &self,
+        block: &[u8],
+        interleave: u8,
+    ) -> Result<(Vec<u8>, RSState), IntegrityError>;
 
     /// Return `block` with the parity check symbols removed.
     fn strip_parity(&self, block: &[u8], interleave: u8) -> Vec<u8>;
@@ -56,7 +58,7 @@ pub trait ReedSolomon: Send + Sync {
 /// Implements the CCSDS documented Reed-Solomon (223/255) Forward Error Correct.
 ///
 /// All blocks must must be a multiple of 255 bytes, otherwise ``Self::correct_codeblock`` will
-/// return ``Error::InvalidInput``.
+/// return ``IntegrityError::InvalidInput``.
 #[derive(Clone)]
 pub struct DefaultReedSolomon;
 
@@ -73,11 +75,15 @@ impl ReedSolomon for DefaultReedSolomon {
         block[..data_len].to_vec()
     }
 
-    fn correct_codeblock(&self, block: &[u8], interleave: u8) -> Result<(Vec<u8>, RSState), Error> {
+    fn correct_codeblock(
+        &self,
+        block: &[u8],
+        interleave: u8,
+    ) -> Result<(Vec<u8>, RSState), IntegrityError> {
         assert!(interleave != 0, "interleave cannot be 0");
 
         if !DefaultReedSolomon::can_correct(block, interleave) {
-            return Err(Error::InvalidInput);
+            return Err(IntegrityError::InvalidInput);
         }
 
         let block: Vec<u8> = block.to_vec();
@@ -88,7 +94,7 @@ impl ReedSolomon for DefaultReedSolomon {
             let zult = correct_message(msg);
             match zult.state {
                 RSState::Uncorrectable(_) => {
-                    return Err(Error::Failed);
+                    return Err(IntegrityError::Failed);
                 }
                 RSState::Corrected(num) => {
                     num_corrected += num;
