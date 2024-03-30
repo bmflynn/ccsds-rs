@@ -5,6 +5,7 @@ use std::io::{Read, Result as IOResult};
 
 use crate::{DecodedFrame, SCID, VCID};
 use serde::{Deserialize, Serialize};
+use tracing::{debug, span, trace, Level};
 
 pub type APID = u16;
 
@@ -523,6 +524,7 @@ where
         'next_frame: loop {
             let frame = self.frames.next();
             if frame.is_none() {
+                trace!("no more frames");
                 break;
             }
 
@@ -536,18 +538,22 @@ where
                 .cache
                 .entry(frame.header.vcid)
                 .or_insert(VcidTracker::new(frame.header.vcid));
-            if let Corrected(_) = rsstate {
+
+            if let Corrected(num) = rsstate {
+                debug!(vcid = %frame.header.vcid, bytes_corrected=num, "corrected frame");
                 tracker.rs_corrected = true;
             }
 
             // Data loss means we dump what we're working on and force resync
             if let Uncorrectable(_) = rsstate {
+                debug!(vcid = %frame.header.vcid, tracker = %tracker, "uncorrectable frame, dropping tracker");
                 tracker.clear();
                 tracker.sync = false;
                 continue;
             }
             // For counter errors, we can still utilize the current frame (no continue)
             if missing > 0 {
+                trace!(vcid = frame.header.vcid, tracker=%tracker, missing=missing, "missing frames, dropping tracker");
                 tracker.clear();
                 tracker.sync = false;
             }
@@ -557,7 +563,8 @@ where
                 tracker.cache.extend_from_slice(mpdu.payload());
             } else {
                 // No way to get sync if we don't have a header
-                if !mpdu.has_header() { 
+                if !mpdu.has_header() {
+                    trace!(vcid = %frame.header.vcid, tracker = %tracker, "frames w/o mpdu, dropping");
                     continue;
                 }
                 assert!(

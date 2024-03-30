@@ -1,5 +1,5 @@
 use std::borrow::Borrow;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
@@ -8,6 +8,7 @@ use crate::rs::{DefaultReedSolomon, IntegrityError, RSState, ReedSolomon};
 use crate::synchronizer::ASM;
 use crossbeam::channel::{bounded, unbounded, Receiver};
 use serde::{Deserialize, Serialize};
+use tracing::{span, trace, Level};
 
 pub type SCID = u16;
 pub type VCID = u16;
@@ -34,7 +35,7 @@ impl VCDUHeader {
 
     /// Construct from the provided bytes, or `None` if there are not enough bytes.
     #[must_use]
-    pub fn decode(dat: &Vec<u8>) -> Option<Self> {
+    pub fn decode(dat: &[u8]) -> Option<Self> {
         if dat.len() < Self::LEN {
             return None;
         }
@@ -195,7 +196,7 @@ pub struct DecodedFrameIter {
     done: bool,
     jobs: Receiver<Receiver<Result<(Frame, RSState), IntegrityError>>>,
     handle: Option<JoinHandle<()>>,
-    last: Option<u32>,
+    last: HashMap<VCID, u32>,
 }
 
 impl Iterator for DecodedFrameIter {
@@ -215,11 +216,33 @@ impl Iterator for DecodedFrameIter {
             }
             Ok(rx) => match rx.recv().expect("failed to receive frame future") {
                 Ok((frame, rsstate)) => {
-                    let missing = match self.last {
-                        Some(last) => missing_frames(frame.header.counter, last),
-                        None => 0,
+                    let span = span!(
+                        Level::TRACE,
+                        "frame",
+                        scid = frame.header.scid,
+                        vcid = frame.header.vcid
+                    );
+                    let _guard = span.enter();
+                    // Only compute missing for non-fill frames
+                    let missing = if frame.header.vcid == VCID_FILL {
+                        0
+                    } else if let Some(last) = self.last.get(&frame.header.vcid) {
+                        let missing = missing_frames(frame.header.counter, *last);
+                        if missing > 0 {
+                            trace!(
+                                cur = frame.header.counter,
+                                last = last,
+                                missing = missing,
+                                "missing frames",
+                            );
+                        }
+                        missing
+                    } else {
+                        self.last.insert(frame.header.vcid, frame.header.counter);
+                        0
                     };
-                    self.last = Some(frame.header.counter);
+
+                    self.last.insert(frame.header.vcid, frame.header.counter);
 
                     Some(Ok(DecodedFrame {
                         frame,
@@ -436,7 +459,7 @@ impl FrameDecoderBuilder {
             done: false,
             jobs: jobs_rx,
             handle: Some(handle),
-            last: None,
+            last: HashMap::new(),
         }
     }
 }
@@ -455,18 +478,20 @@ impl Default for FrameDecoderBuilder {
 /// If the frame couner goes out of bounds
 #[must_use]
 pub fn missing_frames(cur: u32, last: u32) -> u32 {
-    let expected = if last + 1 > VCDUHeader::COUNTER_MAX {
+    let expected = if last == VCDUHeader::COUNTER_MAX {
         0
     } else {
         last + 1
     };
-    if cur != expected {
-        if last + 1 > cur {
-            return cur + VCDUHeader::COUNTER_MAX - last;
+
+    if cur == expected {
+        0
+    } else {
+        if expected > cur {
+            return VCDUHeader::COUNTER_MAX - last + expected - 1;
         }
-        return cur - last - 1;
+        cur - last - 1
     }
-    0
 }
 
 #[cfg(test)]
