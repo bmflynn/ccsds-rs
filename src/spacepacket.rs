@@ -5,7 +5,7 @@ use std::io::{Read, Result as IOResult};
 
 use crate::{DecodedFrame, SCID, VCID};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, span, trace, Level};
+use tracing::{debug, trace};
 
 pub type APID = u16;
 
