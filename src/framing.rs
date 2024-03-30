@@ -8,7 +8,7 @@ use crate::rs::{DefaultReedSolomon, IntegrityError, RSState, ReedSolomon};
 use crate::synchronizer::ASM;
 use crossbeam::channel::{bounded, unbounded, Receiver};
 use serde::{Deserialize, Serialize};
-use tracing::{span, trace, Level};
+use tracing::{span, trace, warn, Level};
 
 pub type SCID = u16;
 pub type VCID = u16;
@@ -31,7 +31,7 @@ impl VCDUHeader {
     pub const LEN: usize = 6;
 
     /// Maximum value for the zero-based VCDU counter before rollover;
-    pub const COUNTER_MAX: u32 = 0xff_ffff;
+    pub const COUNTER_MAX: u32 = 0xff_ffff - 1;
 
     /// Construct from the provided bytes, or `None` if there are not enough bytes.
     #[must_use]
@@ -449,7 +449,7 @@ impl FrameDecoderBuilder {
                     });
 
                     if let Err(err) = jobs_tx.send(future_rx) {
-                        println!("failed to send frame future: {err}");
+                        warn!("failed to send frame future: {err}");
                     }
                 }
             })
@@ -473,11 +473,13 @@ impl Default for FrameDecoderBuilder {
 /// Calculate the number of missing frame sequence counts.
 ///
 /// `cur` is the current frame counter. `last` is the frame counter seen before `cur`.
-///
-/// # Panics
-/// If the frame couner goes out of bounds
+/// `cur` will be greater than `last` except in the case of a wrap.
 #[must_use]
 pub fn missing_frames(cur: u32, last: u32) -> u32 {
+    if cur == last {
+        return VCDUHeader::COUNTER_MAX;
+    }
+
     let expected = if last == VCDUHeader::COUNTER_MAX {
         0
     } else {
@@ -487,8 +489,8 @@ pub fn missing_frames(cur: u32, last: u32) -> u32 {
     if cur == expected {
         0
     } else {
-        if expected > cur {
-            return VCDUHeader::COUNTER_MAX - last + expected - 1;
+        if cur < last {
+            return VCDUHeader::COUNTER_MAX - last + cur;
         }
         cur - last - 1
     }
