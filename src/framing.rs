@@ -8,7 +8,7 @@ use crate::rs::{DefaultReedSolomon, IntegrityError, RSState, ReedSolomon};
 use crate::synchronizer::ASM;
 use crossbeam::channel::{bounded, unbounded, Receiver};
 use serde::{Deserialize, Serialize};
-use tracing::{span, trace, warn, Level};
+use tracing::{debug, span, trace, Level};
 
 pub type SCID = u16;
 pub type VCID = u16;
@@ -439,17 +439,19 @@ impl FrameDecoderBuilder {
                             None => Ok((block, RSState::NotPerformed)),
                         };
 
-                        future_tx
-                            .send(zult.map(|(block, state)| {
-                                // block should always contain the minimum bytes for a frame
-                                let frame = Frame::decode(block).expect("failed to decode frame");
-                                (frame, state)
-                            }))
-                            .expect("failed to send frame");
+                        let zult = future_tx.send(zult.map(|(block, state)| {
+                            // block should always contain the minimum bytes for a frame
+                            let frame = Frame::decode(block).expect("failed to decode frame");
+                            (frame, state)
+                        }));
+
+                        if zult.is_err() {
+                            debug!("failed to send frame");
+                        }
                     });
 
                     if let Err(err) = jobs_tx.send(future_rx) {
-                        warn!("failed to send frame future: {err}");
+                        debug!("failed to send frame future: {err}");
                     }
                 }
             })

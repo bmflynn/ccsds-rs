@@ -214,13 +214,14 @@ pub fn decode_cds(buf: &[u8]) -> Result<DateTime<Utc>, Error> {
     let cds = CDS::new(bytes)?;
     let mut secs: i64 = i64::from(cds.days) * 86400;
     secs += i64::from(cds.millis) / 1000i64;
-    let nanos: u32 =
+    let nanos: u64 =
              // convert millis remainder to nanos
-             (cds.millis * 1_000_000u32 % 1_000_000_000u32)
+             (u64::from(cds.millis) * 1_000_000 % 1_000_000_000)
              // convert micros to nanos
-              + (u32::from(cds.micros) * 1000u32);
+              + (u64::from(cds.micros) * 1000);
 
-    Ok(Utc.timestamp_opt(secs, nanos).unwrap() - Duration::seconds(CDS::EPOCH_DELTA))
+    Ok(Utc.timestamp_opt(secs, nanos.try_into().unwrap()).unwrap()
+        - Duration::seconds(CDS::EPOCH_DELTA))
 }
 
 #[cfg(test)]
@@ -233,5 +234,13 @@ mod cds_tests {
 
         let ts = decode_cds(&dat).unwrap();
         assert_eq!(ts.timestamp_millis(), 1_451_606_400_167);
+    }
+
+    #[test]
+    fn test_cds_overflow() {
+        let dat = [0, 1, 2, 3, 4, 5, 6, 7];
+
+        let ts = decode_cds(&dat).unwrap();
+        assert_eq!(ts.timestamp_millis(), -378_571_047_930, "{ts:?}");
     }
 }
