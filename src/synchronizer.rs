@@ -85,6 +85,9 @@ impl<R> Synchronizer<R>
 where
     R: Read + Send,
 {
+    /// Creates a new ``Synchronizer``.
+    ///
+    /// `block_size` is the length of the CADU minus the length of the ASM.
     pub fn new(reader: R, asm: &Vec<u8>, block_size: usize) -> Self {
         let (patterns, masks) = create_patterns(asm);
         let bytes = Bytes::new(reader);
@@ -208,8 +211,8 @@ where
 /// Created using ``Synchronizer::into_iter``.
 ///
 /// ## Errors
-/// If a full block cannot be constructed the iterator simply ends, i.e., next returns 
-/// `None`, however, any other error is passed on. 
+/// If a full block cannot be constructed the iterator simply ends, i.e., next returns
+/// `None`, however, any other error is passed on.
 pub struct BlockIter<R>
 where
     R: Read + Send,
@@ -225,7 +228,7 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.scanner.scan() {
-            Ok(Some(_)) => (), // got a valid Loc
+            Ok(Some(_)) => (),       // got a valid Loc
             Ok(None) => return None, // no loc, must be done
             // Scan resulted in a non-EOF error, let the consumer figure out what to do
             Err(err) => return Some(Err(err)),

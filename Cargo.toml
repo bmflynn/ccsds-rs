@@ -9,19 +9,18 @@ categories = ["aerospace::space-protocols"]
 license-file = "LICENSE.txt"
 repository = "https://github.com/bmflynn/ccsds-rs"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-chrono = { version = "0.4", features = ["serde"] }
-crossbeam = { version = "0.8.4", features = ["crossbeam-channel"] }
+chrono = { version = "^0.4", features = ["serde"] }
+crossbeam = { version = "^0.8.4", features = ["crossbeam-channel"] }
 ndarray = "0.15.6"
-rayon = "1.7.0"
-rs2 = "0.1.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-thiserror = "1.0.38"
-threadpool = "1.8.1"
-tracing = { version = "0.1.40", features = ["log"] }
+rayon = "^1.7.0"
+rs2 = "^0.1.0"
+serde = { version = "^1.0", features = ["derive"] }
+serde_json = "^1.0"
+spacecrafts = "^0.1.0-beta.1"
+thiserror = "^1.0.38"
+threadpool = "^1.8.1"
+tracing = { version = "^0.1.40", features = ["log"] }
 
 [lib]
 name = "ccsds"

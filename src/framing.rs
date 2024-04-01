@@ -522,6 +522,29 @@ pub fn missing_frames(cur: u32, last: u32) -> u32 {
     }
 }
 
+/// Get a ``spacecrafts::FramingConfig`` for a spacecraft, or `None`.
+///
+/// Attempt to load the DB from `path`, if provided, otherwise look for a locally available
+/// [spacecraftsdb](https://github.com/bmflynn/spacecraftsdb) file available at one of the
+/// default locations.
+///
+/// # Errors
+/// If the spacecraftdb database file is not found in one of the standard locations.
+pub fn framing_config(
+    scid: SCID,
+    path: Option<&str>,
+) -> Result<Option<spacecrafts::FramingConfig>, Box<dyn std::error::Error>> {
+    let db = match path {
+        Some(path) => spacecrafts::DB::with_path(path)?,
+        None => spacecrafts::DB::new()?,
+    };
+
+    Ok(match db.find(scid) {
+        Some(sc) => Some(sc.framing_config),
+        None => None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

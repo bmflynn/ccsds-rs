@@ -106,11 +106,11 @@ mod tests {
             "Byte should be the same as second call to next following a push"
         );
         assert_eq!(bytes.offset(), 2);
-        assert_eq!(bytes.cache, []);
+        assert_eq!(bytes.cache.len(), 0);
 
         let buf = &mut vec![0u8; 3][..];
         bytes.fill(buf).expect("read_exact should not have failed");
-        assert_eq!(bytes.cache, []);
+        assert_eq!(bytes.cache.len(), 0);
         assert_eq!(bytes.offset(), 5);
         assert_eq!(buf, [2, 3, 4]);
     }
