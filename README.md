@@ -47,16 +47,24 @@ let frames = FrameDecoderBuilder::default()
 let packets = decode_framed_packets(157, frames, 0, 0);
 ```
 
-### References:
+## References:
 * [`CCSDS`]
 * [`Space Packet Protocol`]
 * [`TM Synchronization and Channel Coding`]
 * [`TM Synchronization and Channel Coding - Summary of Concept and Rationale`]
 
 
-### License
+## Related
+* [spacecraftsdb](https://github.com/bmflynn/spacecraftsdb): JSON Spacecraft metadata database
+* [spacecrafts-rs](https://github.com/bmflynn/spacecrafts-rs): Rust create for `spacecraftsdb`
+* [ccsdspy](https://github.com/bmflynn/ccsdspy): Python bindings for `ccsds-rs`
+
+
+## License
 
 GNU General Public License v3.0
+
+
 
 [`CCSDS`]: https://public.ccsds.org
 [`Space Packet Protocol`]: https://public.ccsds.org/Pubs/133x0b1c2.pdf
