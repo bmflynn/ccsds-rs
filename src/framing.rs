@@ -402,19 +402,19 @@ where
     /// Default number of frames to buffer in memory while waiting for RS.
     pub const DEFAULT_BUFFER_SIZE: usize = 1024;
 
-    pub fn new() -> Self {
-        let mut skip_vcids: HashSet<VCID> = HashSet::new();
-        skip_vcids.insert(VCID_FILL);
-
-        FrameDecoderBuilder {
-            interleave: 0,
-            pn_decoder: None,
-            reed_solomon: None,
-            reed_solomon_threads: 0, // Let rayon decide
-            reed_solomon_skip_vcids: skip_vcids,
-            buffer_size: Self::DEFAULT_BUFFER_SIZE,
-        }
-    }
+    // pub fn new() -> Self {
+    //     let mut skip_vcids: HashSet<VCID> = HashSet::new();
+    //     skip_vcids.insert(VCID_FILL);
+    //
+    //     FrameDecoderBuilder {
+    //         interleave: 0,
+    //         pn_decoder: None,
+    //         reed_solomon: None,
+    //         reed_solomon_threads: 0, // Let rayon decide
+    //         reed_solomon_skip_vcids: skip_vcids,
+    //         buffer_size: Self::DEFAULT_BUFFER_SIZE,
+    //     }
+    // }
 
     /// Limits the number of block waiting in memory for RS.
     /// See ``FrameDecoderBuilder::DEFAULT_BUFFER_SIZE``.
@@ -465,15 +465,19 @@ where
     }
 }
 
-impl Default for FrameDecoderBuilder<DefaultReedSolomon, DefaultPN> {
-    fn default() -> FrameDecoderBuilder<DefaultReedSolomon, DefaultPN> {
+impl<R> Default for FrameDecoderBuilder<R, DefaultPN>
+where
+    R: ReedSolomon,
+{
+    /// Creates a builder configured with some sensible defaults.
+    fn default() -> FrameDecoderBuilder<R, DefaultPN> {
         let mut skip_vcids: HashSet<VCID> = HashSet::new();
         skip_vcids.insert(VCID_FILL);
 
         FrameDecoderBuilder {
             interleave: 0,
             pn_decoder: Some(DefaultPN),
-            reed_solomon: Some(DefaultReedSolomon),
+            reed_solomon: None,
             reed_solomon_threads: 0, // Let rayon decide
             reed_solomon_skip_vcids: skip_vcids,
             buffer_size: Self::DEFAULT_BUFFER_SIZE,
@@ -593,8 +597,8 @@ mod tests {
             .into_iter()
             .filter_map(std::io::Result::ok);
 
-        let frames: Vec<Result<DecodedFrame, IntegrityError>> = FrameDecoderBuilder::new()
-            .reed_solomon_interleave(4)
+        let frames: Vec<Result<DecodedFrame, IntegrityError>> = FrameDecoderBuilder::default()
+            .reed_solomon(4)
             .build()
             .start(blocks)
             .collect();

@@ -69,8 +69,8 @@ fn full_decode() {
         .into_iter()
         .filter_map(Result::ok);
 
-    let frames: Vec<DecodedFrame> = FrameDecoderBuilder::new()
-        .reed_solomon_interleave(4)
+    let frames: Vec<DecodedFrame> = FrameDecoderBuilder::default()
+        .reed_solomon(4)
         .build()
         .start(blocks)
         .filter(Result::is_ok)

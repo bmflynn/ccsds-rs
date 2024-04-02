@@ -37,7 +37,7 @@
 //!
 //! // 2. Decode those blocks into Frames, ignoring frames with errors
 //! let frames = FrameDecoderBuilder::default()
-//!     .reed_solomon_interleave(4)
+//!     .reed_solomon(4)
 //!     .build()
 //!     .start(blocks)
 //!     .filter(Result::is_ok)
