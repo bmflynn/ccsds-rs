@@ -157,7 +157,9 @@ fn _decode(buf: &mut [u8]) {
 }
 
 /// An implementation of Pseudo-noise removal.
-pub type PNDecoder = fn(&[u8]) -> Vec<u8>;
+pub trait PNDecoder: Send + Sync {
+    fn decode(&self, dat: &[u8]) -> Vec<u8>;
+}
 
 /// Remove pseudo-noise for data up to the length of [SEQUENCE].
 ///
@@ -165,17 +167,26 @@ pub type PNDecoder = fn(&[u8]) -> Vec<u8>;
 /// - If the provided data is longer than [SEQUENCE]
 ///
 // FIXME: Support data longer than [SEQUENCE]
-pub fn decode(buf: &[u8]) -> Vec<u8> {
+fn decode(buf: &[u8]) -> Vec<u8> {
     assert!(
         buf.len() < SEQUENCE.len(),
         "data longer than the PN sequence: got {}, wanted < {}",
-        buf.len(), SEQUENCE.len()
+        buf.len(),
+        SEQUENCE.len()
     );
     let arr = arr1(buf);
     let seq = arr1(&SEQUENCE[..buf.len()]);
 
     let zult = arr ^ seq;
     zult.as_slice().unwrap().to_vec()
+}
+
+pub struct DefaultPN;
+
+impl PNDecoder for DefaultPN {
+    fn decode(&self, dat: &[u8]) -> Vec<u8> {
+        decode(dat)
+    }
 }
 
 #[cfg(test)]

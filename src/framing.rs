@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
-use crate::pn::{decode as pn_decode, PNDecoder};
+use crate::pn::{DefaultPN, PNDecoder};
 use crate::rs::{DefaultReedSolomon, IntegrityError, RSState, ReedSolomon};
 use crossbeam::channel::{bounded, unbounded, Receiver};
 use serde::{Deserialize, Serialize};
@@ -201,18 +201,26 @@ pub struct DecodedFrame {
     pub rsstate: RSState,
 }
 
-pub struct FrameDecoder {
+pub struct FrameDecoder<R, P>
+where
+    R: ReedSolomon,
+    P: PNDecoder,
+{
     interleave: u8,
     buffer_size: usize,
 
-    pn_decoder: Option<PNDecoder>,
-    reed_solomon: Option<Box<dyn ReedSolomon>>,
+    pn_decoder: Option<P>,
+    reed_solomon: Option<R>,
     reed_solomon_threads: usize,
     reed_solomon_skip_vcids: HashSet<VCID>,
 }
 
 /// ``FrameDecoder`` is a handle for starting a `DecodedFrameIter`.
-impl FrameDecoder {
+impl<R, P> FrameDecoder<R, P>
+where
+    R: ReedSolomon + 'static,
+    P: PNDecoder + 'static,
+{
     /// Start decoding in the background and return an iterator for retrieving decoded frames.
     ///
     /// # Panics
@@ -226,7 +234,6 @@ impl FrameDecoder {
         let (jobs_tx, jobs_rx) = bounded(self.buffer_size);
 
         let interleave = self.interleave;
-        let pn_decoder = self.pn_decoder;
 
         // Do IO (Read/synchronize) in the background where each synchronized block or
         // CADU will be submitted to a thread pool such that the PN and RS can run in the
@@ -241,17 +248,19 @@ impl FrameDecoder {
 
                 let jobs_tx = jobs_tx.clone();
                 let reed_solomon = Arc::new(self.reed_solomon);
+                let pn_decoder = Arc::new(self.pn_decoder);
                 let reed_solomon_skip_vcids = self.reed_solomon_skip_vcids.clone();
 
                 for mut block in blocks {
                     let reed_solomon = reed_solomon.clone();
                     let reed_solomon_skip_vcids = reed_solomon_skip_vcids.clone();
+                    let pn_decoder = pn_decoder.clone();
                     let (future_tx, future_rx) = unbounded();
                     // spawn_fifo makes sure the frame order is maintained
                     pool.spawn_fifo(move || {
                         // Only do PN if not None
-                        if let Some(pn_decode) = pn_decoder {
-                            block = pn_decode(&block);
+                        if let Some(pn) = pn_decoder.borrow() {
+                            block = pn.decode(&block);
                         }
 
                         let zult = match reed_solomon.borrow() {
@@ -371,48 +380,35 @@ impl Iterator for DecodedFrameIter {
 ///
 /// IO is performed concurrently so the iterator can be returned immediately. All PN
 /// and RS decoding is likewise performed concurrently.
-pub struct FrameDecoderBuilder {
+pub struct FrameDecoderBuilder<R, P>
+where
+    R: ReedSolomon,
+    P: PNDecoder,
+{
     interleave: u8,
     buffer_size: usize,
 
-    pn_decoder: Option<PNDecoder>,
-    reed_solomon: Option<Box<dyn ReedSolomon>>,
+    pn_decoder: Option<P>,
+    reed_solomon: Option<R>,
     reed_solomon_threads: usize,
     reed_solomon_skip_vcids: HashSet<VCID>,
 }
 
-impl FrameDecoderBuilder {
+impl<R, P> FrameDecoderBuilder<R, P>
+where
+    R: ReedSolomon,
+    P: PNDecoder,
+{
     /// Default number of frames to buffer in memory while waiting for RS.
     pub const DEFAULT_BUFFER_SIZE: usize = 1024;
 
-    /// Create a new ``DecodedFrameIter`` with default values suitable for decoding most (all?)
-    /// CCSDS compatible frame streams.
-    ///
-    /// `cadu_length` should be the length of the attached sync marker and the Reed-Solomon
-    /// code block, if the stream uses Reed-Solomon, or the length of the transfer frame.
-    /// You _must_ include the length of the RS codeblock if the stream uses RS, even if you
-    /// have disabled RS FEC.
-    ///
-    /// Given the `interleave` for a spacecraft, for most cases all that should be necessary
-    /// is the following:
-    /// ```
-    /// use ccsds::FrameDecoderBuilder;
-    /// let blocks: Vec<Vec<u8>> = vec![];
-    /// let decoded_frames = FrameDecoderBuilder::default()
-    ///     .reed_solomon_interleave(4)
-    ///     .build()
-    ///     .start(blocks.into_iter());
-    /// ```
-    ///
-    /// It is possible, however, to twidle with default implementations using the provided
-    /// builder functions.
     pub fn new() -> Self {
         let mut skip_vcids: HashSet<VCID> = HashSet::new();
         skip_vcids.insert(VCID_FILL);
 
         FrameDecoderBuilder {
             interleave: 0,
-            pn_decoder: Some(pn_decode),
+            pn_decoder: None,
             reed_solomon: None,
             reed_solomon_threads: 0, // Let rayon decide
             reed_solomon_skip_vcids: skip_vcids,
@@ -428,19 +424,6 @@ impl FrameDecoderBuilder {
         self
     }
 
-    /// Use the default Reed-Solomon with the specified interleave value.
-    ///
-    /// For more control over Reed-Solomon, see ``reed_solomon``.
-    ///
-    /// # Panics
-    /// If `interleave` is 0.
-    ///
-    /// [reed_solomon]: Self::reed_solomon
-    #[must_use]
-    pub fn reed_solomon_interleave(self, interleave: u8) -> Self {
-        self.reed_solomon(Some(Box::new(DefaultReedSolomon {})), interleave)
-    }
-
     /// Set VCIDs to skip when performing RS.
     ///
     /// The default is to skip only ``VCID_FILL``.
@@ -450,14 +433,6 @@ impl FrameDecoderBuilder {
     pub fn reed_solomon_skip_vcids(mut self, vcids: &[VCID]) -> Self {
         self.reed_solomon_skip_vcids.clear();
         self.reed_solomon_skip_vcids.extend(vcids.iter());
-        self
-    }
-
-    /// Set the Reed-Solomon per-CADU implementation to use. Defaults to ``DefaultReedSolomon``.
-    #[must_use]
-    pub fn reed_solomon(mut self, rs: Option<Box<dyn ReedSolomon>>, interleave: u8) -> Self {
-        self.reed_solomon = rs;
-        self.interleave = interleave;
         self
     }
 
@@ -471,14 +446,14 @@ impl FrameDecoderBuilder {
 
     /// Set pseudo-noise implementation.
     #[must_use]
-    pub fn pn_decode(mut self, pn: Option<PNDecoder>) -> Self {
-        self.pn_decoder = pn;
+    pub fn pn_decode(mut self, pn: P) -> Self {
+        self.pn_decoder = Some(pn);
         self
     }
 
     /// Build the `FrameDecoder`.
     #[must_use]
-    pub fn build(self) -> FrameDecoder {
+    pub fn build(self) -> FrameDecoder<R, P> {
         FrameDecoder {
             interleave: self.interleave,
             buffer_size: self.buffer_size,
@@ -490,9 +465,35 @@ impl FrameDecoderBuilder {
     }
 }
 
-impl Default for FrameDecoderBuilder {
-    fn default() -> Self {
-        Self::new()
+impl Default for FrameDecoderBuilder<DefaultReedSolomon, DefaultPN> {
+    fn default() -> FrameDecoderBuilder<DefaultReedSolomon, DefaultPN> {
+        let mut skip_vcids: HashSet<VCID> = HashSet::new();
+        skip_vcids.insert(VCID_FILL);
+
+        FrameDecoderBuilder {
+            interleave: 0,
+            pn_decoder: Some(DefaultPN),
+            reed_solomon: Some(DefaultReedSolomon),
+            reed_solomon_threads: 0, // Let rayon decide
+            reed_solomon_skip_vcids: skip_vcids,
+            buffer_size: Self::DEFAULT_BUFFER_SIZE,
+        }
+    }
+}
+
+impl<P> FrameDecoderBuilder<DefaultReedSolomon, P>
+where
+    P: PNDecoder,
+{
+    /// Use the default Reed-Solomon 223/255 with the specified interleave value.
+    ///
+    /// # Panics
+    /// If `interleave` is 0.
+    #[must_use]
+    pub fn reed_solomon(mut self, interleave: u8) -> Self {
+        self.reed_solomon = Some(DefaultReedSolomon {});
+        self.interleave = interleave;
+        self
     }
 }
 
