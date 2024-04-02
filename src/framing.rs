@@ -402,20 +402,6 @@ where
     /// Default number of frames to buffer in memory while waiting for RS.
     pub const DEFAULT_BUFFER_SIZE: usize = 1024;
 
-    // pub fn new() -> Self {
-    //     let mut skip_vcids: HashSet<VCID> = HashSet::new();
-    //     skip_vcids.insert(VCID_FILL);
-    //
-    //     FrameDecoderBuilder {
-    //         interleave: 0,
-    //         pn_decoder: None,
-    //         reed_solomon: None,
-    //         reed_solomon_threads: 0, // Let rayon decide
-    //         reed_solomon_skip_vcids: skip_vcids,
-    //         buffer_size: Self::DEFAULT_BUFFER_SIZE,
-    //     }
-    // }
-
     /// Limits the number of block waiting in memory for RS.
     /// See ``FrameDecoderBuilder::DEFAULT_BUFFER_SIZE``.
     #[must_use]
@@ -446,8 +432,8 @@ where
 
     /// Set pseudo-noise implementation.
     #[must_use]
-    pub fn pn_decode(mut self, pn: P) -> Self {
-        self.pn_decoder = Some(pn);
+    pub fn pn_decode(mut self, pn: Option<P>) -> Self {
+        self.pn_decoder = pn;
         self
     }
 
