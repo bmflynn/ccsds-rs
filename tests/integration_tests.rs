@@ -29,7 +29,6 @@ fn group_iter() {
     let fpath = fixture_path("tests/fixtures/viirs_packets.dat");
     let reader = fs::File::open(fpath).unwrap();
     let iter = read_packet_groups(reader);
-
     let groups: Vec<Result<PacketGroup, IoError>> = iter.collect();
 
     assert_eq!(groups.len(), 7);
@@ -69,17 +68,15 @@ fn full_decode() {
         .into_iter()
         .filter_map(Result::ok);
 
-    let frames: Vec<DecodedFrame> = FrameDecoderBuilder::default()
-        .reed_solomon(4)
+    let frames: Vec<DecodedFrame> = FrameRSDecoder::builder()
+        .interleave(4)
         .build()
-        .start(blocks)
-        .filter(Result::is_ok)
-        .map(Result::unwrap)
+        .decode(blocks)
+        .filter_map(Result::ok)
         .collect();
     assert_eq!(frames.len(), 65, "expected frame count doesn't match");
 
-    let packets: Vec<DecodedPacket> =
-        decode_framed_packets(157, frames.into_iter(), 0, 0).collect();
+    let packets: Vec<DecodedPacket> = decode_framed_packets(frames.into_iter(), 0, 0).collect();
     assert_eq!(packets.len(), 12, "expected packet count doesn't match");
 
     let mut hasher = Md5::new();

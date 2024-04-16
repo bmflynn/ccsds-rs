@@ -619,6 +619,9 @@ where
 
 /// Decodes the provided frames into a packets contained within the frames' MPDUs.
 ///
+/// While not strictly enforced, frames should all be from the same spacecraft, i.e., have
+/// the same spacecraft id.
+///
 /// There are several cases when frame data cannot be fully recovered and is dropped,
 /// i.e., not used to construct packets:
 ///
@@ -626,10 +629,7 @@ where
 /// 2. Frames with state ``rs2::RSState::Uncorrectable``
 /// 3. Fill Frames
 /// 4. Frames before the first header is available in an MPDU
-///
-/// This will handle frames from multiple spacecrafts, i.e., with different SCIDs.
 pub fn decode_framed_packets<I>(
-    scid: SCID,
     frames: I,
     izone_length: usize,
     trailer_length: usize,
@@ -638,7 +638,7 @@ where
     I: Iterator<Item = DecodedFrame> + Send,
 {
     FramedPacketIter {
-        frames: frames.filter(move |dc| !dc.frame.is_fill() && dc.frame.header.scid == scid),
+        frames: frames.filter(move |dc| !dc.frame.is_fill()),
         izone_length,
         trailer_length,
         cache: HashMap::new(),

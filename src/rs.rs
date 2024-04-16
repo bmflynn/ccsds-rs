@@ -50,9 +50,6 @@ pub trait ReedSolomon: Send + Sync {
         block: &[u8],
         interleave: u8,
     ) -> Result<(Vec<u8>, RSState), IntegrityError>;
-
-    /// Return `block` with the parity check symbols removed.
-    fn strip_parity(&self, block: &[u8], interleave: u8) -> Vec<u8>;
 }
 
 /// Implements the CCSDS documented Reed-Solomon (223/255) Forward Error Correct.
@@ -66,15 +63,15 @@ impl DefaultReedSolomon {
     fn can_correct(block: &[u8], interleave: u8) -> bool {
         block.len() == N as usize * interleave as usize
     }
-}
 
-impl ReedSolomon for DefaultReedSolomon {
-    fn strip_parity(&self, block: &[u8], interleave: u8) -> Vec<u8> {
+    fn strip_parity(block: &[u8], interleave: u8) -> Vec<u8> {
         // Length without the RS parity bytes. This is effectively the frame
         let data_len = block.len() - (interleave as usize * PARITY_LEN);
         block[..data_len].to_vec()
     }
+}
 
+impl ReedSolomon for DefaultReedSolomon {
     fn correct_codeblock(
         &self,
         block: &[u8],
@@ -107,7 +104,7 @@ impl ReedSolomon for DefaultReedSolomon {
             }
         }
 
-        let zult = self.strip_parity(&corrected, interleave);
+        let zult = Self::strip_parity(&corrected, interleave);
         let state = match num_corrected {
             0 => RSState::Ok, // no rs messages in block were corrected
             _ => RSState::Corrected(num_corrected),

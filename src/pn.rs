@@ -228,42 +228,4 @@ mod tests {
             assert_eq!(*a, *b, "failed at index {i}");
         }
     }
-
-    /*
-    extern crate test;
-    use rand::Rng;
-    use test::Bencher;
-
-    #[bench]
-    fn bench_decode_nondarray(b: &mut Bencher) {
-        let mut rng = rand::thread_rng();
-        let mut buf = [0u8; 1020];
-        for i in 0..buf.len() {
-            let f: u8 = rng.gen();
-            buf[i] = f;
-        }
-
-        b.iter(|| {
-            _decode(&mut buf.clone());
-
-            rng.gen::<u8>() // return a value to avoid optimization issue
-        });
-    }
-
-    #[bench]
-    fn bench_decode(b: &mut Bencher) {
-        let mut rng = rand::thread_rng();
-        let mut buf = [0u8; 1020];
-        for i in 0..buf.len() {
-            let f: u8 = rng.gen();
-            buf[i] = f;
-        }
-
-        b.iter(|| {
-            decode(&mut buf.clone());
-
-            rng.gen::<u8>() // return a value to avoid optimization issue
-        });
-    }
-    */
 }

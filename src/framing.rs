@@ -1,13 +1,13 @@
-use std::borrow::Borrow;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
-use crate::pn::{DefaultPN, PNDecoder};
 use crate::rs::{DefaultReedSolomon, IntegrityError, RSState, ReedSolomon};
+use crate::{DefaultPN, PNDecoder};
 use crossbeam::channel::{bounded, unbounded, Receiver};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, span, trace, Level};
+use tracing::{debug, span, Level};
+use typed_builder::TypedBuilder;
 
 pub type SCID = u16;
 pub type VCID = u16;
@@ -194,6 +194,9 @@ impl Frame {
     }
 }
 
+/// A `Frame` decoded from CADUs containing additional decode information regarding the
+/// decoding process, e.g., missing frame counts and Reed-Solomon decoding information,
+/// if available.
 #[derive(Debug, Clone)]
 pub struct DecodedFrame {
     pub frame: Frame,
@@ -201,89 +204,99 @@ pub struct DecodedFrame {
     pub rsstate: RSState,
 }
 
-pub struct FrameDecoder<R, P>
-where
-    R: ReedSolomon,
-    P: PNDecoder,
-{
+/// Applies Reed-Solomon and PN derandomization to an iterable of Reed-Solomon codeblocks.
+///
+/// Each block provided must be the full expected length of a codeblock, which includes the
+/// length of the frame and the RS parity bytes. All frames are returned without the
+/// Reed-Solomon parity bytes.
+///
+/// RS error detection/correcion occurs in parallel where each codeblock is decoded in full
+/// as a single job in a pool of worker threads.
+///
+/// The missing frame count will be the number of frames mising between consecutive frames
+/// for the same VCID.
+///
+/// Frames are always produced with their RS disposition, even if the data was unable to be
+/// corrected. If the RS algorithm fails internally on the given input a error is returned.
+///
+/// See CCSDS 131.0-b5, section 4.
+#[derive(TypedBuilder)]
+pub struct FrameRSDecoder {
+    /// Reed-Solomon message interleave.
     interleave: u8,
-    buffer_size: usize,
-
-    pn_decoder: Option<P>,
-    reed_solomon: Option<R>,
-    reed_solomon_threads: usize,
-    reed_solomon_skip_vcids: HashSet<VCID>,
+    /// Reed-Solomon algorithm to use. The default is to use RS 223/255 as documented in
+    /// the CCSDS blue book.
+    #[builder(default=Box::new(DefaultReedSolomon{}))]
+    alg: Box<dyn ReedSolomon>,
+    /// Number of threads to use for Reed-Solomon.
+    #[builder(default)]
+    num_threads: usize,
+    /// When true, indicates the provided codeblocks are pseudo randomized as described
+    /// in 131.0-b5, section 10, and requires derandomization.
+    ///
+    /// While Pseudo-randomization is not strictly part of Reed-Solomon it is removed at this
+    /// stage as a matter of efficiency. To use a custom PN algorithm you can simply disable
+    /// this here and apply your own to the codeblocks before using this decoder.
+    #[builder(default = true)]
+    pseudo_randomized: bool,
 }
 
 /// ``FrameDecoder`` is a handle for starting a `DecodedFrameIter`.
-impl<R, P> FrameDecoder<R, P>
-where
-    R: ReedSolomon + 'static,
-    P: PNDecoder + 'static,
-{
-    /// Start decoding in the background and return an iterator for retrieving decoded frames.
+impl FrameRSDecoder {
+    const DEFAULT_BUFFER_SIZE: usize = 1024;
+
+    /// Starts the decoding processin a the background and returns an iterator for accessing
+    /// [Frame]s decoded from the provided blocks.
     ///
     /// # Panics
     /// If the background thread could not be started.
-    pub fn start<B>(self, blocks: B) -> DecodedFrameIter
+    pub fn decode<B>(self, blocks: B) -> DecodedFrameIter
     where
         B: Iterator<Item = Vec<u8>> + Send + 'static,
     {
-        // A "job" in this context is the processing of 1 block. Receivers on which the
-        // RS results are delivered as sent on this channel, one for each block.
-        let (jobs_tx, jobs_rx) = bounded(self.buffer_size);
+        let (jobs_tx, jobs_rx) = bounded(Self::DEFAULT_BUFFER_SIZE);
 
-        let interleave = self.interleave;
-
-        // Do IO (Read/synchronize) in the background where each synchronized block or
-        // CADU will be submitted to a thread pool such that the PN and RS can run in the
-        // background.
         let handle = thread::Builder::new()
-            .name("reedsolomon".into())
+            .name("frame_rs_decoder".into())
             .spawn(move || {
                 let pool = rayon::ThreadPoolBuilder::new()
-                    .num_threads(self.reed_solomon_threads)
+                    .num_threads(self.num_threads)
                     .build()
                     .expect("failed to construct RS threadpool with requested number of threads");
 
                 let jobs_tx = jobs_tx.clone();
-                let reed_solomon = Arc::new(self.reed_solomon);
-                let pn_decoder = Arc::new(self.pn_decoder);
-                let reed_solomon_skip_vcids = self.reed_solomon_skip_vcids.clone();
+                let alg = Arc::new(self.alg);
+
+                let pn = DefaultPN {};
 
                 for mut block in blocks {
-                    let reed_solomon = reed_solomon.clone();
-                    let reed_solomon_skip_vcids = reed_solomon_skip_vcids.clone();
-                    let pn_decoder = pn_decoder.clone();
                     let (future_tx, future_rx) = unbounded();
+                    let alg = Arc::new(alg.clone());
+
+                    if self.pseudo_randomized {
+                        block = pn.decode(&block);
+                    }
+
+                    let hdr = VCDUHeader::decode(&block).unwrap();
+                    // Always skip fill. Exspecially, don't do RS on fill
+                    if hdr.vcid == VCID_FILL {
+                        continue;
+                    }
                     // spawn_fifo makes sure the frame order is maintained
                     pool.spawn_fifo(move || {
-                        // Only do PN if not None
-                        if let Some(pn) = pn_decoder.borrow() {
-                            block = pn.decode(&block);
-                        }
-
-                        let zult = match reed_solomon.borrow() {
-                            Some(rs) => {
-                                // Don't do RS on fill VCIDs
-                                // Blocks will never be short, so unwrap
-                                let vcid = VCDUHeader::decode(&block).unwrap().vcid;
-                                if reed_solomon_skip_vcids.contains(&vcid) {
-                                    Ok((block, RSState::NotPerformed))
-                                } else {
-                                    rs.correct_codeblock(&block, interleave)
-                                }
-                            }
-                            None => Ok((block, RSState::NotPerformed)),
-                        };
-
-                        let zult = future_tx.send(zult.map(|(block, state)| {
-                            // block should always contain the minimum bytes for a frame
-                            let frame = Frame::decode(block).expect("failed to decode frame");
-                            (frame, state)
-                        }));
-
-                        if zult.is_err() {
+                        let alg = alg.clone();
+                        let zult = alg.correct_codeblock(&block, self.interleave).map(
+                            |(block, rsstate)| {
+                                (
+                                    Frame {
+                                        header: hdr,
+                                        data: block,
+                                    },
+                                    rsstate,
+                                )
+                            },
+                        );
+                        if future_tx.send(zult).is_err() {
                             debug!("failed to send frame");
                         }
                     });
@@ -304,11 +317,12 @@ where
     }
 }
 
-/// Provides [Frame]s based on configuration provided by the parent ``FrameDecoderBuilder``.
+/// Provides [Frame]s based on configuration provided by the parent ``FrameDecoder``.
 pub struct DecodedFrameIter {
     done: bool,
     jobs: Receiver<Receiver<Result<(Frame, RSState), IntegrityError>>>,
     handle: Option<JoinHandle<()>>,
+    // For tracking missing counts, which are per VCID
     last: HashMap<VCID, u32>,
 }
 
@@ -340,21 +354,11 @@ impl Iterator for DecodedFrameIter {
                     let missing = if frame.header.vcid == VCID_FILL {
                         0
                     } else if let Some(last) = self.last.get(&frame.header.vcid) {
-                        let missing = missing_frames(frame.header.counter, *last);
-                        if missing > 0 {
-                            trace!(
-                                cur = frame.header.counter,
-                                last = last,
-                                missing = missing,
-                                "missing frames",
-                            );
-                        }
-                        missing
+                        missing_frames(frame.header.counter, *last)
                     } else {
                         self.last.insert(frame.header.vcid, frame.header.counter);
                         0
                     };
-
                     self.last.insert(frame.header.vcid, frame.header.counter);
 
                     Some(Ok(DecodedFrame {
@@ -369,121 +373,57 @@ impl Iterator for DecodedFrameIter {
     }
 }
 
-/// Builds a ``DecodedFrameIter`` that will return all frames decoded from the stream read
-/// from reader.
+/// Simpler version of ``FrameRSDecoder``, but for streams that do not use Reed-Solomon.
 ///
-/// Reads are only performed when a [Frame] is requested from the returned iterator, i.e.,
-/// when ``Iterator::next`` is called. More bytes than the size of the frame may be read if the
-/// underlying stream is not synchronized.
+/// The `rsstate` property of returned `DecodedFrames` will always be ``RSState::NotPerformed``.
 ///
-/// Frames will generated in the order in which they occur in the original byte stream.
-///
-/// IO is performed concurrently so the iterator can be returned immediately. All PN
-/// and RS decoding is likewise performed concurrently.
-pub struct FrameDecoderBuilder<R, P>
-where
-    R: ReedSolomon,
-    P: PNDecoder,
-{
-    interleave: u8,
-    buffer_size: usize,
-
-    pn_decoder: Option<P>,
-    reed_solomon: Option<R>,
-    reed_solomon_threads: usize,
-    reed_solomon_skip_vcids: HashSet<VCID>,
+/// Each block in `blocks` should have the expected length of a frame.
+#[derive(TypedBuilder)]
+pub struct FrameDecoder {
+    #[builder(default = true)]
+    pseudo_randomized: bool,
 }
 
-impl<R, P> FrameDecoderBuilder<R, P>
-where
-    R: ReedSolomon,
-    P: PNDecoder,
-{
-    /// Default number of frames to buffer in memory while waiting for RS.
-    pub const DEFAULT_BUFFER_SIZE: usize = 1024;
-
-    /// Limits the number of block waiting in memory for RS.
-    /// See ``FrameDecoderBuilder::DEFAULT_BUFFER_SIZE``.
-    #[must_use]
-    pub fn buffer_size(mut self, size: usize) -> Self {
-        self.buffer_size = size;
-        self
-    }
-
-    /// Set VCIDs to skip when performing RS.
-    ///
-    /// The default is to skip only ``VCID_FILL``.
-    ///
-    /// If you explicitly set the vcids to skip you will need to include `VCID_FILL`.
-    #[must_use]
-    pub fn reed_solomon_skip_vcids(mut self, vcids: &[VCID]) -> Self {
-        self.reed_solomon_skip_vcids.clear();
-        self.reed_solomon_skip_vcids.extend(vcids.iter());
-        self
-    }
-
-    /// Set the number of threads to use for Reed-Solomon. If not explicitly set, the
-    /// number of threads is chosen automatically.
-    #[must_use]
-    pub fn reed_solomon_threads(mut self, num: usize) -> Self {
-        self.reed_solomon_threads = num;
-        self
-    }
-
-    /// Set pseudo-noise implementation.
-    #[must_use]
-    pub fn pn_decode(mut self, pn: Option<P>) -> Self {
-        self.pn_decoder = pn;
-        self
-    }
-
-    /// Build the `FrameDecoder`.
-    #[must_use]
-    pub fn build(self) -> FrameDecoder<R, P> {
-        FrameDecoder {
-            interleave: self.interleave,
-            buffer_size: self.buffer_size,
-            pn_decoder: self.pn_decoder,
-            reed_solomon: self.reed_solomon,
-            reed_solomon_threads: self.reed_solomon_threads,
-            reed_solomon_skip_vcids: self.reed_solomon_skip_vcids,
-        }
-    }
-}
-
-impl<R> Default for FrameDecoderBuilder<R, DefaultPN>
-where
-    R: ReedSolomon,
-{
-    /// Creates a builder configured with some sensible defaults.
-    fn default() -> FrameDecoderBuilder<R, DefaultPN> {
-        let mut skip_vcids: HashSet<VCID> = HashSet::new();
-        skip_vcids.insert(VCID_FILL);
-
-        FrameDecoderBuilder {
-            interleave: 0,
-            pn_decoder: Some(DefaultPN),
-            reed_solomon: None,
-            reed_solomon_threads: 0, // Let rayon decide
-            reed_solomon_skip_vcids: skip_vcids,
-            buffer_size: Self::DEFAULT_BUFFER_SIZE,
-        }
-    }
-}
-
-impl<P> FrameDecoderBuilder<DefaultReedSolomon, P>
-where
-    P: PNDecoder,
-{
-    /// Use the default Reed-Solomon 223/255 with the specified interleave value.
+impl FrameDecoder {
+    /// Start the deocde process in the background and return an interator that will
+    /// make decoded frames available as they are available.
     ///
     /// # Panics
-    /// If `interleave` is 0.
-    #[must_use]
-    pub fn reed_solomon(mut self, interleave: u8) -> Self {
-        self.reed_solomon = Some(DefaultReedSolomon {});
-        self.interleave = interleave;
-        self
+    /// If there are not enough bytes to decode a frame.
+    pub fn decode<B>(self, blocks: B) -> impl Iterator<Item = DecodedFrame> + Send + 'static
+    where
+        B: Iterator<Item = Vec<u8>> + Send + 'static,
+    {
+        let pn = DefaultPN {};
+        let mut last: HashMap<VCID, u32> = HashMap::default();
+
+        let frames = blocks.map(move |mut block| {
+            if self.pseudo_randomized {
+                block = pn.decode(&block);
+            }
+            let frame = Frame::decode(block).expect("Failed to create from from block; too short?");
+            // Only compute missing for non-fill frames
+            let missing = if frame.header.vcid == VCID_FILL {
+                0
+            } else if let Some(last) = last.get(&frame.header.vcid) {
+                missing_frames(frame.header.counter, *last)
+            } else {
+                last.insert(frame.header.vcid, frame.header.counter);
+                0
+            };
+            last.insert(frame.header.vcid, frame.header.counter);
+
+            DecodedFrame {
+                frame,
+                missing,
+                rsstate: RSState::NotPerformed,
+            }
+        });
+
+        frames
+        // DecodedFrameIter2 {
+        //     frames: Box::new(frames),
+        // }
     }
 }
 
@@ -511,29 +451,6 @@ pub fn missing_frames(cur: u32, last: u32) -> u32 {
         }
         cur - last - 1
     }
-}
-
-/// Get a ``spacecrafts::FramingConfig`` for a spacecraft, or `None`.
-///
-/// Attempt to load the DB from `path`, if provided, otherwise look for a locally available
-/// [spacecraftsdb](https://github.com/bmflynn/spacecraftsdb) file available at one of the
-/// default locations.
-///
-/// # Errors
-/// If the spacecraftdb database file is not found in one of the standard locations.
-pub fn framing_config(
-    scid: SCID,
-    path: Option<&str>,
-) -> Result<Option<spacecrafts::FramingConfig>, Box<dyn std::error::Error>> {
-    let db = match path {
-        Some(path) => spacecrafts::DB::with_path(path)?,
-        None => spacecrafts::DB::new()?,
-    };
-
-    Ok(match db.find(scid) {
-        Some(sc) => Some(sc.framing_config),
-        None => None,
-    })
 }
 
 #[cfg(test)]
@@ -583,10 +500,10 @@ mod tests {
             .into_iter()
             .filter_map(std::io::Result::ok);
 
-        let frames: Vec<Result<DecodedFrame, IntegrityError>> = FrameDecoderBuilder::default()
-            .reed_solomon(4)
+        let frames: Vec<Result<DecodedFrame, IntegrityError>> = FrameRSDecoder::builder()
+            .interleave(4)
             .build()
-            .start(blocks)
+            .decode(blocks)
             .collect();
 
         assert_eq!(frames.len(), 7, "expected frame count doesn't match");
