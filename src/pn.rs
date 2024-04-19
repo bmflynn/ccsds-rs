@@ -181,6 +181,9 @@ fn decode(buf: &[u8]) -> Vec<u8> {
     zult.as_slice().unwrap().to_vec()
 }
 
+/// ``PNDecoder`` implementing standard CCSDS pseudo-noise derandomizon 
+/// (See [`TM Synchronization and Channel Coding`](https://public.ccsds.org/Pubs/131x0b5.pdf))
+
 pub struct DefaultPN;
 
 impl PNDecoder for DefaultPN {

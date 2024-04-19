@@ -28,36 +28,15 @@
 //! * CUC formats are used for the EOS GIRD and S/C packet formats as
 //!   documented in reference 1
 //!
-//!
 //! # References
 //!
-//! 1. [CCSDS Timecode Formats (301.0-B-4)](https://public.ccsds.org/Pubs/301x0b4e1.pdf)
+//! 1. [CCSDS Time Code Formats (301.0-B-4)](https://public.ccsds.org/Pubs/301x0b4e1.pdf)
 //!    Section 3.2
 //! 2. [EOS PM-1 Spacecraft to EOS Ground System ICD (GSFC
 //!    422-11-19-03)](https://directreadout.sci.gsfc.nasa.gov/links/rsd_eosdb/PDF/ICD_Space_Ground_Aqua.pdf)
 //!    Figure 5.5.1-1
 //!
-use chrono::{DateTime, Duration, TimeZone, Utc};
 use serde::Serialize;
-use std::convert::TryInto;
-
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error("failed to create timecode from provided bytes")]
-    Parse(String),
-    #[error("buffer too short to create timecode")]
-    BufferTooShort,
-}
-
-pub trait Timecode {
-    /// Convert bytes to ``DateTime<Utc>``.
-    ///
-    /// # Errors
-    /// If the bytes cannot be to a timecode
-    fn timecode(buf: &[u8]) -> Result<DateTime<Utc>, Error>;
-}
-
-pub type Parser = dyn Fn(&[u8]) -> Result<DateTime<Utc>, Error>;
 
 /// CCSDS Unsegmented Timecode format for the NASA EOS mission.
 ///
@@ -67,7 +46,7 @@ pub type Parser = dyn Fn(&[u8]) -> Result<DateTime<Utc>, Error>;
 /// It also encodes the t-field fine-time LSB multiplier as 15.2 microseconds.
 ///
 #[derive(Serialize, Debug)]
-pub struct EOSCUC {
+pub struct EosCuc {
     pub has_extension: bool,
     pub epoch: u8,
     pub num_coarse_time_octets_minus1: u8,
@@ -79,28 +58,21 @@ pub struct EOSCUC {
     pub sub_seconds: u32,
 }
 
-impl EOSCUC {
+impl EosCuc {
     pub const SIZE: usize = 8;
-    pub const EPOCH_DELTA: i64 = 378_691_200;
+    /// Difference between our epoch and UTC in microseconds
+    pub const EPOCH_DELTA: u64 = 378_691_200_000_000;
+    // Each bit is 15258 nanoseconds
+    pub const LSB_MULT: u64 = 15258;
 
-    // Each bit is 15.2 microseconds
-    pub const LSB_MULT: u32 = 1520_0000;
-
-    /// Create from provivded bytes.
-    ///
-    /// # Errors
-    /// If the dynamic number of bytes are not available.
-    ///
-    /// # Panics
-    /// On overflow converting decoded numeric types, or if there are not the correct number
-    /// of bytes.
-    pub fn new(buf: &[u8]) -> Result<EOSCUC, Error> {
+    /// Create from provivded bytes, returning `None` if decoding fails from the provided bytes.
+    pub fn new(buf: &[u8]) -> Option<EosCuc> {
         // Validate buf len, but it's dynamic so we have to get some
         // p-field values to be sure
         let num_coarse = ((buf[0] >> 2) & 0x3) + 1;
         let num_fine = buf[0] & 0x3;
         if buf.len() < (num_fine + num_coarse + 2) as usize {
-            return Err(Error::BufferTooShort);
+            return None;
         }
 
         // figure out mask for coarse time
@@ -118,7 +90,7 @@ impl EOSCUC {
         }
         let fine_val = u64::from_be_bytes(fine_tmp);
 
-        Ok(EOSCUC {
+        Some(EosCuc {
             has_extension: (buf[0] >> 7 & 0x1) == 1,
             epoch: (buf[0] >> 4 & 0x7),
             num_coarse_time_octets_minus1: num_coarse - 1,
@@ -131,32 +103,29 @@ impl EOSCUC {
     }
 }
 
-/// CCSDS unsegmneted timecode bytes used by NASA EOS Aqua & Terra to ``DateTime``.
-///
-/// # Errors
-/// ``Error::BufferTooShort`` if there are not enough bytes.
-///
-/// # Panics
-/// On overflow converting decoded numeric types
-pub fn decode_eoscuc(buf: &[u8]) -> Result<DateTime<Utc>, Error> {
-    if buf.len() < EOSCUC::SIZE {
-        return Err(Error::BufferTooShort);
+/// CCSDS unsegmneted timecode bytes used by NASA EOS Aqua & Terra to UTC microseconds
+/// returning `None` if a value cannot be decoded from provided bytes.
+#[must_use]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+pub fn decode_eoscuc(buf: &[u8]) -> Option<u64> {
+    if buf.len() < EosCuc::SIZE {
+        return None;
     }
 
     // There is an extra byte of data before timecode
-    let (bytes, _) = buf.split_at(EOSCUC::SIZE);
+    let (bytes, _) = buf.split_at(EosCuc::SIZE);
     // we've already ensured we have enough bytes, so this won't panic
 
-    let cuc = EOSCUC::new(bytes)?;
-    let secs: u32 = cuc.seconds + u32::from(cuc.leapsecs);
-    let nanos: u32 =
-        u32::try_from((u64::from(cuc.sub_seconds) * u64::from(EOSCUC::LSB_MULT)) / 1000u64)
-            .unwrap();
-    if (i64::from(secs) + i64::from(nanos / 1_000_000_000u32)) < EOSCUC::EPOCH_DELTA {
-        return Err(Error::Parse("could not decode timestamp".to_owned()));
+    let cuc = EosCuc::new(bytes)?;
+    let mut usecs: u64 = (u64::from(cuc.seconds) + u64::from(cuc.leapsecs)) * 1_000_000;
+
+    usecs += (u64::from(cuc.sub_seconds) * EosCuc::LSB_MULT) / 1_000;
+
+    if usecs < EosCuc::EPOCH_DELTA {
+        return None;
     }
-    let dt = Utc.timestamp_opt(i64::from(secs), nanos).unwrap();
-    Ok(dt - Duration::seconds(EOSCUC::EPOCH_DELTA))
+
+    Some(usecs - EosCuc::EPOCH_DELTA)
 }
 
 #[cfg(test)]
@@ -168,60 +137,52 @@ mod eoscuc_tests {
         // bytes 7..15 from AIRS packet
         let dat: [u8; 8] = [0xae, 0x25, 0x74, 0xe3, 0xe5, 0xab, 0x5e, 0x2f];
 
-        let ts = decode_eoscuc(&dat).unwrap();
+        let ts = decode_eoscuc(&dat);
         // FIXME: Needs absolute validation against known science data.
         //        This value is taken from parsed values.
-        assert_eq!(ts.to_string(), "2020-02-22 19:56:00.366487200 UTC");
+        assert_eq!(dbg!(ts), Some(1_582_401_360_367_885)); // 2020-02-22 19:56:00.367885 UTC
     }
 }
 
 /// CCSDS Day-Segmented Timecode
 #[derive(Serialize, Debug, Clone)]
-pub struct CDS {
+pub struct Cds {
     pub days: u16,
     pub millis: u32,
     pub micros: u16,
 }
 
-impl CDS {
+impl Cds {
     // Seconds between Unix epoch(1970) and CDS epoch(1958)
-    pub const EPOCH_DELTA: i64 = 378_691_200;
+    pub const EPOCH_DELTA: u64 = 378_691_200_000_000;
     pub const SIZE: usize = 8;
 
-    pub fn new(buf: &[u8]) -> Result<CDS, Error> {
+    pub fn new(buf: &[u8]) -> Option<Cds> {
         if buf.len() < Self::SIZE {
-            return Err(Error::BufferTooShort);
+            return None;
         }
 
-        Ok(CDS {
+        Some(Cds {
             days: u16::from_be_bytes([buf[0], buf[1]]),
-            millis: u32::from_be_bytes(buf[2..6].try_into().unwrap()),
+            millis: u32::from_be_bytes([buf[2], buf[3], buf[4], buf[5]]),
             micros: u16::from_be_bytes([buf[6], buf[7]]),
         })
     }
 }
 
-/// CCSDS day segmented timecode bytes to ``DateTime``.
-///
-/// Returns ``Error::BufferTooShort`` if there are not enough bytes.
-pub fn decode_cds(buf: &[u8]) -> Result<DateTime<Utc>, Error> {
-    if buf.len() < CDS::SIZE {
-        return Err(Error::BufferTooShort);
+/// CCSDS day segmented timecode bytes to UTC microseconds returning `None` if a value
+/// cannot be decoded from the provided bytes.
+#[must_use]
+pub fn decode_cds(buf: &[u8]) -> Option<u64> {
+    let cds = Cds::new(buf)?;
+    let us: u64 =
+        u64::from(cds.days) * 86_400_000_000 + u64::from(cds.millis) * 1000 + u64::from(cds.micros);
+
+    if us < Cds::EPOCH_DELTA {
+        None
+    } else {
+        Some(us - Cds::EPOCH_DELTA)
     }
-    // convert 8 bytes of time data into u64
-    let (bytes, _) = buf.split_at(CDS::SIZE);
-
-    let cds = CDS::new(bytes)?;
-    let mut secs: i64 = i64::from(cds.days) * 86400;
-    secs += i64::from(cds.millis) / 1000i64;
-    let nanos: u64 =
-             // convert millis remainder to nanos
-             (u64::from(cds.millis) * 1_000_000 % 1_000_000_000)
-             // convert micros to nanos
-              + (u64::from(cds.micros) * 1000);
-
-    Ok(Utc.timestamp_opt(secs, nanos.try_into().unwrap()).unwrap()
-        - Duration::seconds(CDS::EPOCH_DELTA))
 }
 
 #[cfg(test)]
@@ -230,17 +191,10 @@ mod cds_tests {
 
     #[test]
     fn test_cds() {
-        let dat = [0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff];
+        // let dat = [0x4e, 0x20, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff];
+        let dat = [0x5e, 0x96, 0x4, 0xf4, 0xab, 0x40, 0x2, 0x95];
 
-        let ts = decode_cds(&dat).unwrap();
-        assert_eq!(ts.timestamp_millis(), 1_451_606_400_167);
-    }
-
-    #[test]
-    fn test_cds_overflow() {
-        let dat = [0, 1, 2, 3, 4, 5, 6, 7];
-
-        let ts = decode_cds(&dat).unwrap();
-        assert_eq!(ts.timestamp_millis(), -378_571_047_930, "{ts:?}");
+        let usecs = decode_cds(&dat).unwrap();
+        assert_eq!(usecs, 1_713_481_543_488_661); // 2024-04-18 23:05:43.488661
     }
 }

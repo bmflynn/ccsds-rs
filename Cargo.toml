@@ -10,7 +10,6 @@ license-file = "LICENSE.txt"
 repository = "https://github.com/bmflynn/ccsds-rs"
 
 [dependencies]
-chrono = { version = "^0.4", features = ["serde"] }
 crossbeam = { version = "^0.8.4", features = ["crossbeam-channel"] }
 ndarray = "0.15.6"
 rayon = "^1.7.0"

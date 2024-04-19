@@ -108,7 +108,6 @@ mod pn;
 mod rs;
 mod spacepacket;
 mod synchronizer;
-pub mod timecode;
 
 pub use framing::*;
 pub use pn::{DefaultPN, PNDecoder};
@@ -116,5 +115,10 @@ pub use rs::{
     correct_message as rs_correct_message, deinterleave as rs_deinterleave,
     has_errors as rs_has_errors, DefaultReedSolomon, IntegrityError, RSState, ReedSolomon,
 };
-pub use spacepacket::*;
+pub use spacepacket::{
+    collect_packet_groups, decode_framed_packets, merge_by_timecode, missing_packets,
+    read_packet_groups, read_packets, CDSTimeDecoder, DecodedPacket, Packet, PacketGroup,
+    PrimaryHeader, SEQ_CONTINUATION, SEQ_FIRST, SEQ_LAST, SEQ_UNSEGMENTED,
+    decode_cds, decode_eoscuc,
+};
 pub use synchronizer::{read_synchronized_blocks, Synchronizer, ASM};

@@ -1,3 +1,6 @@
+mod merge;
+mod timecode;
+
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::fmt::Display;
@@ -7,7 +10,30 @@ use crate::{DecodedFrame, SCID, VCID};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace};
 
-pub type APID = u16;
+pub use merge::merge_by_timecode;
+use timecode::Cds;
+pub use timecode::{decode_cds, decode_eoscuc};
+
+pub type Apid = u16;
+
+/// Decodes a UTC time in microsecods from a packet.
+pub trait TimeDecoder {
+    fn decode_time(&self, pkt: &Packet) -> Option<u64>;
+}
+
+/// ``TimeDocoder`` for the CCSDS Day Segmented timecode with no P-field and 2 bytes
+/// of submilliseconds. (See [`Time Code Formats`])
+///
+/// [`Time Code Formats`]: https://public.ccsds.org/Pubs/301x0b4e1.pdf
+pub struct CDSTimeDecoder;
+
+impl TimeDecoder for CDSTimeDecoder {
+    fn decode_time(&self, pkt: &Packet) -> Option<u64> {
+        let start = PrimaryHeader::LEN;
+        let stop = start + Cds::SIZE;
+        decode_cds(&pkt.data[start..stop])
+    }
+}
 
 /// Packet represents a single CCSDS space packet and its associated data.
 ///
@@ -37,6 +63,8 @@ pub struct Packet {
     pub header: PrimaryHeader,
     /// All packet bytes, including header and user data
     pub data: Vec<u8>,
+
+    offset: usize,
 }
 
 impl Display for Packet {
@@ -85,6 +113,7 @@ impl Packet {
                     Some(Packet {
                         header,
                         data: dat.to_vec(),
+                        offset: 0,
                     })
                 }
             }
@@ -96,20 +125,23 @@ impl Packet {
     ///
     /// # Errors
     /// Any ``std::io::Error`` reading
+    #[allow(clippy::missing_panics_doc)]
     pub fn read<R>(mut r: R) -> IOResult<Packet>
     where
         R: Read + Send,
     {
-        let ph = PrimaryHeader::read(&mut r)?;
-
-        // read the user data, shouldn't panic since unpacking worked
-        let mut buf = vec![0u8; (ph.len_minus1 + 1).into()];
-
-        r.read_exact(&mut buf)?;
+        let mut buf = vec![0u8; 65536];
+        r.read_exact(&mut buf[..PrimaryHeader::LEN])?;
+        // we know there are enough bytes because we just read them
+        let ph = PrimaryHeader::decode(&buf[..PrimaryHeader::LEN]).unwrap();
+        let data_len = ph.len_minus1 as usize + 1;
+        let total_len = PrimaryHeader::LEN + data_len;
+        r.read_exact(&mut buf[PrimaryHeader::LEN..total_len])?;
 
         Ok(Packet {
             header: ph,
-            data: buf,
+            data: buf[..total_len].to_vec(),
+            offset: 0,
         })
     }
 }
@@ -132,7 +164,7 @@ pub struct PrimaryHeader {
     pub version: u8,
     pub type_flag: u8,
     pub has_secondary_header: bool,
-    pub apid: APID,
+    pub apid: Apid,
     /// Defines a packets grouping. See the `SEQ_*` values.
     pub sequence_flags: u8,
     pub sequence_id: u16,
@@ -202,12 +234,12 @@ pub fn missing_packets(cur: u16, last: u16) -> u16 {
     0
 }
 
-struct PacketReaderIter<R>
+pub struct PacketReaderIter<R>
 where
     R: Read + Send,
 {
-    reader: R,
-    offset: usize,
+    pub reader: R,
+    pub offset: usize,
 }
 
 impl<R> PacketReaderIter<R>
@@ -227,7 +259,8 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         match Packet::read(&mut self.reader) {
-            Ok(p) => {
+            Ok(mut p) => {
+                p.offset = self.offset;
                 self.offset += PrimaryHeader::LEN + p.header.len_minus1 as usize + 1;
                 Some(Ok(p))
             }
@@ -245,7 +278,7 @@ where
 /// sequencing value in primary header.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PacketGroup {
-    pub apid: APID,
+    pub apid: Apid,
     pub packets: Vec<Packet>,
 }
 
@@ -264,7 +297,7 @@ where
 {
     /// Create an iterator that reads source packets from the provided reader.
     ///
-    ///
+    ///A reverse shell was detected in EC2 inst
     // fn with_reader<R>(reader: R) -> Self where R: Read + Send {
     //     let packets = PacketReaderIter::new(reader)
     //         .filter(Result::is_ok)
@@ -328,15 +361,6 @@ where
             // Get a packet from the iterator. Exit the iterator
             let packet: Packet = match self.packets.next() {
                 Some(packet) => packet,
-                // Some(zult) => {
-                //     match zult {
-                //         // Got a packet from the packet iter
-                //         Ok(packet) => packet,
-                //         // Got an error from the packet iter. Return a result with the
-                //         // error to let the consumer decide what to do.
-                //         Err(err) => return Some(Err(err)),
-                //     }
-                // }
                 None => break 'outer,
             };
             // Return group of one
@@ -593,6 +617,7 @@ where
                     packet: Packet {
                         header: PrimaryHeader::decode(data)?,
                         data: data.to_vec(),
+                        offset: 0,
                     },
                 };
                 tracker.cache = tail.to_vec();
@@ -694,14 +719,15 @@ mod tests {
         let reader = std::io::BufReader::new(dat);
 
         let packets: Vec<Packet> = PacketReaderIter::new(reader)
-            .filter(Result::is_ok)
-            .map(Result::unwrap)
+            .filter_map(Result::ok)
             .collect();
 
         assert_eq!(packets.len(), 2);
         assert_eq!(packets[0].header.apid, 1369);
         assert_eq!(packets[0].header.sequence_id, 1);
+        assert_eq!(&packets[0].data[..], &dat[..15]);
         assert_eq!(packets[1].header.sequence_id, 2);
+        assert_eq!(&packets[1].data[..], &dat[15..]);
     }
 
     #[test]
