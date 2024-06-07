@@ -3,7 +3,10 @@ use std::{
     fs::File,
     hash::Hash,
     io::{BufReader, Error as IOError, Read, Seek, SeekFrom, Write},
+    path::{Path, PathBuf},
 };
+
+use tracing::trace;
 
 use crate::spacepacket::{Apid, PacketGroupIter, PacketReaderIter, PrimaryHeader};
 
@@ -26,13 +29,14 @@ pub fn merge_by_timecode<S, T, W>(
     mut writer: W,
 ) -> std::io::Result<()>
 where
-    S: AsRef<str>,
+    S: AsRef<Path>,
     T: TimeDecoder,
     W: Write,
 {
-    let mut readers: HashMap<String, BufReader<File>> = HashMap::default();
+    let mut readers: HashMap<PathBuf, BufReader<File>> = HashMap::default();
     for path in paths {
-        let path = path.as_ref().to_string();
+        let path = path.as_ref().to_path_buf();
+        trace!("opening reader: {path:?}");
         readers.insert(path.clone(), BufReader::new(File::open(path)?));
     }
 
@@ -61,7 +65,7 @@ where
                     .sum();
 
                 Some(Ptr {
-                    path: path.to_string(),
+                    path: (*path).clone(),
                     offset: first.offset,
                     time: usecs,
                     apid: first.header.apid,
@@ -79,9 +83,9 @@ where
     index.sort_by_key(|ptr| (ptr.time, ptr.apid));
 
     for ptr in &index {
-        dbg!(&ptr);
         // We know path is in readers
         let reader = readers.get_mut(&ptr.path).unwrap();
+        trace!("seeing to pointer: {ptr:?}");
         reader.seek(SeekFrom::Start(ptr.offset as u64))?;
 
         let mut buf = vec![0u8; ptr.size];
@@ -89,6 +93,7 @@ where
             let msg = format!("Reading {ptr:?}: {err}");
             return Err(IOError::new(std::io::ErrorKind::Other, msg));
         }
+        trace!("writing packet: {ptr:?}");
         writer.write_all(&buf)?;
     }
 
@@ -97,7 +102,7 @@ where
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 struct Ptr {
-    path: String,
+    path: PathBuf,
     offset: usize,
     size: usize,
 
