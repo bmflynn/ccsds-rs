@@ -1,14 +1,12 @@
 use ccsds::*;
 use md5::{Digest, Md5};
-use std::fs;
-use std::io::Error as IoError;
+use std::fs::{self, File};
+use std::io::{Error as IoError, Seek};
 use std::path::PathBuf;
 use std::result::Result;
 
 fn fixture_path(name: &str) -> PathBuf {
-    let mut path = PathBuf::from(file!());
-    path.pop();
-    path.pop();
+    let mut path = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     path.push(name);
     path
 }
@@ -96,4 +94,47 @@ fn full_decode() {
         .collect();
 
     assert_eq!(groups.len(), 2, "expected group count doesn't match");
+}
+
+#[test]
+fn merge_test() {
+    let tmpdir = tempfile::tempdir().unwrap();
+    let out_path = tmpdir.path().join("output.dat");
+    {
+        let out_file = File::create(&out_path).unwrap();
+        ccsds::merge_by_timecode(
+            &[
+                fixture_path("tests/fixtures/viirs_merge1.dat"),
+                fixture_path("tests/fixtures/viirs_merge2.dat"),
+            ],
+            &ccsds::CDSTimeDecoder,
+            out_file,
+        )
+        .unwrap();
+    }
+    
+    // Get the merged files' packet groups, sorted
+    let merged = File::open(&out_path).unwrap();
+    let mut groups: Vec<ccsds::PacketGroup> = ccsds::read_packet_groups(merged)
+        .filter_map(Result::ok)
+        .collect();
+    groups.sort_by(|a, b| a.apid.cmp(&b.apid));
+
+    assert_eq!(groups.len(), 20, "expected 20 total groups");
+
+    for i in 0..=6 {
+        assert_eq!(groups[i].apid, 800, "group {i}");
+        assert!(groups[i].valid(), "group {i}");
+        assert_eq!(groups[i].packets.len(), 17, "group {i}");
+    }
+    for i in 7..=13 {
+        assert_eq!(groups[i].apid, 801, "group {i}");
+        assert!(groups[i].valid(), "group {i}");
+        assert_eq!(groups[i].packets.len(), 17, "group {i}");
+    }
+    for i in 14..=19{
+        assert_eq!(groups[i].apid, 826, "group {i}");
+        assert!(groups[i].valid(), "group {i}");
+        assert_eq!(groups[i].packets.len(), 1, "group {i}");
+    }
 }

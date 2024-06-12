@@ -1,0 +1,37 @@
+[package]
+name = "ccsds"
+version = "0.1.0-beta.6"
+authors = ["Bruce Flynn <brucef@ssec.wisc.edu>"]
+edition = "2021"
+description = "CCSDS spacecraft data stream decoding"
+keywords = ["ccsds", "spacepacket", "framing", "cadu"]
+categories = ["aerospace::space-protocols"]
+license-file = "LICENSE.txt"
+repository = "https://github.com/bmflynn/ccsds-rs"
+
+[dependencies]
+crossbeam = { version = "^0.8.4", features = ["crossbeam-channel"] }
+ndarray = "0.15.6"
+rayon = "^1.7.0"
+rs2 = "^0.1.0"
+serde = { version = "^1.0", features = ["derive"] }
+serde_json = "^1.0"
+thiserror = "^1.0.38"
+threadpool = "^1.8.1"
+tracing = { version = "^0.1.40", features = ["log"] }
+typed-builder = "0.18.1"
+
+[lib]
+name = "ccsds"
+path = "src/lib.rs"
+
+[dev-dependencies]
+hex = "0.4.3"
+md-5 = "0.10.6"
+rand = "0.8.5"
+tempfile = "3.9.0"
+criterion = { version = "0.5.1", features = ["html_reports"] }
+
+[[bench]]
+name = "benches"
+harness = false

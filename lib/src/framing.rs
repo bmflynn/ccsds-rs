@@ -460,10 +460,9 @@ mod tests {
     use std::{fs, path::PathBuf};
 
     fn fixture_path(name: &str) -> PathBuf {
-        let mut path = PathBuf::from(file!());
-        path.pop();
-        path.pop();
-        path.push(name);
+        let mut path = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+        dbg!(&path);
+        path.push(name); 
         path
     }
 
@@ -495,7 +494,7 @@ mod tests {
     #[test]
     fn test_decode_frames() {
         let fpath = fixture_path("tests/fixtures/snpp_7cadus_2vcids.dat");
-        let reader = fs::File::open(fpath).unwrap();
+        let reader = fs::File::open(&fpath).expect(&format!("{fpath:?} to exist"));
         let blocks = Synchronizer::new(reader, &ASM.to_vec(), 1020)
             .into_iter()
             .filter_map(std::io::Result::ok);

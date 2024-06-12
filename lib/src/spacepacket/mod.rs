@@ -282,12 +282,37 @@ pub struct PacketGroup {
     pub packets: Vec<Packet>,
 }
 
+impl PacketGroup {
+    /// Return true if this packet group is valid.
+    ///
+    /// Valid means at least 1 packet and all the packets for a complete group with no missing
+    /// packets.
+    #[allow(clippy::missing_panics_doc)]
+    #[must_use]
+    pub fn valid(&self) -> bool {
+        if self.packets.is_empty() {
+            false
+        } else if self.packets.len() == 1 {
+            self.packets[0].is_standalone()
+        } else {
+            let mut have_missing = false;
+            for (a, b) in self.packets.iter().zip(self.packets[1..].iter()) {
+                if missing_packets(a.header.sequence_id, b.header.sequence_id) > 0 {
+                    have_missing = true;
+                    break;
+                }
+            }
+            self.packets[0].is_first() && self.packets.last().unwrap().is_last() && have_missing
+        }
+    }
+}
+
 struct PacketGroupIter<I>
 where
     I: Iterator<Item = Packet> + Send,
 {
     packets: I,
-    group: PacketGroup,
+    group: Option<PacketGroup>,
     done: bool,
 }
 
@@ -312,38 +337,9 @@ where
     fn with_packets(packets: I) -> Self {
         PacketGroupIter {
             packets,
-            group: PacketGroup {
-                apid: 0,
-                packets: vec![],
-            },
+            group: None,
             done: false,
         }
-    }
-
-    /// True when this group contains at least 1 packet.
-    fn have_packets(&self) -> bool {
-        !self.group.packets.is_empty()
-    }
-
-    /// Given our current state, does packet indicate we should start a new group.
-    fn should_start_new_group(&self, packet: &Packet) -> bool {
-        packet.is_first()
-            || (!self.group.packets.is_empty()
-                && self.group.packets[0].header.apid != packet.header.apid)
-    }
-
-    /// Create a new group, returning the old, priming it with the packet
-    fn new_group(&mut self, packet: Option<Packet>) -> PacketGroup {
-        let group = self.group.clone();
-        self.group = PacketGroup {
-            apid: 0,
-            packets: vec![],
-        };
-        if let Some(p) = packet {
-            self.group.apid = p.header.apid;
-            self.group.packets.push(p);
-        }
-        group
     }
 }
 
@@ -370,19 +366,44 @@ where
                     packets: vec![packet],
                 }));
             }
-            if self.should_start_new_group(&packet) {
-                if self.have_packets() {
-                    return Some(Ok(self.new_group(Some(packet))));
+
+            match self.group.take() {
+                Some(mut group) => {
+                    // Apid mismatch, must start a new group with the new packet, returning the old
+                    // group.
+                    if !group.packets.is_empty()
+                        && group.packets[0].header.apid != packet.header.apid
+                    {
+                        self.group = Some(PacketGroup {
+                            apid: packet.header.apid,
+                            packets: vec![packet],
+                        });
+                        return Some(Ok(group.clone()));
+                    }
+
+                    // If there's no APID mismatch the current packet must be part of the current
+                    // group.
+                    group.packets.push(packet);
+
+                    self.group = Some(group);
                 }
-                self.new_group(None);
+                None => {
+                    // It's not standalone and we don't have a current group so we must be starting
+                    // a new group
+                    self.group = Some(PacketGroup {
+                        apid: packet.header.apid,
+                        packets: vec![packet],
+                    });
+                }
             }
-            self.group.packets.push(packet);
         }
 
         self.done = true;
         // We're all done, so return any partial group
-        if self.have_packets() {
-            return Some(Ok(self.new_group(None)));
+        if let Some(group) = self.group.take() {
+            if !group.packets.is_empty() {
+                return Some(Ok(group));
+            }
         }
         None
     }

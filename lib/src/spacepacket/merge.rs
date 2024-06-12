@@ -15,7 +15,6 @@ use super::TimeDecoder;
 /// Merge, sort, and deduplicate multiple packet data files into a single file.
 ///
 /// Packets are sorted and deduplicated by packet time, apid, and sequence id.
-///
 /// Therefore, all packets in each packet data file must either have a time that can
 /// be decoded using `time_decoder` or be part of a packet group with a first packet
 /// with a time that can be decoded by `time_decoder`.
@@ -46,7 +45,8 @@ where
         let pointers = PacketGroupIter::with_packets(packets)
             .filter_map(Result::ok)
             .filter_map(|g| {
-                if g.packets.is_empty() {
+                if !g.valid() {
+                    // Drop incomplete packet groups
                     return None;
                 }
                 let first = &g.packets[0];
@@ -100,14 +100,31 @@ where
     Ok(())
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone)]
 struct Ptr {
     path: PathBuf,
     offset: usize,
     size: usize,
 
+    // The following are considered for hashing purposes
     time: u64,
     apid: Apid,
     seqid: u16,
     count: usize,
 }
+
+impl Hash for Ptr {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.apid.hash(state);
+        self.time.hash(state);
+        self.seqid.hash(state);
+    }
+}
+
+impl PartialEq for Ptr {
+    fn eq(&self, other: &Self) -> bool {
+        self.apid == other.apid && self.time == other.time && self.seqid == other.seqid
+    }
+}
+
+impl Eq for Ptr {}
