@@ -1,0 +1,58 @@
+
+## From dldecode:
+```
+./dldecode -i snpp_synchronized_cadus.dat -s 157 -o packets.bin
+```
+
+```
+CADU Decoder
+    Count:           65
+    Bytes:           66560
+    RSCorrected:     0
+    RSUncorrectable: 0
+
+Frame Decoder
+    Count:        65
+    Bytes:        57980
+    InvalidCount: 0
+    SequenceErr:  1
+    Missing:      1
+
+    VCID: 16  Count:       65  Bytes:      57980  SequenceErr:        1  Missing:        1
+
+Packet Decoder
+    Count:        12
+    Bytes:        53098
+    InvalidCount: 0
+    SequenceErr:  1
+    Missing:      1
+
+    APID  802  Count:        1  Bytes:       3006  SequenceErr:        0  Missing:        0
+    APID  803  Count:       11  Bytes:      50092  SequenceErr:        1  Missing:        1
+
+Total Frame Bytes 66560
+```
+
+## From edosl0util
+```
+[<Packet apid=802 seqid=9875 stamp=None size=3006 offset=0>,
+ <Packet apid=803 seqid=9859 stamp=2016-02-10 16:13:34.924259 size=180 offset
+ <Packet apid=803 seqid=9861 stamp=None size=4090 offset=3186>,
+ <Packet apid=803 seqid=9862 stamp=None size=5098 offset=7276>,
+ <Packet apid=803 seqid=9863 stamp=None size=5058 offset=12374>,
+ <Packet apid=803 seqid=9864 stamp=None size=5026 offset=17432>,
+ <Packet apid=803 seqid=9865 stamp=None size=5122 offset=22458>,
+ <Packet apid=803 seqid=9866 stamp=None size=5090 offset=27580>,
+ <Packet apid=803 seqid=9867 stamp=None size=5106 offset=32670>,
+ <Packet apid=803 seqid=9868 stamp=None size=5130 offset=37776>,
+ <Packet apid=803 seqid=9869 stamp=None size=5074 offset=42906>,
+ <Packet apid=803 seqid=9870 stamp=None size=5118 offset=47980>]
+```
+Note that APID 803 is missing sequence number 9860.
+
+
+## Checksum
+The output checksum:
+```
+5e11051d86c46ddc3500904c99bbe978
+```

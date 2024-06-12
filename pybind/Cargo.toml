@@ -1,0 +1,20 @@
+[package]
+name = "ccsdspy"
+version = "0.1.0-beta.5"
+authors = ["Bruce Flynn <brucef@ssec.wisc.edu>"]
+edition = "2021"
+description = "Python bindings for ccsds crate"
+keywords = ["ccsds", "spacepacket", "framing", "cadu"]
+categories = ["aerospace::space-protocols"]
+license-file = "LICENSE.txt"
+repository = "https://github.com/bmflynn/ccsdspy"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "ccsds"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.19.2", features = ["extension-module", "abi3-py37"] }
+ccsds = { path = "../lib" }
+spacecrafts = "^0.1.0-beta.3"
