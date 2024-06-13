@@ -1,7 +1,7 @@
 use ccsds::*;
 use md5::{Digest, Md5};
 use std::fs::{self, File};
-use std::io::{Error as IoError, Seek};
+use std::io::Error as IoError;
 use std::path::PathBuf;
 use std::result::Result;
 
@@ -112,7 +112,7 @@ fn merge_test() {
         )
         .unwrap();
     }
-    
+
     // Get the merged files' packet groups, sorted
     let merged = File::open(&out_path).unwrap();
     let mut groups: Vec<ccsds::PacketGroup> = ccsds::read_packet_groups(merged)
@@ -132,7 +132,7 @@ fn merge_test() {
         assert!(groups[i].valid(), "group {i}");
         assert_eq!(groups[i].packets.len(), 17, "group {i}");
     }
-    for i in 14..=19{
+    for i in 14..=19 {
         assert_eq!(groups[i].apid, 826, "group {i}");
         assert!(groups[i].valid(), "group {i}");
         assert_eq!(groups[i].packets.len(), 1, "group {i}");

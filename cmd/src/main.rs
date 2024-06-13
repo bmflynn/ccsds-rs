@@ -61,6 +61,8 @@ fn main() -> Result<()> {
     // matches just as you would the top level cmd
     match &cli.command {
         Commands::Merge { output, inputs } => {
+            info!("merging {:?}", inputs);
+            info!("to {output:?}");
             let dest = File::create(output)
                 .with_context(|| format!("failed to create output {output:?}"))?;
             merge::merge(inputs, &ccsds::CDSTimeDecoder, dest)

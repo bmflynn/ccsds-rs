@@ -475,9 +475,7 @@ pub fn read_packet_groups<R>(reader: R) -> impl Iterator<Item = IOResult<PacketG
 where
     R: Read + Send,
 {
-    let packets = PacketReaderIter::new(reader)
-        .filter(Result::is_ok)
-        .map(Result::unwrap);
+    let packets = PacketReaderIter::new(reader).flatten();
     PacketGroupIter::with_packets(packets)
 }
 

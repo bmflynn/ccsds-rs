@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
-use ccsds::{Apid, TimeDecoder};
+use ccsds::Apid;
 use serde::Serialize;
 use std::{collections::HashMap, io::stdout, path::Path};
-use tracing::{debug, info};
+use tracing::debug;
 
 #[derive(Debug, Clone)]
 pub enum Format {
@@ -44,25 +44,13 @@ impl clap::ValueEnum for TCFormat {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Default, Debug, Clone, Serialize)]
 struct Summary {
     total_packets: usize,
     missing_packets: usize,
     first_packet_time: Option<u64>,
     last_packet_time: Option<u64>,
     duration: u64,
-}
-
-impl Default for Summary {
-    fn default() -> Self {
-        Self {
-            total_packets: 0,
-            missing_packets: 0,
-            first_packet_time: None,
-            last_packet_time: None,
-            duration: 0,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -70,7 +70,6 @@ where
                     time: usecs,
                     apid: first.header.apid,
                     seqid: first.header.sequence_id,
-                    count: g.packets.len(),
                     size: total_size,
                 })
             })
@@ -110,7 +109,6 @@ struct Ptr {
     time: u64,
     apid: Apid,
     seqid: u16,
-    count: usize,
 }
 
 impl Hash for Ptr {

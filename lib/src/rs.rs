@@ -15,7 +15,7 @@ pub enum IntegrityError {
 ///
 /// Ref: 130.1-G-2, Section 5.3
 #[must_use]
-pub fn deinterleave(data: &Vec<u8>, interleave: u8) -> Vec<[u8; 255]> {
+pub fn deinterleave(data: &[u8], interleave: u8) -> Vec<[u8; 255]> {
     assert!(
         data.len() % interleave as usize == 0,
         "data length must be multiple of interleave"

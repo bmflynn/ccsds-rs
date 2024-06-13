@@ -6,7 +6,7 @@ use std::io::{ErrorKind, Read, Result};
 pub const ASM: [u8; 4] = [0x1a, 0xcf, 0xfc, 0x1d];
 
 /// Bit-shift each byte in dat by k bits to the left, without wrapping.
-pub(crate) fn left_shift(dat: &Vec<u8>, k: usize) -> Vec<u8> {
+pub(crate) fn left_shift(dat: &[u8], k: usize) -> Vec<u8> {
     let mut out: Vec<u8> = vec![0; dat.len()];
     // left shift each byte the correct nufdcmber of bits
     for i in 0..dat.len() {
@@ -23,7 +23,7 @@ pub(crate) fn left_shift(dat: &Vec<u8>, k: usize) -> Vec<u8> {
 
 /// Create all possible bit-shifted patterns, and their associated masks to indicate
 /// significant bits, for dat.
-fn create_patterns(dat: &Vec<u8>) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
+fn create_patterns(dat: &[u8]) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
     let mut patterns: Vec<Vec<u8>> = Vec::new();
     let mut masks: Vec<Vec<u8>> = Vec::new();
 
@@ -37,7 +37,7 @@ fn create_patterns(dat: &Vec<u8>) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
     padded_mask[0] = 0;
 
     // First pattern is just the asm (one less in length than the rest)
-    patterns.push(dat.clone());
+    patterns.push(dat.to_owned());
     // First mask is all 1s because all bits must match
     masks.push(vec![0xff; dat.len()]);
 
@@ -88,7 +88,7 @@ where
     /// Creates a new ``Synchronizer``.
     ///
     /// `block_size` is the length of the CADU minus the length of the ASM.
-    pub fn new(reader: R, asm: &Vec<u8>, block_size: usize) -> Self {
+    pub fn new(reader: R, asm: &[u8], block_size: usize) -> Self {
         let (patterns, masks) = create_patterns(asm);
         let bytes = Bytes::new(reader);
         Synchronizer {
@@ -259,7 +259,7 @@ where
 ///
 pub fn read_synchronized_blocks<'a, R>(
     reader: R,
-    asm: &Vec<u8>,
+    asm: &[u8],
     block_size: usize,
 ) -> impl Iterator<Item = Result<Vec<u8>>> + 'a
 where
