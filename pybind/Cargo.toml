@@ -1,13 +1,12 @@
 [package]
 name = "ccsdspy"
-version = "0.1.0-beta.5"
-authors = ["Bruce Flynn <brucef@ssec.wisc.edu>"]
-edition = "2021"
-description = "Python bindings for ccsds crate"
-keywords = ["ccsds", "spacepacket", "framing", "cadu"]
-categories = ["aerospace::space-protocols"]
-license-file = "LICENSE.txt"
-repository = "https://github.com/bmflynn/ccsdspy"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+keywords.workspace = true 
+categories.workspace = true
+license-file.workspace = true
+repository.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]

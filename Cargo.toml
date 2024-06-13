@@ -2,3 +2,18 @@
 resolver = "2"
 members = ["cmd", "lib", "pybind"]
 default-members = ["cmd", "lib"]
+
+[workspace.package]
+version = "0.1.0-beta.6"
+edition = "2021"
+authors = ["Bruce Flynn <brucef@ssec.wisc.edu>"]
+repository = "https://github.com/bmflynn/ccsds-rs"
+keywords = ["ccsds", "spacepacket", "framing", "cadu"]
+categories = ["aerospace::space-protocols"]
+license-file = "LICENCE.txt"
+
+[workspace.dependencies]
+serde = "1.0"
+serde_json = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"
