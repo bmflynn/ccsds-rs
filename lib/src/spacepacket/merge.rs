@@ -45,7 +45,7 @@ where
         let pointers = PacketGroupIter::with_packets(packets)
             .filter_map(Result::ok)
             .filter_map(|g| {
-                if !g.valid() {
+                if g.packets.is_empty() || !(g.packets[0].is_first() || g.packets[0].is_standalone()) {
                     // Drop incomplete packet groups
                     return None;
                 }

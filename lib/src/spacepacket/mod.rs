@@ -283,13 +283,14 @@ pub struct PacketGroup {
 }
 
 impl PacketGroup {
-    /// Return true if this packet group is valid.
+
+    /// Return true if this packet group is complete.
     ///
     /// Valid means at least 1 packet and all the packets for a complete group with no missing
     /// packets.
     #[allow(clippy::missing_panics_doc)]
     #[must_use]
-    pub fn valid(&self) -> bool {
+    pub fn complete(&self) -> bool {
         if self.packets.is_empty() {
             false
         } else if self.packets.len() == 1 {
