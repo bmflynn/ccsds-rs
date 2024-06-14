@@ -5,7 +5,8 @@ use std::{fs::File, io::stderr, path::PathBuf};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use tracing::{info, Level};
+use tracing::{info, level_filters::LevelFilter, Level};
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -51,11 +52,13 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     tracing_subscriber::fmt()
-        .with_writer(stderr)
-        .with_max_level(Level::INFO)
+        .with_target(false)
+        .without_time()
+        .with_max_level(Level::ERROR)
+        .with_env_filter(EnvFilter::from_env("RDR_LOG"))
         .init();
 
-    info!("{}", env!("CARGO_PKG_VERSION"));
+    info!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
 
     // You can check for the existence of subcommands, and if found use their
     // matches just as you would the top level cmd
