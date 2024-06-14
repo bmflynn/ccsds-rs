@@ -50,13 +50,14 @@ enum Commands {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-
     tracing_subscriber::fmt()
         .with_target(false)
         .with_writer(stderr)
+        .with_ansi(false)
         .without_time()
-        .with_max_level(Level::ERROR)
-        .with_env_filter(EnvFilter::from_env("RDR_LOG"))
+        .with_env_filter(
+            EnvFilter::try_from_env("CCSDS_LOG").unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .init();
 
     info!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
