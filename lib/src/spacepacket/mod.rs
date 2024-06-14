@@ -283,7 +283,6 @@ pub struct PacketGroup {
 }
 
 impl PacketGroup {
-
     /// Return true if this packet group is complete.
     ///
     /// Valid means at least 1 packet and all the packets for a complete group with no missing
@@ -296,15 +295,20 @@ impl PacketGroup {
         } else if self.packets.len() == 1 {
             self.packets[0].is_standalone()
         } else {
-            let mut have_missing = false;
-            for (a, b) in self.packets.iter().zip(self.packets[1..].iter()) {
-                if missing_packets(a.header.sequence_id, b.header.sequence_id) > 0 {
-                    have_missing = true;
-                    break;
-                }
-            }
-            self.packets[0].is_first() && self.packets.last().unwrap().is_last() && have_missing
+            self.packets[0].is_first()
+                && self.packets.last().unwrap().is_last()
+                && self.have_missing()
         }
+    }
+
+    #[must_use]
+    pub fn have_missing(&self) -> bool {
+        for (a, b) in self.packets.iter().zip(self.packets[1..].iter()) {
+            if missing_packets(a.header.sequence_id, b.header.sequence_id) > 0 {
+                return true;
+            }
+        }
+        false
     }
 }
 

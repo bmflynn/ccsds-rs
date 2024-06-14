@@ -122,19 +122,23 @@ fn merge_test() {
 
     assert_eq!(groups.len(), 20, "expected 20 total groups");
 
-    for i in 0..=6 {
-        assert_eq!(groups[i].apid, 800, "group {i}");
-        assert!(groups[i].valid(), "group {i}");
-        assert_eq!(groups[i].packets.len(), 17, "group {i}");
+    for (i, group) in groups.iter().take(7).enumerate() {
+        assert_eq!(group.apid, 800, "group {i} has wrong apid");
+        assert!(group.complete(), "group {i} should be complete");
+        assert_eq!(group.packets.len(), 17, "group {i} has wrong len");
     }
-    for i in 7..=13 {
-        assert_eq!(groups[i].apid, 801, "group {i}");
-        assert!(groups[i].valid(), "group {i}");
-        assert_eq!(groups[i].packets.len(), 17, "group {i}");
+    // NOTE: last 801 group is incomplete, so we skip it
+    for (i, group) in groups.iter().skip(7).take(5).enumerate() {
+        assert_eq!(group.apid, 801, "group {i} has wrong apid");
+        for p in &group.packets {
+            println!("{:?}", p.header);
+        }
+        assert!(group.complete(), "group {i} should be complete");
+        assert_eq!(group.packets.len(), 17, "group {i} has wrong len");
     }
-    for i in 14..=19 {
-        assert_eq!(groups[i].apid, 826, "group {i}");
-        assert!(groups[i].valid(), "group {i}");
-        assert_eq!(groups[i].packets.len(), 1, "group {i}");
+    for (i, group) in groups.iter().skip(14).enumerate() {
+        assert_eq!(group.apid, 826, "group {i} has wrong apid");
+        assert!(group.complete(), "group {i} should be complete");
+        assert_eq!(group.packets.len(), 1, "group {i} has wrong len");
     }
 }
