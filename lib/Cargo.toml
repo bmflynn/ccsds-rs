@@ -14,7 +14,7 @@ crossbeam = { version = "^0.8.4", features = ["crossbeam-channel"] }
 ndarray = "0.15.6"
 rayon = "^1.7.0"
 rs2 = "^0.1.0"
-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 thiserror = "^1.0.38"
 threadpool = "^1.8.1"

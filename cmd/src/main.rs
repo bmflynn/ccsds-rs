@@ -5,8 +5,8 @@ use std::{fs::File, io::stderr, path::PathBuf};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use tracing::{info, level_filters::LevelFilter, Level};
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+use tracing::{info, Level};
+use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -53,6 +53,7 @@ fn main() -> Result<()> {
 
     tracing_subscriber::fmt()
         .with_target(false)
+        .with_writer(stderr)
         .without_time()
         .with_max_level(Level::ERROR)
         .with_env_filter(EnvFilter::from_env("RDR_LOG"))
