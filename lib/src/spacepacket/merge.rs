@@ -19,6 +19,9 @@ use super::TimeDecoder;
 /// be decoded using `time_decoder` or be part of a packet group with a first packet
 /// with a time that can be decoded by `time_decoder`.
 ///
+/// ``order`` will set the order in which APIDs are written to ``writer`` when there
+/// are multiple APIDs for a single time.
+///
 /// ## Errors
 /// Any errors that occur while performing IO are propagated.
 #[allow(clippy::missing_panics_doc, clippy::module_name_repetitions)]
@@ -26,6 +29,7 @@ pub fn merge_by_timecode<S, T, W>(
     paths: &[S],
     time_decoder: &T,
     mut writer: W,
+    order: Option<Vec<Apid>>,
 ) -> std::io::Result<()>
 where
     S: AsRef<Path>,
@@ -38,6 +42,12 @@ where
         trace!("opening reader: {path:?}");
         readers.insert(path.clone(), BufReader::new(File::open(path)?));
     }
+    let order: HashMap<Apid, Apid> = order
+        .unwrap_or_default()
+        .into_iter()
+        .enumerate()
+        .map(|(i, a)| (a, Apid::try_from(i).unwrap()))
+        .collect();
 
     let mut index: HashSet<Ptr> = HashSet::default();
     for (path, reader) in &mut readers {
@@ -45,7 +55,9 @@ where
         let pointers = PacketGroupIter::with_packets(packets)
             .filter_map(Result::ok)
             .filter_map(|g| {
-                if g.packets.is_empty() || !(g.packets[0].is_first() || g.packets[0].is_standalone()) {
+                if g.packets.is_empty()
+                    || !(g.packets[0].is_first() || g.packets[0].is_standalone())
+                {
                     // Drop incomplete packet groups
                     return None;
                 }
@@ -71,6 +83,7 @@ where
                     apid: first.header.apid,
                     seqid: first.header.sequence_id,
                     size: total_size,
+                    order: *order.get(&first.header.apid).unwrap_or(&first.header.apid),
                 })
             })
             .collect::<HashSet<_>>();
@@ -79,7 +92,7 @@ where
     }
 
     let mut index: Vec<Ptr> = index.into_iter().collect();
-    index.sort_by_key(|ptr| (ptr.time, ptr.apid));
+    index.sort_by_key(|ptr| (ptr.time, ptr.order));
 
     for ptr in &index {
         // We know path is in readers
@@ -109,6 +122,9 @@ struct Ptr {
     time: u64,
     apid: Apid,
     seqid: u16,
+
+    // Sets the order packets are sorted in
+    order: Apid,
 }
 
 impl Hash for Ptr {
