@@ -70,7 +70,7 @@ fn main() -> Result<()> {
         )
         .init();
 
-    debug!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+    debug!("{} {} ({})", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"), env!("GIT_SHA"));
 
     // You can check for the existence of subcommands, and if found use their
     // matches just as you would the top level cmd
