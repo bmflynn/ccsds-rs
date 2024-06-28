@@ -4,8 +4,9 @@ mod merge;
 use std::path::PathBuf;
 use std::{fs::File, io::stderr};
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use ccsds::Apid;
+use chrono::{DateTime, FixedOffset};
 use clap::{Parser, Subcommand};
 use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
@@ -38,11 +39,20 @@ enum Commands {
         /// 3:3 where 2 and 1 both map to sort index 1 which could lead to ambiguios ordering.
         #[arg(short = 'O', long, value_delimiter = ',')]
         apid_order: Option<Vec<Apid>>,
-        /// Alias for --apid-order-826,821
+        /// Alias for --apid-order-826,821, hidden by default because of VIIRS assumption
         #[arg(long, hide = true, default_value = "false")]
         viirs: bool,
+        /// Drop any packets with a time before this time (RFC3339).
+        #[arg(short, long, value_parser = parse_timestamp)]
+        from: Option<DateTime<FixedOffset>>,
+        /// Drop any packets with a time after this time (RFC3339).
+        #[arg(short, long, value_parser = parse_timestamp)]
+        to: Option<DateTime<FixedOffset>>,
+        /// Overwrite the output if it exists
+        #[arg(long, action)]
+        clobber: bool,
         /// Output file path.
-        #[arg(short, long, default_value = "merged.dat", value_parser = must_not_exist)]
+        #[arg(short, long, default_value = "merged.dat")]
         output: PathBuf,
         /// Input spacepacket files.
         inputs: Vec<PathBuf>,
@@ -67,13 +77,12 @@ enum Commands {
     },
 }
 
-fn must_not_exist(s: &str) -> Result<PathBuf, String> {
-    let p = PathBuf::from(s);
-    if p.exists() {
-        Err(format!("{s} already exists"))
-    } else {
-        Ok(p)
+fn parse_timestamp(s: &str) -> Result<DateTime<FixedOffset>, String> {
+    let zult = DateTime::parse_from_rfc3339(s);
+    if zult.is_err() {
+        return Err("Could not parse into an RFC3339 timestamp".to_string());
     }
+    Ok(zult.unwrap())
 }
 
 fn main() -> Result<()> {
@@ -101,19 +110,25 @@ fn main() -> Result<()> {
         Commands::Merge {
             output,
             inputs,
+            clobber,
             apid_order,
             viirs,
+            from,
+            to,
         } => {
-            info!("merging {:?}", inputs);
-            info!("to {output:?}");
+            if !clobber && output.exists() {
+                bail!("{output:?} exists; use --clobber");
+            }
+            info!("merging {inputs:?} to {output:?}");
             let apid_order = if *viirs {
                 Some(vec![826, 821])
             } else {
-                apid_order.as_deref().map_or(None, |s| Some(s.to_vec()))
+                apid_order.as_deref().map(<[Apid]>::to_vec)
             };
             let dest = File::create(output)
                 .with_context(|| format!("failed to create output {output:?}"))?;
-            merge::merge(inputs, &ccsds::CDSTimeDecoder, dest, apid_order)
+
+            merge::merge(inputs, &ccsds::CDSTimeDecoder, dest, apid_order, *from, *to)
         }
         Commands::Info {
             input,

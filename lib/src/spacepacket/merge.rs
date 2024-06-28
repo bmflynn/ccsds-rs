@@ -22,6 +22,9 @@ use super::TimeDecoder;
 /// ``order`` will set the order in which APIDs are written to ``writer`` when there
 /// are multiple APIDs for a single time.
 ///
+/// ``from`` and ``to``, if specified, will resulting in dropping any packets not within
+/// the specified time range in microseconds.
+///
 /// ## Errors
 /// Any errors that occur while performing IO are propagated.
 #[allow(clippy::missing_panics_doc, clippy::module_name_repetitions)]
@@ -30,6 +33,8 @@ pub fn merge_by_timecode<S, T, W>(
     time_decoder: &T,
     mut writer: W,
     order: Option<Vec<Apid>>,
+    from: Option<u64>,
+    to: Option<u64>,
 ) -> std::io::Result<()>
 where
     S: AsRef<Path>,
@@ -68,6 +73,14 @@ where
                         &first.data[..14]
                     )
                 });
+
+                // enforce time range, inclusice on the from, exclusive on to
+                if from.is_some() && usecs < from.unwrap() {
+                    return None;
+                }
+                if to.is_some() && usecs >= to.unwrap() {
+                    return None;
+                }
 
                 // total size of all packets in group
                 let total_size = g
