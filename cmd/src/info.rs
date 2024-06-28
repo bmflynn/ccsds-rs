@@ -33,19 +33,23 @@ impl clap::ValueEnum for Format {
 #[derive(Debug, Clone)]
 pub enum TCFormat {
     Cds,
-    EosCuc,
+    // EosCuc,
     None,
 }
 
 impl clap::ValueEnum for TCFormat {
     fn value_variants<'a>() -> &'a [Self] {
-        &[Self::Cds, Self::EosCuc, Self::None]
+        &[
+            Self::Cds, 
+            // Self::EosCuc, 
+            Self::None,
+        ]
     }
 
     fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
         match self {
             Self::Cds => Some(clap::builder::PossibleValue::new("cds")),
-            Self::EosCuc => Some(clap::builder::PossibleValue::new("eoscuc")),
+            // Self::EosCuc => Some(clap::builder::PossibleValue::new("eoscuc")),
             Self::None => Some(clap::builder::PossibleValue::new("none")),
         }
     }
@@ -75,7 +79,7 @@ fn summarize(fpath: &Path, tc_format: &TCFormat) -> Result<Info> {
     let packets = ccsds::read_packets(reader).filter_map(Result::ok);
     let time_decoder: Option<&dyn ccsds::TimeDecoder> = match tc_format {
         TCFormat::Cds => Some(&ccsds::CDSTimeDecoder),
-        TCFormat::EosCuc => unimplemented!(),
+        // TCFormat::EosCuc => unimplemented!(),
         TCFormat::None => None,
     };
 
