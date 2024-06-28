@@ -1,11 +1,12 @@
 mod info;
 mod merge;
 
-use std::{fs::File, io::stderr, path::PathBuf};
+use std::path::PathBuf;
+use std::{fs::File, io::stderr};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use tracing::{info, Level};
+use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -23,7 +24,7 @@ enum Commands {
     /// secondary header.
     Merge {
         /// Output file path.
-        #[arg(short, long, default_value = "merged.dat")]
+        #[arg(short, long, default_value = "merged.dat", value_parser = must_not_exist)]
         output: PathBuf,
         /// Input spacepacket files.
         inputs: Vec<PathBuf>,
@@ -34,7 +35,7 @@ enum Commands {
         input: PathBuf,
 
         /// Output format
-        #[arg(short, long, default_value = "json")]
+        #[arg(short, long, default_value = "text")]
         format: info::Format,
 
         /// Decode packet timecodes using this format.
@@ -46,6 +47,15 @@ enum Commands {
         #[arg(short, long, default_value = "cds")]
         timecode: info::TCFormat,
     },
+}
+
+fn must_not_exist(s: &str) -> Result<PathBuf, String> {
+    let p = PathBuf::from(s);
+    if p.exists() {
+        Err(format!("{s} already exists"))
+    } else {
+        Ok(p)
+    }
 }
 
 fn main() -> Result<()> {
@@ -60,7 +70,7 @@ fn main() -> Result<()> {
         )
         .init();
 
-    info!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+    debug!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
 
     // You can check for the existence of subcommands, and if found use their
     // matches just as you would the top level cmd
