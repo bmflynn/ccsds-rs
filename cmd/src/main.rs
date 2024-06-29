@@ -37,23 +37,33 @@ enum Commands {
         /// you could specify --apid-order=4,2,1. Note, 1 must be specified to give
         /// a mapping of 4:0, 2:1, 1:2, 3:3, otherwise the mapping would be 4:0, 2:1, 1:1,
         /// 3:3 where 2 and 1 both map to sort index 1 which could lead to ambiguios ordering.
-        #[arg(short = 'O', long, value_delimiter = ',')]
+        #[arg(short = 'O', long, value_delimiter = ',', value_name = "csv")]
         apid_order: Option<Vec<Apid>>,
+
         /// Alias for --apid-order-826,821, hidden by default because of VIIRS assumption
         #[arg(long, hide = true, default_value = "false")]
         viirs: bool,
+
         /// Drop any packets with a time before this time (RFC3339).
-        #[arg(short, long, value_parser = parse_timestamp)]
+        #[arg(short, long, value_parser = parse_timestamp, value_name = "timestamp")]
         from: Option<DateTime<FixedOffset>>,
+
         /// Drop any packets with a time after this time (RFC3339).
-        #[arg(short, long, value_parser = parse_timestamp)]
+        #[arg(short, long, value_parser = parse_timestamp, value_name = "timestamp")]
         to: Option<DateTime<FixedOffset>>,
-        /// Overwrite the output if it exists
+
+        /// Drop any packet that has an APID not in this list
+        #[arg(short, long, value_delimiter = ',', value_name = "csv")]
+        apids: Vec<Apid>,
+
+        /// Delete output file if it already exists
         #[arg(long, action)]
         clobber: bool,
+
         /// Output file path.
-        #[arg(short, long, default_value = "merged.dat")]
+        #[arg(short, long, default_value = "merged.dat", value_name = "path")]
         output: PathBuf,
+
         /// Input spacepacket files.
         inputs: Vec<PathBuf>,
     },
@@ -115,6 +125,7 @@ fn main() -> Result<()> {
             viirs,
             from,
             to,
+            apids,
         } => {
             if !clobber && output.exists() {
                 bail!("{output:?} exists; use --clobber");
@@ -128,7 +139,7 @@ fn main() -> Result<()> {
             let dest = File::create(output)
                 .with_context(|| format!("failed to create output {output:?}"))?;
 
-            merge::merge(inputs, &ccsds::CDSTimeDecoder, dest, apid_order, *from, *to)
+            merge::merge(inputs, &ccsds::CDSTimeDecoder, dest, apid_order, *from, *to, apids)
         }
         Commands::Info {
             input,

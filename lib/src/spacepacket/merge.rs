@@ -35,12 +35,14 @@ pub fn merge_by_timecode<S, T, W>(
     order: Option<Vec<Apid>>,
     from: Option<u64>,
     to: Option<u64>,
+    apids: &[Apid],
 ) -> std::io::Result<()>
 where
     S: AsRef<Path>,
     T: TimeDecoder,
     W: Write,
 {
+    let apids:HashSet<Apid> = apids.iter().copied().collect();
     let mut readers: HashMap<PathBuf, BufReader<File>> = HashMap::default();
     for path in paths {
         let path = path.as_ref().to_path_buf();
@@ -79,6 +81,9 @@ where
                     return None;
                 }
                 if to.is_some() && usecs >= to.unwrap() {
+                    return None;
+                }
+                if !apids.is_empty() && !apids.contains(&first.header.apid) {
                     return None;
                 }
 

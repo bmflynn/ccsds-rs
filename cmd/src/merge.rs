@@ -11,6 +11,7 @@ pub fn merge<W, T>(
     order: Option<Vec<Apid>>,
     from: Option<DateTime<FixedOffset>>,
     to: Option<DateTime<FixedOffset>>,
+    apids: &[Apid],
 ) -> Result<()>
 where
     T: ccsds::TimeDecoder,
@@ -19,6 +20,6 @@ where
     let from = from.map(|dt| dt.timestamp_micros() as u64);
     let to = to.map(|dt| dt.timestamp_micros() as u64);
 
-    ccsds::merge_by_timecode(inputs, time_decoder, writer, order, from, to)
+    ccsds::merge_by_timecode(inputs, time_decoder, writer, order, from, to, apids)
         .with_context(|| format!("Merging {} inputs", inputs.len()))
 }
