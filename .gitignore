@@ -2,4 +2,3 @@
 /venv
 /.venv
 Cargo.lock
-*.dat
