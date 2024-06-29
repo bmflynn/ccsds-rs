@@ -19,11 +19,14 @@ jobs:
       with:
         lfs: true
     - name: Git LFS Pull
-      run: git lfs pull
+      run: |
+        git lfs pull
     - name: Git LFS Checkout 
-      run: git lfs checkout 
+      run: |
+        git lfs checkout 
     - name: List test files 
-      run: find lib/tests 
+      run: |
+        find lib/tests 
     - name: Build
       run: cargo build
     - name: Run tests
