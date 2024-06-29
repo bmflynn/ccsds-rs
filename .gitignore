@@ -1,3 +1,5 @@
 /target
+/venv
+/.venv
 Cargo.lock
 *.dat

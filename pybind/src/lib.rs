@@ -1,6 +1,5 @@
 use ccsds as my;
 use ccsds::{PNDecoder, ReedSolomon};
-use pyo3::exceptions::PyException;
 use pyo3::{
     exceptions::{PyStopIteration, PyValueError},
     prelude::*,
@@ -19,7 +18,10 @@ impl BlockIterator {
         slf
     }
 
-    fn __next__<'a>(mut slf: PyRefMut<Self>, py: Python<'a>) -> PyResult<Option<Bound<'a, PyBytes>>> {
+    fn __next__<'a>(
+        mut slf: PyRefMut<Self>,
+        py: Python<'a>,
+    ) -> PyResult<Option<Bound<'a, PyBytes>>> {
         match slf.blocks.next() {
             Some(block) => Ok(Some(PyBytes::new_bound(py, &block))),
             None => Err(PyStopIteration::new_err(String::new())),
@@ -48,9 +50,24 @@ fn synchronized_blocks(
 }
 
 /// Remove pseudo-noise.
+///
+/// Parameters
+/// ----------
+/// dat : list, bytes
+///     Data to decode.
+///
+/// Raises
+/// ------
+/// ValueError
+///     If the provided data is longer than the internal PN LUT
 #[pyfunction(signature=(dat))]
-fn pndecode(dat: &[u8]) -> Vec<u8> {
-    my::DefaultPN {}.decode(dat)
+fn pndecode(dat: &[u8]) -> PyResult<Vec<u8>> {
+    if dat.len() > 1274 {
+        return Err(PyValueError::new_err(
+            "PN data longer than 1275 bytes".to_string(),
+        ));
+    }
+    Ok(my::DefaultPN {}.decode(dat))
 }
 
 /// Perform RS on a single codeblock returning a tuple of the input data with parity bytes
@@ -597,6 +614,11 @@ impl FramingConfig {
 /// -------
 /// FramingConfig or None
 ///     The configuration for the specified spacecraft if available, otherwise `None`
+///
+/// Raises
+/// ------
+/// ValueError:
+///     If the spacecraft database cannot be loaded.
 #[pyfunction]
 #[pyo3(signature = (scid, path=None))]
 fn framing_config(scid: u16, path: Option<&str>) -> PyResult<Option<FramingConfig>> {
@@ -608,7 +630,7 @@ fn framing_config(scid: u16, path: Option<&str>) -> PyResult<Option<FramingConfi
     let db = match db {
         Ok(db) => db,
         Err(err) => {
-            return Err(PyException::new_err(format!(
+            return Err(PyValueError::new_err(format!(
                 "failed to init spacecraft db: {err}"
             )))
         }
@@ -622,7 +644,8 @@ fn framing_config(scid: u16, path: Option<&str>) -> PyResult<Option<FramingConfi
 
 /// ccsds
 ///
-/// Python wrapper for the [ccsds](https://github.com/bmflynn/ccsds) Rust crate.
+/// Python wrapper for the [ccsds](https://github.com/bmflynn/ccsds) Rust crate
+/// providing decode capabilities for frames (sync, RS, pn, etc ...) and spacepackets.
 #[pymodule]
 #[pyo3(name = "ccsds")]
 fn ccsdspy(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
