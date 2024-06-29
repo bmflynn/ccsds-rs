@@ -326,8 +326,6 @@ where
     I: Iterator<Item = Packet> + Send,
 {
     /// Create an iterator that reads source packets from the provided reader.
-    ///
-    ///A reverse shell was detected in EC2 inst
     // fn with_reader<R>(reader: R) -> Self where R: Read + Send {
     //     let packets = PacketReaderIter::new(reader)
     //         .filter(Result::is_ok)
