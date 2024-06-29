@@ -19,9 +19,9 @@ impl BlockIterator {
         slf
     }
 
-    fn __next__<'a>(mut slf: PyRefMut<Self>, py: Python<'a>) -> PyResult<Option<&'a PyBytes>> {
+    fn __next__<'a>(mut slf: PyRefMut<Self>, py: Python<'a>) -> PyResult<Option<Bound<'a, PyBytes>>> {
         match slf.blocks.next() {
-            Some(block) => Ok(Some(PyBytes::new(py, &block))),
+            Some(block) => Ok(Some(PyBytes::new_bound(py, &block))),
             None => Err(PyStopIteration::new_err(String::new())),
         }
     }
@@ -38,7 +38,7 @@ fn synchronized_blocks(
     let file: Box<dyn Read + Send> = Box::new(File::open(source)?);
     let asm = asm.unwrap_or(&my::ASM);
 
-    let blocks = my::Synchronizer::new(file, &asm.to_vec(), block_size)
+    let blocks = my::Synchronizer::new(file, asm, block_size)
         .into_iter()
         .filter_map(Result::ok);
     let iter = BlockIterator {
@@ -60,13 +60,13 @@ fn rs_correct_codeblock<'a>(
     py: Python<'a>,
     block: &[u8],
     interleave: u8,
-) -> PyResult<(&'a PyBytes, RSState)> {
+) -> PyResult<(Bound<'a, PyBytes>, RSState)> {
     let rs = my::DefaultReedSolomon {};
 
     match rs.correct_codeblock(block, interleave) {
         Ok((block, state)) => {
-            let bytes = PyBytes::new(py, &block);
-            Ok((&bytes, state.into()))
+            let bytes = PyBytes::new_bound(py, &block);
+            Ok((bytes, state.into()))
         }
         Err(err) => Err(PyValueError::new_err(format!("rs failure: {err}"))),
     }
@@ -104,7 +104,7 @@ impl PrimaryHeader {
     }
 
     #[classmethod]
-    fn decode(_cls: &PyType, dat: &[u8]) -> Option<Self> {
+    fn decode(_cls: &Bound<'_, PyType>, dat: &[u8]) -> Option<Self> {
         my::PrimaryHeader::decode(dat).map(|hdr| Self {
             version: hdr.version,
             type_flag: hdr.type_flag,
@@ -139,7 +139,7 @@ impl Packet {
         .to_owned()
     }
     #[classmethod]
-    fn decode(_cls: &PyType, dat: &[u8]) -> Option<Self> {
+    fn decode(_cls: Bound<'_, PyType>, dat: &[u8]) -> Option<Self> {
         my::Packet::decode(dat).map(Packet::new)
     }
 }
@@ -258,8 +258,8 @@ impl DecodedPacketIterator {
     }
 }
 
-#[pyclass]
-#[derive(Clone, Debug)]
+#[pyclass(eq, eq_int)]
+#[derive(Clone, Debug, PartialEq)]
 enum RSState {
     Ok,
     Corrected,
@@ -598,6 +598,7 @@ impl FramingConfig {
 /// FramingConfig or None
 ///     The configuration for the specified spacecraft if available, otherwise `None`
 #[pyfunction]
+#[pyo3(signature = (scid, path=None))]
 fn framing_config(scid: u16, path: Option<&str>) -> PyResult<Option<FramingConfig>> {
     let db = match path {
         Some(path) => spacecrafts::DB::with_path(path),
@@ -624,7 +625,7 @@ fn framing_config(scid: u16, path: Option<&str>) -> PyResult<Option<FramingConfi
 /// Python wrapper for the [ccsds](https://github.com/bmflynn/ccsds) Rust crate.
 #[pymodule]
 #[pyo3(name = "ccsds")]
-fn ccsdspy(_py: Python, m: &PyModule) -> PyResult<()> {
+fn ccsdspy(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(decode_packets, m)?)?;
     m.add_class::<Packet>()?;
     m.add_class::<DecodedPacket>()?;
