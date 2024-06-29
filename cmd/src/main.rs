@@ -139,7 +139,15 @@ fn main() -> Result<()> {
             let dest = File::create(output)
                 .with_context(|| format!("failed to create output {output:?}"))?;
 
-            merge::merge(inputs, &ccsds::CDSTimeDecoder, dest, apid_order, *from, *to, apids)
+            merge::merge(
+                inputs,
+                &ccsds::CDSTimeDecoder,
+                dest,
+                apid_order,
+                *from,
+                *to,
+                Some(apids),
+            )
         }
         Commands::Info {
             input,

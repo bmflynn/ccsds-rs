@@ -109,6 +109,10 @@ fn merge_test() {
             ],
             &ccsds::CDSTimeDecoder,
             out_file,
+            None,
+            None,
+            None,
+            None,
         )
         .unwrap();
     }

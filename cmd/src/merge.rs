@@ -11,7 +11,7 @@ pub fn merge<W, T>(
     order: Option<Vec<Apid>>,
     from: Option<DateTime<FixedOffset>>,
     to: Option<DateTime<FixedOffset>>,
-    apids: &[Apid],
+    apids: Option<&[Apid]>,
 ) -> Result<()>
 where
     T: ccsds::TimeDecoder,
