@@ -48,7 +48,7 @@ fn block_iter() {
     let fpath = fixture_path("tests/fixtures/snpp_7cadus_2vcids.dat");
     let reader = fs::File::open(fpath).unwrap();
 
-    let iter = read_synchronized_blocks(reader, &ASM[..].to_vec(), 1020);
+    let iter = read_synchronized_blocks(reader, &ASM[..], 1020);
 
     let mut count = 0;
     for zult in iter {
@@ -62,7 +62,7 @@ fn block_iter() {
 fn full_decode() {
     let fpath = fixture_path("tests/fixtures/snpp_synchronized_cadus.dat");
     let reader = fs::File::open(fpath).unwrap();
-    let blocks = Synchronizer::new(reader, &ASM.to_vec(), 1020)
+    let blocks = Synchronizer::new(reader, &ASM, 1020)
         .into_iter()
         .filter_map(Result::ok);
 
