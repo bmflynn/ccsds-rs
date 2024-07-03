@@ -1,10 +1,11 @@
+mod filter;
 mod info;
 mod merge;
 
 use std::path::PathBuf;
 use std::{fs::File, io::stderr};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use ccsds::Apid;
 use chrono::{DateTime, FixedOffset};
 use clap::{Parser, Subcommand};
@@ -85,6 +86,71 @@ enum Commands {
         #[arg(short, long, default_value = "cds")]
         timecode: info::TCFormat,
     },
+    /// Apply various filters to spacepacket files.
+    Filter {
+        /// Include these apids or apid ranges.
+        ///
+        /// This accepts a CSV of APIDs as well as ranges of the format <start>-<end>
+        /// where start and end are inclusive. For example, you can specify
+        /// --include 0,1,2,3,4,5,10,20,30 or --include 0-5,10,20,30
+        ///
+        /// If used with --exclude, values are first included, then excluded.
+        #[arg(short, long, value_name = "csv", value_delimiter = ',')]
+        include: Vec<String>,
+
+        /// Exclude these apids or apid ranges.
+        ///
+        /// This accepts a CSV of APIDs as well as ranges of the format <start>-<end>
+        /// where start is inclusive and end is exclusive.
+        ///
+        /// If used with --include, values are first included, then excluded.
+        #[arg(short, long, value_name = "csv", value_delimiter = ',')]
+        exclude: Vec<String>,
+
+        /// Delete output file if it already exists
+        #[arg(long, action)]
+        clobber: bool,
+
+        /// Output file path.
+        #[arg(short, long, default_value = "filtered.dat", value_name = "path")]
+        output: PathBuf,
+
+        /// Input spacepacket file.
+        input: PathBuf,
+    },
+}
+
+fn parse_number_ranges(list: Vec<String>) -> Result<Vec<u32>> {
+    let rx = regex::Regex::new(r"^(?:(\d+)|(\d+)-(\d+))$").expect("regex to compile");
+    let mut values = Vec::default();
+    for (i, s) in list.into_iter().enumerate() {
+        let Some(cap) = rx.captures(&s) else {
+            bail!("invalid range");
+        };
+        if cap.len() != 4 {
+            bail!("invalid number or range at {i}");
+        }
+
+        if cap.get(1).is_some() {
+            let x = &cap[1]
+                .parse::<u32>()
+                .map_err(|_| anyhow!("invalid number value"))?;
+            values.push(*x);
+        } else {
+            let start = &cap[2]
+                .parse::<u32>()
+                .map_err(|_| anyhow!("invalid range value"))?;
+            let end = &cap[3]
+                .parse::<u32>()
+                .map_err(|_| anyhow!("invalid range value"))?;
+            if start >= end {
+                bail!("invalid range")
+            }
+            values.extend(*start..=*end);
+        }
+    }
+
+    Ok(values)
 }
 
 fn parse_timestamp(s: &str) -> Result<DateTime<FixedOffset>, String> {
@@ -154,5 +220,33 @@ fn main() -> Result<()> {
             format,
             timecode,
         } => info::info(input, format, timecode),
+        Commands::Filter {
+            include,
+            exclude,
+            clobber,
+            output,
+            input,
+        } => {
+            if !clobber && output.exists() {
+                bail!("{output:?} exists; use --clobber");
+            }
+            let src = File::open(input).context("opening input")?;
+            let dest = File::create(output)
+                .with_context(|| format!("failed to create output {output:?}"))?;
+
+            let include = parse_number_ranges(include.clone())?
+                .iter()
+                .filter_map(|v| Apid::try_from(*v).ok())
+                .collect::<Vec<Apid>>();
+            let exclude = parse_number_ranges(exclude.clone())?
+                .iter()
+                .filter_map(|v| Apid::try_from(*v).ok())
+                .collect::<Vec<Apid>>();
+
+            debug!("including {:?}", include);
+            debug!("excluding {:?}", exclude);
+
+            filter::filter(src, dest, &include, &exclude)
+        }
     }
 }
