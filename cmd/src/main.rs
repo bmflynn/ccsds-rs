@@ -107,6 +107,20 @@ enum Commands {
         #[arg(short, long, value_name = "csv", value_delimiter = ',')]
         exclude: Vec<String>,
 
+        /// Only include packets before this time (RFC3339).
+        ///
+        /// This requires input data to utilize standard CDS times in the secondary 
+        /// header.
+        #[arg(short, long, value_parser = parse_timestamp, value_name = "timestamp")]
+        before: Option<DateTime<FixedOffset>>,
+
+        /// Only include packets after this time (RFC3339).
+        ///
+        /// This requires input data to utilize standard CDS times in the secondary 
+        /// header.
+        #[arg(short, long, value_parser = parse_timestamp, value_name = "timestamp")]
+        after: Option<DateTime<FixedOffset>>,
+
         /// Delete output file if it already exists
         #[arg(long, action)]
         clobber: bool,
@@ -226,6 +240,8 @@ fn main() -> Result<()> {
             clobber,
             output,
             input,
+            before,
+            after,
         } => {
             if !clobber && output.exists() {
                 bail!("{output:?} exists; use --clobber");
@@ -243,10 +259,12 @@ fn main() -> Result<()> {
                 .filter_map(|v| Apid::try_from(*v).ok())
                 .collect::<Vec<Apid>>();
 
-            debug!("including {:?}", include);
-            debug!("excluding {:?}", exclude);
+            debug!("including apids {:?}", include);
+            debug!("excluding apids {:?}", exclude);
+            debug!("before: {:?}", before);
+            debug!("after: {:?}", after);
 
-            filter::filter(src, dest, &include, &exclude)
+            filter::filter(src, dest, &include, &exclude, *before, *after)
         }
     }
 }
