@@ -1,33 +1,5 @@
 //! Timecode parsing for CCSDS Space Packet data.
 //!
-//! ## CCSDS Day Segmented Timecode (CDS) formats
-//!
-//! Satellite/Sensors using this format (not a complete list!).
-//!
-//! | Mission   | Satellite | Types                   |
-//! |-----------|-----------|-------------------------|
-//! | JPSS      | SNPP      | All sensors & S/C       |
-//! | JPSS      | NOAA20    | All sensors & S/C       |
-//! | JPSS      | NOAA21    | All sensors & S/C       |
-//! | EOS       | Aqua      | *MODIS (Sci & Engr)     |
-//! | EOS       | Aqua      | *CERES                  |
-//!
-//! * EOS GIIS packet format as documented in reference 1
-//!
-//! ## CCSDS Unsegmented Timecode (CUC) Formats
-//!
-//! The following instruments use some form of CUC format, with different number
-//! of field bits and starting at different offsets into the user data zone.
-//!
-//! | Mission   | Satellite | Types           | P-field len | T-Field len | Start byte |
-//! |-----------|-----------|-----------------|-------------|-------------|------------|
-//! | EOS       | Aqua      | All sensor HK   | 2           | 6           | 1          |
-//! | EOS       | Aqua      | Most S/C        | 2           | 6           | 0          |
-//! | EOS       | Aqua      | AMSU-E          | 1           | 5           | 1          |
-//!
-//! * CUC formats are used for the EOS GIRD and S/C packet formats as
-//!   documented in reference 1
-//!
 //! # References
 //!
 //! 1. [CCSDS Time Code Formats (301.0-B-4)](https://public.ccsds.org/Pubs/301x0b4e1.pdf)
@@ -144,7 +116,53 @@ mod eoscuc_tests {
     }
 }
 
-/// CCSDS Day-Segmented Timecode
+#[derive(Clone, Debug, PartialEq)]
+pub struct Cuc {
+    seconds: u64,
+    subseconds: u64,
+}
+
+/// Deocde a CCSDS Unsegmented Time Code. 
+///
+/// Note, a Cuc uses TAI time-scale with an epoch of Jan 1, 1958.
+fn decode_cuc(start: usize, coarse: usize, fine: usize, buf: &[u8]) -> Option<Cuc> {
+    if buf.len() < start + coarse + fine || coarse > 8 || fine > 8 {
+        return None
+    }
+    let (x, rest) = buf.split_at(coarse);
+    let mut sec_bytes = vec![0u8; 8 - coarse];
+    sec_bytes.extend(x);
+    let (x, _) = rest.split_at(fine);
+    let mut micro_bytes = vec![0u8; 8 - fine];
+    micro_bytes.extend(x);
+    Some(Cuc{
+        seconds: u64::from_be_bytes(sec_bytes.try_into().unwrap()),
+        subseconds: u64::from_be_bytes(micro_bytes.try_into().unwrap()) * 1000,
+    })
+}
+
+#[cfg(test)]
+mod cuc_tests {
+    use super::*;
+
+    #[test]
+    fn test_decode_cuc() {
+        let dat = [0x5e, 0x96, 0x4, 0xf4, 0xab, 0x40, 0x2, 0x95];
+        let tc = decode_cuc(0, 2, 4, &dat);
+
+        assert_eq!(tc, Some(Cuc{seconds: 0, subseconds: 0}));
+    }
+}
+
+
+/// CCSDS Day-Segmented Timecode.
+///
+/// This format assumes:
+/// * Epoch of Jan 1, 1958
+/// * 16-bit day segment
+/// * 16-bit submillisecond resolution
+///
+/// The CDS P-field is not currently supported.
 #[derive(Serialize, Debug, Clone)]
 pub struct Cds {
     pub days: u16,
