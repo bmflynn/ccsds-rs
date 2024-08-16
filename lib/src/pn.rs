@@ -169,7 +169,7 @@ pub trait PNDecoder: Send + Sync {
 // FIXME: Support data longer than [SEQUENCE]
 fn decode(buf: &[u8]) -> Vec<u8> {
     assert!(
-        buf.len() < SEQUENCE.len(),
+        buf.len() <= SEQUENCE.len(),
         "data longer than the PN sequence: got {}, wanted < {}",
         buf.len(),
         SEQUENCE.len()
