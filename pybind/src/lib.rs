@@ -61,13 +61,15 @@ fn synchronized_blocks(
 /// ValueError
 ///     If the provided data is longer than the internal PN LUT
 #[pyfunction(signature=(dat))]
-fn pndecode(dat: &[u8]) -> PyResult<Vec<u8>> {
-    if dat.len() > 1274 {
+fn pndecode<'a>(py: Python<'a>, dat: &[u8]) -> PyResult<Bound<'a, PyBytes>> {
+    if dat.len() >= 1276 {
         return Err(PyValueError::new_err(
             "PN data longer than 1275 bytes".to_string(),
         ));
     }
-    Ok(my::DefaultPN {}.decode(dat))
+    let dat = my::DefaultPN {}.decode(dat);
+    let bytes = PyBytes::new_bound(py, &dat);
+    Ok(bytes)
 }
 
 /// Perform RS on a single codeblock returning a tuple of the input data with parity bytes
@@ -667,6 +669,8 @@ fn ccsdspy(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(missing_packets, m)?)?;
     m.add_function(wrap_pyfunction!(missing_frames, m)?)?;
     m.add_function(wrap_pyfunction!(framing_config, m)?)?;
+
+    m.add("ASM", my::ASM)?;
 
     Ok(())
 }

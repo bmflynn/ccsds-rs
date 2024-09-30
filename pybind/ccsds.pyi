@@ -1,6 +1,8 @@
 import enum
 import typing
 
+ASM: list[int] 
+
 class RSState(enum.Enum):
     OK = 0
     Corrected = 1
@@ -20,6 +22,9 @@ class Frame:
     header: VCDUHeader
     rsstate: RSState
     data: bytes
+
+    @staticmethod
+    def decode(dat: list[int] | bytes) -> 'Frame': ...
 
 class PrimaryHeader:
     version: int
@@ -44,6 +49,10 @@ class DecodedPacket:
     scid: int
     vcid: int
     packet: Packet
+
+def synchronized_blocks(source: str, block_size: int, asm: list[int] | bytes | None = None) -> typing.Iterator[bytes]: ...
+
+def pndecode(dat: list[int] | bytes) -> bytes: ...
 
 def decode_packets(source: str) -> typing.Iterable[Packet]: ...
 def decode_frames(
