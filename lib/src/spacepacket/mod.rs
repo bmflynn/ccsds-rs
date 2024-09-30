@@ -613,10 +613,12 @@ where
                     trace!(vcid = %frame.header.vcid, tracker = %tracker, "frames w/o mpdu, dropping");
                     continue;
                 }
-                assert!(
-                    mpdu.header_offset() < mpdu.payload().len() + 1,
-                    "MPDU header offset too large; likely due to an incorrect frame length",
-                );
+
+                if mpdu.header_offset() > mpdu.payload().len() {
+                    panic!("MPDU header offset too large; likely due to an incorrect frame length; offset={} buf size={}",
+                        mpdu.header_offset(),  mpdu.payload().len()
+                    );
+                }
                 tracker.cache = mpdu.payload()[mpdu.header_offset()..].to_vec();
                 tracker.sync = true;
             }

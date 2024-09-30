@@ -100,7 +100,7 @@ impl ReedSolomon for DefaultReedSolomon {
             }
             let message = zult.message.expect("corrected rs message has no data");
             for j in 0..message.len() {
-                corrected[idx + j * 4] = message[j];
+                corrected[idx + j * interleave as usize] = message[j];
             }
         }
 
@@ -149,9 +149,7 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_correct_codeblock() {
-        let interleave: u8 = 4;
+    fn test_correct_codeblock(interleave: u8, blocksize: usize) {
         let mut block = vec![0u8; FIXTURE_MSG.len() * interleave as usize];
 
         // Interleave the same message interleave number of times
@@ -160,7 +158,7 @@ mod tests {
                 block[interleave as usize * j + i as usize] = FIXTURE_MSG[j];
             }
         }
-        assert_eq!(block.len(), 1020); // sanity check
+        assert_eq!(block.len(), blocksize); // sanity check
 
         // introduce an error by just adding one with wrap to a byte
         block[100] += 1;
@@ -170,11 +168,22 @@ mod tests {
         let zult = rs.correct_codeblock(&block, interleave);
 
         let (block, state) = zult.unwrap();
+        let expected_block_len = if interleave == 4 { 892 } else { 1115 };
         assert_eq!(
             block.len(),
-            892,
-            "expect length 892 for I=4 header and frame data"
+            expected_block_len,
+            "expect length {expected_block_len} for I={interleave} header and frame data"
         );
         assert_eq!(state, RSState::Corrected(1));
+    }
+
+    #[test]
+    fn test_correct_i4_1020_codeblock() {
+        test_correct_codeblock(4, 1020);
+    }
+
+    #[test]
+    fn test_correct_i5_1275_codeblock() {
+        test_correct_codeblock(5, 1275);
     }
 }

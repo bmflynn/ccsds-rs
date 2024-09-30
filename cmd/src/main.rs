@@ -109,14 +109,14 @@ enum Commands {
 
         /// Only include packets before this time (RFC3339).
         ///
-        /// This requires input data to utilize standard CDS times in the secondary 
+        /// This requires input data to utilize standard CDS times in the secondary
         /// header.
         #[arg(short, long, value_parser = parse_timestamp, value_name = "timestamp")]
         before: Option<DateTime<FixedOffset>>,
 
         /// Only include packets after this time (RFC3339).
         ///
-        /// This requires input data to utilize standard CDS times in the secondary 
+        /// This requires input data to utilize standard CDS times in the secondary
         /// header.
         #[arg(short, long, value_parser = parse_timestamp, value_name = "timestamp")]
         after: Option<DateTime<FixedOffset>>,

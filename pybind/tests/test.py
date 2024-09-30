@@ -5,7 +5,7 @@ import pytest
 
 
 def fixture_path(name: str) -> str:
-    return str(Path(__file__).parent / "fixtures" / name)
+    return str(Path(__file__).parent.parent.parent / "tests" / "fixtures" / name)
 
 
 @pytest.mark.parametrize(
