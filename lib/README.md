@@ -2,6 +2,10 @@
 
 ## CCSDS Spacecraft Data Stream Decoding
 
+> [!WARNING]
+> This project is very much in development, and the API is very likely to change in ways that will 
+> things. If you have comments or suggestions regarding the API feel free to file an issue.
+
 The project provides tools for decoding spacecraft downlink telemetry streams conforming
 to the [`CCSDS`] recommended specifications (Blue Books)
 [`TM Synchronization and Channel Coding`] and [`Space Packet Protocol`].

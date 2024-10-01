@@ -1,7 +1,7 @@
 import enum
 import typing
 
-ASM: list[int] 
+ASM: list[int]
 
 class RSState(enum.Enum):
     OK = 0
@@ -24,7 +24,7 @@ class Frame:
     data: bytes
 
     @staticmethod
-    def decode(dat: list[int] | bytes) -> 'Frame': ...
+    def decode(dat: list[int] | bytes) -> "Frame": ...
 
 class PrimaryHeader:
     version: int
@@ -45,16 +45,21 @@ class Packet:
     @classmethod
     def decode(cls, dat: bytes) -> Packet: ...
 
+class PacketGroup:
+    apid: int
+    packets: list[Packet]
+
 class DecodedPacket:
     scid: int
     vcid: int
     packet: Packet
 
-def synchronized_blocks(source: str, block_size: int, asm: list[int] | bytes | None = None) -> typing.Iterator[bytes]: ...
-
+def synchronized_blocks(
+    source: str, block_size: int, asm: list[int] | bytes | None = None
+) -> typing.Iterator[bytes]: ...
 def pndecode(dat: list[int] | bytes) -> bytes: ...
-
 def decode_packets(source: str) -> typing.Iterable[Packet]: ...
+def decode_packet_groups(source: str) -> typing.Iterable[PacketGroup]: ...
 def decode_frames(
     source: str, frame_len: int, interleave: int
 ) -> typing.Iterable[Frame]: ...
@@ -66,7 +71,7 @@ def decode_framed_packets(
     trailer_len: int = 0,
     interleave: int | None = None,
 ) -> typing.Iterable[DecodedPacket]: ...
-def decode_cdc_timecode(dat: bytes) -> int: ...
+def decode_cds_timecode(dat: bytes) -> int: ...
 def decode_eoscuc_timecode(dat: bytes) -> int: ...
 def missing_packets(cur: int, last: int) -> int: ...
 def missing_frames(cur: int, last: int) -> int: ...

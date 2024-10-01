@@ -1,5 +1,6 @@
 use ccsds as my;
 use ccsds::{PNDecoder, ReedSolomon};
+use pyo3::types::PyList;
 use pyo3::{
     exceptions::{PyStopIteration, PyValueError},
     prelude::*,
@@ -141,7 +142,7 @@ struct Packet {
     #[pyo3(get)]
     header: PrimaryHeader,
     #[pyo3(get)]
-    data: Vec<u8>,
+    data: Py<PyBytes>,
 }
 
 #[pymethods]
@@ -150,12 +151,14 @@ impl Packet {
         self.__str__()
     }
     fn __str__(&self) -> String {
-        format!(
-            "Packet(header={}, data_len={})",
-            self.header.__str__(),
-            self.data.len()
-        )
-        .to_owned()
+        Python::with_gil(|py| {
+            format!(
+                "Packet(header={}, data_len={})",
+                self.header.__str__(),
+                self.data.as_bytes(py).len(),
+            )
+            .to_owned()
+        })
     }
     #[classmethod]
     fn decode(_cls: Bound<'_, PyType>, dat: &[u8]) -> Option<Self> {
@@ -165,7 +168,7 @@ impl Packet {
 
 impl Packet {
     fn new(packet: my::Packet) -> Self {
-        Packet {
+        Python::with_gil(|py| Packet {
             header: PrimaryHeader {
                 version: packet.header.version,
                 type_flag: packet.header.type_flag,
@@ -175,8 +178,8 @@ impl Packet {
                 sequence_id: packet.header.sequence_id,
                 len_minus1: packet.header.len_minus1,
             },
-            data: packet.data.clone(),
-        }
+            data: PyBytes::new_bound(py, &packet.data).unbind(),
+        })
     }
 }
 
@@ -272,6 +275,60 @@ impl DecodedPacketIterator {
     fn __next__(mut slf: PyRefMut<Self>) -> Option<Py<DecodedPacket>> {
         match slf.packets.next() {
             Some(packet) => Py::new(slf.py(), DecodedPacket::new(packet)).ok(),
+            None => None,
+        }
+    }
+}
+
+#[pyfunction]
+fn decode_packet_groups(source: PyObject) -> PyResult<PacketGroupIterator> {
+    let path = match Python::with_gil(|py| -> PyResult<String> { source.extract(py) }) {
+        Ok(s) => s,
+        Err(e) => return Err(e),
+    };
+    let file: Box<dyn Read + Send> = Box::new(File::open(path)?);
+    let groups: Box<dyn Iterator<Item = my::PacketGroup> + Send + 'static> =
+        Box::new(my::read_packet_groups(file).filter_map(Result::ok));
+
+    Ok(PacketGroupIterator { groups })
+}
+
+#[pyclass]
+struct PacketGroup {
+    #[pyo3(get)]
+    apid: u16,
+    #[pyo3(get)]
+    packets: Py<PyList>,
+}
+
+#[pyclass]
+struct PacketGroupIterator {
+    groups: Box<dyn Iterator<Item = my::PacketGroup> + Send>,
+}
+
+#[pymethods]
+impl PacketGroupIterator {
+    fn __iter__(slf: PyRef<Self>) -> PyRef<Self> {
+        slf
+    }
+
+    fn __next__(mut slf: PyRefMut<Self>) -> Option<Py<PacketGroup>> {
+        match slf.groups.next() {
+            Some(group) => Python::with_gil(|py| {
+                let packets: Vec<Py<Packet>> = group
+                    .packets
+                    .into_iter()
+                    .filter_map(|p| Py::new(py, Packet::new(p)).ok())
+                    .collect();
+                Py::new(
+                    py,
+                    PacketGroup {
+                        apid: group.apid,
+                        packets: PyList::new_bound(py, packets).unbind(),
+                    },
+                )
+                .ok()
+            }),
             None => None,
         }
     }
@@ -652,7 +709,9 @@ fn framing_config(scid: u16, path: Option<&str>) -> PyResult<Option<FramingConfi
 #[pyo3(name = "ccsds")]
 fn ccsdspy(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(decode_packets, m)?)?;
+    m.add_function(wrap_pyfunction!(decode_packet_groups, m)?)?;
     m.add_class::<Packet>()?;
+    m.add_class::<PacketGroup>()?;
     m.add_class::<DecodedPacket>()?;
     m.add_class::<PrimaryHeader>()?;
     m.add_class::<RSState>()?;
