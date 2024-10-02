@@ -273,34 +273,39 @@ impl FrameRSDecoder {
                     let (future_tx, future_rx) = unbounded();
                     let alg = Arc::new(alg.clone());
 
+                    // Have to do pn to get the correct header, even for fill
                     if self.pseudo_randomized {
                         block = pn.decode(&block);
                     }
-
                     let hdr = VCDUHeader::decode(&block).unwrap();
-                    // Always skip fill. Exspecially, don't do RS on fill
+                    // We only do RS on non-fill
                     if hdr.vcid == VCID_FILL {
-                        continue;
-                    }
-                    // spawn_fifo makes sure the frame order is maintained
-                    pool.spawn_fifo(move || {
-                        let alg = alg.clone();
-                        let zult = alg.correct_codeblock(&block, self.interleave).map(
-                            |(block, rsstate)| {
-                                (
-                                    Frame {
-                                        header: hdr,
-                                        data: block,
-                                    },
-                                    rsstate,
-                                )
-                            },
-                        );
-                        if future_tx.send(zult).is_err() {
-                            debug!("failed to send frame");
+                        if let Some(frame) = Frame::decode(block) {
+                            if future_tx.send(Ok((frame, RSState::NotPerformed))).is_err() {
+                                debug!("failed to send frame");
+                            }
                         }
-                    });
-
+                    } else {
+                        // spawn_fifo makes sure the frame order is maintained
+                        pool.spawn_fifo(move || {
+                            let alg = alg.clone();
+                            let zult = alg.correct_codeblock(&block, self.interleave).map(
+                                |(block, rsstate)| {
+                                    (
+                                        Frame {
+                                            header: hdr,
+                                            data: block,
+                                        },
+                                        rsstate,
+                                    )
+                                },
+                            );
+                            if future_tx.send(zult).is_err() {
+                                debug!("failed to send frame");
+                            }
+                        });
+                    }
+                    // All frames are forwarded, including fill
                     if let Err(err) = jobs_tx.send(future_rx) {
                         debug!("failed to send frame future: {err}");
                     }
