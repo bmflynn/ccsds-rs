@@ -107,7 +107,7 @@ fn merge_test() {
                 fixture_path("tests/fixtures/viirs_merge1.dat"),
                 fixture_path("tests/fixtures/viirs_merge2.dat"),
             ],
-            &ccsds::CDSTimeDecoder,
+            &ccsds::CdsTimeDecoder::default(),
             out_file,
             None,
             None,

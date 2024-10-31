@@ -1,37 +1,49 @@
 mod merge;
-mod timecode;
 
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::fmt::Display;
 use std::io::{Read, Result as IOResult};
 
+use crate::timecode::Cds;
+use crate::timecode::Error as TimecodeError;
+
 use crate::{DecodedFrame, SCID, VCID};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace};
 
 pub use merge::merge_by_timecode;
-use timecode::Cds;
-pub use timecode::{decode_cds, decode_eoscuc};
 
 pub type Apid = u16;
 
 /// Decodes a UTC time in microsecods from a packet.
 pub trait TimeDecoder {
-    fn decode_time(&self, pkt: &Packet) -> Option<u64>;
+    fn decode_time(&self, pkt: &Packet) -> Result<u64, TimecodeError>;
 }
 
 /// ``TimeDocoder`` for the CCSDS Day Segmented timecode with no P-field and 2 bytes
 /// of submilliseconds. (See [`Time Code Formats`])
 ///
 /// [`Time Code Formats`]: https://public.ccsds.org/Pubs/301x0b4e1.pdf
-pub struct CDSTimeDecoder;
+pub struct CdsTimeDecoder {
+    daylen: usize,
+    reslen: usize,
+    offset: usize,
+}
 
-impl TimeDecoder for CDSTimeDecoder {
-    fn decode_time(&self, pkt: &Packet) -> Option<u64> {
-        let start = PrimaryHeader::LEN;
-        let stop = start + Cds::SIZE;
-        decode_cds(&pkt.data[start..stop])
+impl Default for CdsTimeDecoder {
+    fn default() -> Self {
+        Self {
+            daylen: 2,
+            reslen: 2,
+            offset: 0,
+        }
+    }
+}
+
+impl TimeDecoder for CdsTimeDecoder {
+    fn decode_time(&self, pkt: &Packet) -> Result<u64, TimecodeError> {
+        todo!()
     }
 }
 
@@ -49,7 +61,7 @@ impl TimeDecoder for CDSTimeDecoder {
 /// let dat: &[u8] = &[
 ///     // primary header bytes
 ///     0xd, 0x59, 0xd2, 0xab, 0x0, 07,
-///     // CDS timecode bytes in secondary header (not decoded here)
+///     // Cds timecode bytes in secondary header (not decoded here)
 ///     0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
 ///     // minimum 1 byte of user data
 ///     0xff

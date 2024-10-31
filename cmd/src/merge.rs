@@ -1,6 +1,6 @@
 use std::{io::Write, path::PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use ccsds::Apid;
 use chrono::{DateTime, FixedOffset};
 
@@ -17,6 +17,10 @@ where
     T: ccsds::TimeDecoder,
     W: Write,
 {
+    if inputs.is_empty() {
+        bail!("no inputs provided");
+    }
+
     let from = from.map(|dt| dt.timestamp_micros() as u64);
     let to = to.map(|dt| dt.timestamp_micros() as u64);
 

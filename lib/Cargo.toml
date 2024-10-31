@@ -10,12 +10,14 @@ license-file.workspace = true
 repository.workspace = true
 
 [dependencies]
+chrono = "0.4.38"
 crossbeam = { version = "^0.8.4", features = ["crossbeam-channel"] }
 ndarray = "0.15.6"
 rayon = "^1.7.0"
 rs2 = "^0.1.0"
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+spacecrafts = { version = "0.1.0-beta.3", path = "../../spacecrafts-rs" }
 thiserror = "^1.0.38"
 threadpool = "^1.8.1"
 tracing.workspace = true

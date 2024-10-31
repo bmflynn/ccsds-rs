@@ -1,12 +1,13 @@
 mod filter;
 mod info;
 mod merge;
+mod spacecraft;
 
 use std::path::PathBuf;
 use std::{fs::File, io::stderr};
 
 use anyhow::{anyhow, bail, Context, Result};
-use ccsds::Apid;
+use ccsds::{Apid, SCID};
 use chrono::{DateTime, FixedOffset};
 use clap::{Parser, Subcommand};
 use tracing::{debug, info};
@@ -131,6 +132,11 @@ enum Commands {
 
         /// Input spacepacket file.
         input: PathBuf,
+    },
+    /// Show spacecraft information, if available
+    Spacecraft {
+        /// Identifier of the spacecraft to show
+        scid: SCID,
     },
 }
 
@@ -266,5 +272,6 @@ fn main() -> Result<()> {
 
             filter::filter(src, dest, &include, &exclude, *before, *after)
         }
+        Commands::Spacecraft { scid } => spacecraft::spacecraft_info(scid),
     }
 }

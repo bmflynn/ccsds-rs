@@ -103,11 +103,15 @@
 //! [VIIRS]: https://www.star.nesdis.noaa.gov/jpss/VIIRS.php
 
 mod bytes;
+mod error;
 mod framing;
 mod pn;
 mod rs;
 mod spacepacket;
 mod synchronizer;
+mod timecode;
+
+pub use error::{Error, Result};
 
 pub use framing::*;
 pub use pn::{DefaultPN, PNDecoder};
@@ -116,9 +120,8 @@ pub use rs::{
     has_errors as rs_has_errors, DefaultReedSolomon, IntegrityError, RSState, ReedSolomon,
 };
 pub use spacepacket::{
-    collect_packet_groups, decode_cds, decode_eoscuc, decode_framed_packets, merge_by_timecode,
-    missing_packets, read_packet_groups, read_packets, Apid, CDSTimeDecoder, DecodedPacket, Packet,
-    PacketGroup, PrimaryHeader, TimeDecoder, SEQ_CONTINUATION, SEQ_FIRST, SEQ_LAST,
-    SEQ_UNSEGMENTED,
+    collect_packet_groups, decode_framed_packets, merge_by_timecode, missing_packets,
+    read_packet_groups, read_packets, Apid, CdsTimeDecoder, DecodedPacket, Packet, PacketGroup,
+    PrimaryHeader, TimeDecoder, SEQ_CONTINUATION, SEQ_FIRST, SEQ_LAST, SEQ_UNSEGMENTED,
 };
 pub use synchronizer::{read_synchronized_blocks, Synchronizer, ASM};

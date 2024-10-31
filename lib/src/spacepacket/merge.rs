@@ -69,7 +69,7 @@ where
                     return None;
                 }
                 let first = &g.packets[0];
-                let usecs = time_decoder.decode_time(first).unwrap_or_else(|| {
+                let usecs = time_decoder.decode_time(first).unwrap_or_else(|_| {
                     panic!(
                         "failed to decode timecode from {first}: {:?}",
                         &first.data[..14]
