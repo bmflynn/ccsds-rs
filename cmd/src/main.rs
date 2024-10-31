@@ -1,12 +1,13 @@
 mod filter;
 mod info;
 mod merge;
+mod spacecraft;
 
 use std::path::PathBuf;
 use std::{fs::File, io::stderr};
 
 use anyhow::{anyhow, bail, Context, Result};
-use ccsds::Apid;
+use ccsds::{Apid, SCID};
 use chrono::{DateTime, FixedOffset};
 use clap::{Parser, Subcommand};
 use tracing::{debug, info};
@@ -131,6 +132,17 @@ enum Commands {
 
         /// Input spacepacket file.
         input: PathBuf,
+    },
+    /// View spacecraft information.
+    ///
+    /// This requires a spacecraft database be available a ./spacecraftdb.json or
+    /// ~/.spacecraftdb.json.
+    ///
+    /// See: https://github.com/bmflynn/spacecraftsdb/releases
+    Spacecraft {
+        /// Spacecraft identifier
+        #[arg(short, long)]
+        scid: Option<SCID>,
     },
 }
 
@@ -265,6 +277,13 @@ fn main() -> Result<()> {
             debug!("after: {:?}", after);
 
             filter::filter(src, dest, &include, &exclude, *before, *after)
+        }
+        Commands::Spacecraft { scid } => {
+            let Some(scid) = scid else {
+                bail!("Spacecraft is currently required. This may change in the future!");
+            };
+
+            spacecraft::spacecraft_info(*scid, true, true)
         }
     }
 }

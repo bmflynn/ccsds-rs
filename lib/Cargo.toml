@@ -16,6 +16,7 @@ rayon = "^1.7.0"
 rs2 = "^0.1.0"
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+spacecrafts.workspace = true
 thiserror = "^1.0.38"
 threadpool = "^1.8.1"
 tracing.workspace = true
