@@ -40,8 +40,8 @@ pub enum TCFormat {
 impl clap::ValueEnum for TCFormat {
     fn value_variants<'a>() -> &'a [Self] {
         &[
-            Self::Cds, 
-            // Self::EosCuc, 
+            Self::Cds,
+            // Self::EosCuc,
             Self::None,
         ]
     }
@@ -59,11 +59,11 @@ impl clap::ValueEnum for TCFormat {
 struct Summary {
     total_packets: usize,
     missing_packets: usize,
-    #[serde(serialize_with="serialize_t")]
+    #[serde(serialize_with = "serialize_t")]
     first_packet_time: Option<u64>,
-    #[serde(serialize_with="serialize_t")]
+    #[serde(serialize_with = "serialize_t")]
     last_packet_time: Option<u64>,
-    #[serde(serialize_with="serialize_dur")]
+    #[serde(serialize_with = "serialize_dur")]
     duration: u64,
 }
 
@@ -77,8 +77,9 @@ struct Info {
 fn summarize(fpath: &Path, tc_format: &TCFormat) -> Result<Info> {
     let reader = std::fs::File::open(fpath).context("opening input")?;
     let packets = ccsds::read_packets(reader).filter_map(Result::ok);
+    let cds_decoder = ccsds::CdsTimeDecoder::default();
     let time_decoder: Option<&dyn ccsds::TimeDecoder> = match tc_format {
-        TCFormat::Cds => Some(&ccsds::CDSTimeDecoder),
+        TCFormat::Cds => Some(&cds_decoder),
         // TCFormat::EosCuc => unimplemented!(),
         TCFormat::None => None,
     };
@@ -110,7 +111,7 @@ fn summarize(fpath: &Path, tc_format: &TCFormat) -> Result<Info> {
         }
 
         if let Some(tc) = time_decoder {
-            if let Some(t) = tc.decode_time(&packet) {
+            if let Ok(t) = tc.decode_time(&packet) {
                 summary.first_packet_time = summary
                     .first_packet_time
                     .map_or(Some(t), |cur| Some(cmp::min(t, cur)));
@@ -170,7 +171,7 @@ where
     })
 }
 
-fn serialize_t<S>(t: &Option<u64>, s: S) -> std::result::Result<S::Ok, S::Error> 
+fn serialize_t<S>(t: &Option<u64>, s: S) -> std::result::Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
@@ -193,8 +194,7 @@ where
     d.to_string()
 }
 
-
-fn serialize_dur<S>(t: &u64, s: S) -> std::result::Result<S::Ok, S::Error> 
+fn serialize_dur<S>(t: &u64, s: S) -> std::result::Result<S::Ok, S::Error>
 where
     S: Serializer,
 {

@@ -10,7 +10,7 @@ license-file.workspace = true
 repository.workspace = true
 
 [dependencies]
-chrono = "0.4.38"
+chrono = { version = "0.4.38", features = ["serde"] }
 crossbeam = { version = "^0.8.4", features = ["crossbeam-channel"] }
 ndarray = "0.15.6"
 rayon = "^1.7.0"

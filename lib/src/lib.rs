@@ -105,6 +105,7 @@
 mod bytes;
 mod error;
 mod framing;
+mod leapsecs;
 mod pn;
 mod rs;
 mod spacepacket;

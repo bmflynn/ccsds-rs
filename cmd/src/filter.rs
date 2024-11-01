@@ -4,23 +4,24 @@ use std::{
 };
 
 use anyhow::{bail, Result};
-use ccsds::{Apid, TimeDecoder};
+use ccsds::{Apid, CdsTimeDecoder, TimeDecoder};
 use chrono::{DateTime, FixedOffset};
 
 struct Ptr(Vec<u8>, Apid, u64);
 
 fn packets_with_times<R: Read + Send>(input: R) -> impl Iterator<Item = Ptr> {
-    let time_decoder = &ccsds::CDSTimeDecoder;
     ccsds::read_packet_groups(input)
         .filter_map(Result::ok)
         .filter_map(|g| {
+            let time_decoder = &CdsTimeDecoder::default();
+
             if g.packets.is_empty() || !(g.packets[0].is_first() || g.packets[0].is_standalone()) {
                 // Drop incomplete packet groups
                 return None;
             }
             let first = &g.packets[0];
             let apid = first.header.apid;
-            let usecs = time_decoder.decode_time(first).unwrap_or_else(|| {
+            let usecs = time_decoder.decode_time(first).unwrap_or_else(|_| {
                 panic!(
                     "failed to decode timecode from {first}: {:?}",
                     &first.data[..14]
@@ -94,7 +95,8 @@ where
             if include.contains(&apid) && !exclude.contains(&apid) {
                 writer.write_all(&data)?;
             }
-        } else if (including && include.contains(&apid)) || (excluding && !exclude.contains(&apid)) {
+        } else if (including && include.contains(&apid)) || (excluding && !exclude.contains(&apid))
+        {
             writer.write_all(&data)?;
         } else if !excluding && !including {
             writer.write_all(&data)?;

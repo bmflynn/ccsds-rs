@@ -3,7 +3,7 @@ use std::{fs, path::Path};
 
 use chrono::{DateTime, FixedOffset, Utc};
 
-use super::error::*;
+use super::error::LeapsecError;
 
 /// Provides number of leapseconds in TAI and UTC
 pub trait Leapsecs {
@@ -27,7 +27,7 @@ struct Iers {
 impl Iers {
     const SOURCE_URL: &str = "https://hpiers.obspm.fr/iers/bul/bulc/Leap_Second.dat";
 
-    pub fn from_str(content: &str) -> Result<Self> {
+    pub fn from_str(content: &str) -> Result<Self, LeapsecError> {
         let mut prev = None;
         let mut iers = Iers::default();
         for (lineno, line) in content
@@ -47,7 +47,7 @@ impl Iers {
                 Ok((timestamp, leaps)) => {
                     if let Some(prev) = prev {
                         if leaps - prev != 1 {
-                            return Err(Error::Invalid(format!(
+                            return Err(LeapsecError::Parse(format!(
                                 "records more that 1s apart at line={lineno}"
                             )));
                         }
@@ -61,7 +61,7 @@ impl Iers {
                     iers.tai.push(tai);
                 }
                 Err(err) => {
-                    return Err(Error::Invalid(format!(
+                    return Err(LeapsecError::Parse(format!(
                         "invalid record at line={lineno}: {err}"
                     )))
                 }
@@ -125,13 +125,13 @@ impl Iers {
         ))
     }
 
-    fn find_leaps(times: &[u64], time: u64) -> super::error::Result<usize> {
+    fn find_leaps(times: &[u64], time: u64) -> Result<usize, LeapsecError> {
         for (i, leap_time) in times.iter().enumerate().rev() {
             if time >= *leap_time {
                 return Ok(i);
             }
         }
-        Err(Error::LeapsecOutOfRange)
+        Err(LeapsecError::OutOfRange)
     }
 }
 
@@ -187,7 +187,7 @@ mod tests {
 
     #[test]
     fn test_leaps_utc() {
-        let mut iers = Eirs::default();
+        let mut iers = Iers::default();
         iers.leaps = vec![1, 10];
         iers.utc = vec![63_072_000, 63_072_000];
         iers.tai = vec![63_072_000, 63_072_000];

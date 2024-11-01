@@ -1,7 +1,6 @@
 mod filter;
 mod info;
 mod merge;
-mod spacecraft;
 
 use std::path::PathBuf;
 use std::{fs::File, io::stderr};
@@ -133,11 +132,6 @@ enum Commands {
         /// Input spacepacket file.
         input: PathBuf,
     },
-    /// Show spacecraft information, if available
-    Spacecraft {
-        /// Identifier of the spacecraft to show
-        scid: SCID,
-    },
 }
 
 fn parse_number_ranges(list: Vec<String>) -> Result<Vec<u32>> {
@@ -227,7 +221,7 @@ fn main() -> Result<()> {
 
             merge::merge(
                 inputs,
-                &ccsds::CDSTimeDecoder,
+                &ccsds::CdsTimeDecoder::default(),
                 dest,
                 apid_order,
                 *from,
@@ -272,6 +266,5 @@ fn main() -> Result<()> {
 
             filter::filter(src, dest, &include, &exclude, *before, *after)
         }
-        Commands::Spacecraft { scid } => spacecraft::spacecraft_info(scid),
     }
 }

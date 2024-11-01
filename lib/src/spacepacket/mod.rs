@@ -5,9 +5,6 @@ use std::collections::VecDeque;
 use std::fmt::Display;
 use std::io::{Read, Result as IOResult};
 
-use crate::timecode::Cds;
-use crate::timecode::Error as TimecodeError;
-
 use crate::{DecodedFrame, SCID, VCID};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace};
@@ -18,7 +15,7 @@ pub type Apid = u16;
 
 /// Decodes a UTC time in microsecods from a packet.
 pub trait TimeDecoder {
-    fn decode_time(&self, pkt: &Packet) -> Result<u64, TimecodeError>;
+    fn decode_time(&self, pkt: &Packet) -> Result<u64, super::Error>;
 }
 
 /// ``TimeDocoder`` for the CCSDS Day Segmented timecode with no P-field and 2 bytes
@@ -42,7 +39,7 @@ impl Default for CdsTimeDecoder {
 }
 
 impl TimeDecoder for CdsTimeDecoder {
-    fn decode_time(&self, pkt: &Packet) -> Result<u64, TimecodeError> {
+    fn decode_time(&self, pkt: &Packet) -> Result<u64, super::Error> {
         todo!()
     }
 }
