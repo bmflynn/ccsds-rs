@@ -45,25 +45,6 @@ pub enum Timecode {
     },
 }
 
-/// Decode from the provided buffer.
-///
-/// # Errors
-/// - [Error::Unsupported] if a timecode cannot be created from `buf` according to `format`
-/// - [Error::Overflow] or [Error::Underflow] if the numeric conversions don't work out.
-pub fn decode(format: &Format, buf: &[u8]) -> Result<Timecode, Error> {
-    match format {
-        Format::Cds {
-            num_day,
-            num_submillis,
-        } => decode_cds(*num_day, *num_submillis, buf),
-        Format::Cuc {
-            num_coarse,
-            num_fine,
-            fine_mult,
-        } => decode_cuc(*num_coarse, *num_fine, *fine_mult, buf),
-    }
-}
-
 impl Timecode {
     /// Number of seconds between the 1958 and 1900
     const CCSDS_HIFIEPOCH_DELTA_SECS: u64 = 1830297600;
@@ -187,6 +168,25 @@ pub enum Format {
         /// Factor by which to multiple `num_fine` to produce nanoseconds.
         fine_mult: Option<f32>,
     },
+}
+
+/// Decode from the provided buffer.
+///
+/// # Errors
+/// - [Error::Unsupported] if a timecode cannot be created from `buf` according to `format`
+/// - [Error::Overflow] or [Error::Underflow] if the numeric conversions don't work out.
+pub fn decode(format: &Format, buf: &[u8]) -> Result<Timecode, Error> {
+    match format {
+        Format::Cds {
+            num_day,
+            num_submillis,
+        } => decode_cds(*num_day, *num_submillis, buf),
+        Format::Cuc {
+            num_coarse,
+            num_fine,
+            fine_mult,
+        } => decode_cuc(*num_coarse, *num_fine, *fine_mult, buf),
+    }
 }
 
 /// Decode `buf` into [Timecode::Cds].
