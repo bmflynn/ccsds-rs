@@ -10,9 +10,9 @@ license-file.workspace = true
 repository.workspace = true
 
 [dependencies]
-chrono = { version = "0.4.38", features = ["serde"] }
 crossbeam = { version = "^0.8.4", features = ["crossbeam-channel"] }
-ndarray = "0.15.6"
+hifitime.workspace = true
+ndarray = "0.16.1"
 rayon = "^1.7.0"
 rs2 = "^0.1.0"
 serde = { workspace = true, features = ["derive"] }
@@ -21,7 +21,7 @@ spacecrafts = { version = "0.1.0-beta.3", path = "../../spacecrafts-rs" }
 thiserror = "^1.0.38"
 threadpool = "^1.8.1"
 tracing.workspace = true
-typed-builder = "0.18.1"
+typed-builder = "0.20.0"
 
 [lib]
 name = "ccsds"

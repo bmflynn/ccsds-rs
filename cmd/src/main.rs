@@ -3,12 +3,13 @@ mod info;
 mod merge;
 
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::{fs::File, io::stderr};
 
 use anyhow::{anyhow, bail, Context, Result};
-use ccsds::{Apid, SCID};
-use chrono::{DateTime, FixedOffset};
+use ccsds::Apid;
 use clap::{Parser, Subcommand};
+use hifitime::Epoch;
 use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
 
@@ -47,11 +48,11 @@ enum Commands {
 
         /// Drop any packets with a time before this time (RFC3339).
         #[arg(short, long, value_parser = parse_timestamp, value_name = "timestamp")]
-        from: Option<DateTime<FixedOffset>>,
+        from: Option<Epoch>,
 
         /// Drop any packets with a time after this time (RFC3339).
         #[arg(short, long, value_parser = parse_timestamp, value_name = "timestamp")]
-        to: Option<DateTime<FixedOffset>>,
+        to: Option<Epoch>,
 
         /// Drop any packet that has an APID not in this list
         #[arg(short, long, value_delimiter = ',', value_name = "csv")]
@@ -112,14 +113,14 @@ enum Commands {
         /// This requires input data to utilize standard CDS times in the secondary
         /// header.
         #[arg(short, long, value_parser = parse_timestamp, value_name = "timestamp")]
-        before: Option<DateTime<FixedOffset>>,
+        before: Option<Epoch>,
 
         /// Only include packets after this time (RFC3339).
         ///
         /// This requires input data to utilize standard CDS times in the secondary
         /// header.
         #[arg(short, long, value_parser = parse_timestamp, value_name = "timestamp")]
-        after: Option<DateTime<FixedOffset>>,
+        after: Option<Epoch>,
 
         /// Delete output file if it already exists
         #[arg(long, action)]
@@ -167,8 +168,8 @@ fn parse_number_ranges(list: Vec<String>) -> Result<Vec<u32>> {
     Ok(values)
 }
 
-fn parse_timestamp(s: &str) -> Result<DateTime<FixedOffset>, String> {
-    let zult = DateTime::parse_from_rfc3339(s);
+fn parse_timestamp(s: &str) -> Result<Epoch, String> {
+    let zult = Epoch::from_str(s);
     if zult.is_err() {
         return Err("Could not parse into an RFC3339 timestamp".to_string());
     }

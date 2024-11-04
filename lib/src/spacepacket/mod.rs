@@ -5,7 +5,9 @@ use std::collections::VecDeque;
 use std::fmt::Display;
 use std::io::{Read, Result as IOResult};
 
+use crate::{timecode, Error};
 use crate::{DecodedFrame, SCID, VCID};
+use hifitime::Epoch;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace};
 
@@ -15,7 +17,7 @@ pub type Apid = u16;
 
 /// Decodes a UTC time in microsecods from a packet.
 pub trait TimeDecoder {
-    fn decode_time(&self, pkt: &Packet) -> Result<u64, super::Error>;
+    fn decode_time(&self, pkt: &Packet) -> Result<Epoch, Error>;
 }
 
 /// ``TimeDocoder`` for the CCSDS Day Segmented timecode with no P-field and 2 bytes
@@ -23,24 +25,28 @@ pub trait TimeDecoder {
 ///
 /// [`Time Code Formats`]: https://public.ccsds.org/Pubs/301x0b4e1.pdf
 pub struct CdsTimeDecoder {
-    daylen: usize,
-    reslen: usize,
+    format: timecode::Format,
     offset: usize,
 }
 
 impl Default for CdsTimeDecoder {
     fn default() -> Self {
         Self {
-            daylen: 2,
-            reslen: 2,
+            format: timecode::Format::Cds {
+                num_day: 2,
+                num_submillis: 2,
+            },
             offset: 0,
         }
     }
 }
 
 impl TimeDecoder for CdsTimeDecoder {
-    fn decode_time(&self, pkt: &Packet) -> Result<u64, super::Error> {
-        todo!()
+    fn decode_time(&self, pkt: &Packet) -> Result<Epoch, Error> {
+        Ok(
+            timecode::decode(&self.format, &pkt.data[PrimaryHeader::LEN + self.offset..])?
+                .epoch()?,
+        )
     }
 }
 

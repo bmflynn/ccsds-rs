@@ -1,208 +1,299 @@
 //! Time code parsing.
 //!
 //! Reference: [CCSDS Time Code Formats](https://public.ccsds.org/Pubs/301x0b4e1.pdf)
-
-use crate::error::{Error, TimecodeError};
-
+use hifitime::{Duration, Epoch};
 use serde::Serialize;
 
-/// A Time Code represented as a number of nanoseconds from the CCSDS epoch of Jan 1, 1958.
-///
-/// For CDS format, this timecode will be correct for leap-seconds, For CUC format this timecode
-/// will not be corrected for leap-seconds.
-pub type Timecode = u64;
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum Error {
+    #[error("Unsupported configuration for timecode: {0}")]
+    Unsupported(&'static str),
+    #[error("Overflow")]
+    Overflow,
+    #[error("Underflow")]
+    Underflow,
+    #[error("Not enough bytes")]
+    NotEnoughData { actual: usize, minimum: usize },
+}
 
-/// UTC minus CCSDS epoch in seconds
-const CCSDS_UTC_DELTA: u64 = 378_691_200;
+/// CCSDS Level-1 Timecode implementations.
+///
+/// Level-1 implies the timecodes use the recommended CCSDS epoch of Jan 1, 1958.
+#[derive(Clone, Debug, Serialize)]
+#[non_exhaustive]
+pub enum Timecode {
+    /// CCSDS Day Segmneted time code format.
+    ///
+    /// See: [CCSDS Time Code Formats 301.0-B-4](https://public.ccsds.org/Pubs/301x0b4e1.pdf), Section 3.3.
+    #[non_exhaustive]
+    Cds { days: u32, millis: u32, nanos: u32 },
+    /// CCSDS Unsegmented time code format.
+    ///
+    /// This format assumes the coarse time unit is seconds.
+    ///
+    /// See: [CCSDS Time Code Formats 301.0-B-4](https://public.ccsds.org/Pubs/301x0b4e1.pdf), Section 3.2.
+    #[non_exhaustive]
+    Cuc {
+        coarse: u64,
+        fine: u64,
+        /// This will be some factor used to convert `fine` to nanoseconds. This may be necessary
+        /// for missions such as NASA EOS where the spacecraft telemetry CUC format only uses 2
+        /// bytes for fine time and a multiplier of 15.2 microseconds for each fine time value. In
+        /// this case `fine_mult` would be 15200.0.
+        fine_mult: Option<f32>,
+    },
+}
+
+/// Decode from the provided buffer.
+///
+/// # Errors
+/// - [Error::Unsupported] if a timecode cannot be created from `buf` according to `format`
+/// - [Error::Overflow] or [Error::Underflow] if the numeric conversions don't work out.
+pub fn decode(format: &Format, buf: &[u8]) -> Result<Timecode, Error> {
+    match format {
+        Format::Cds {
+            num_day,
+            num_submillis,
+        } => decode_cds(*num_day, *num_submillis, buf),
+        Format::Cuc {
+            num_coarse,
+            num_fine,
+            fine_mult,
+        } => decode_cuc(*num_coarse, *num_fine, *fine_mult, buf),
+    }
+}
+
+impl Timecode {
+    /// Number of seconds between the 1958 and 1900
+    const CCSDS_HIFIEPOCH_DELTA_SECS: u64 = 1830297600;
+
+    const NUM_CDS_MILLIS_OF_DAY_BYTES: usize = 4;
+
+    /// Decode this timecode into a [hifitime::Epoch].
+    pub fn epoch(&self) -> Result<Epoch, Error> {
+        match self {
+            Timecode::Cds {
+                days,
+                millis,
+                nanos,
+            } => {
+                let dur = Duration::compose(
+                    0,
+                    *days as u64,
+                    0,
+                    0,
+                    // Add in delta to get to hifi epoch
+                    Self::CCSDS_HIFIEPOCH_DELTA_SECS,
+                    *millis as u64,
+                    0,
+                    *nanos as u64,
+                );
+                Ok(Epoch::from_utc_duration(dur))
+            }
+            Timecode::Cuc {
+                coarse,
+                fine,
+                fine_mult,
+            } => {
+                // Convert to hifi epoch
+                let coarse = coarse + Self::CCSDS_HIFIEPOCH_DELTA_SECS;
+
+                let fine = *fine as f64;
+                if fine.is_infinite() {
+                    return Err(Error::Overflow);
+                }
+                let fine_nanos = (fine * fine_mult.unwrap_or(1.0) as f64).trunc();
+                if fine_nanos > u64::MAX as f64 {
+                    return Err(Error::Overflow);
+                }
+                let dur = Duration::compose(0, 0, 0, 0, coarse, 0, 0, fine_nanos as u64);
+                Ok(Epoch::from_tai_duration(dur))
+            }
+        }
+    }
+
+    pub fn nanos(&self) -> Result<u64, Error> {
+        match self {
+            Timecode::Cds {
+                days,
+                millis,
+                nanos,
+            } => {
+                let Some(day_nanos) = (*days as u64).checked_mul(86_400_000_000_000) else {
+                    return Err(Error::Overflow);
+                };
+                let Some(milli_nanos) = (*millis as u64).checked_mul(1_000_000) else {
+                    return Err(Error::Overflow);
+                };
+                Ok(day_nanos + milli_nanos + *nanos as u64)
+            }
+            Timecode::Cuc {
+                coarse,
+                fine,
+                fine_mult,
+            } => {
+                // Convert to hifi epoch
+                let coarse = coarse + Self::CCSDS_HIFIEPOCH_DELTA_SECS;
+                let Some(coarse_nanos) = coarse.checked_mul(1_000_000_000) else {
+                    return Err(Error::Overflow);
+                };
+
+                let fine = *fine as f64;
+                if fine.is_infinite() {
+                    return Err(Error::Overflow);
+                }
+                if fine < 0.0 {
+                    return Err(Error::Underflow);
+                }
+                let fine_nanos = (fine * fine_mult.unwrap_or(1.0) as f64).trunc();
+                if fine_nanos > u64::MAX as f64 {
+                    return Err(Error::Overflow);
+                }
+                Ok(coarse_nanos + fine_nanos as u64)
+            }
+        }
+    }
+}
 
 /// CCSDS timecode format configuration.
 #[derive(Clone, Debug, Serialize)]
+#[non_exhaustive]
 pub enum Format {
+    /// Day segmented timecode parameters.
+    ///
+    /// Valid combinations are:
+    /// |`num_day`|`num_submillis`| |
+    /// |---|---|---|
+    /// |2|0|No sub-milliseconds|
+    /// |2|2|Microsecond resolution|
+    /// |2|4|Picosecond resolution|
+    /// |3|0|No sub-milliseconds|
+    /// |3|2|Microsecond resolution|
+    /// |3|4|Picosecond resolution|
+    #[non_exhaustive]
     Cds {
-        offset: usize,
-        daylen: usize,
-        reslen: CdsRes,
+        num_day: usize,
+        num_submillis: usize,
     },
+    /// Unsegmented timecode parameters.
+    ///
+    /// Valid `num_coarse` is between 1 and 4.
+    /// Valid `num_fine` is between 0 and 3.
+    #[non_exhaustive]
     Cuc {
-        offset: usize,
-        /// Number of bytes of coarse(seconds) data. This will generally be 4 when using the recommended
-        /// epoch of Jan 1, 1958 which provides enough seconds to 2094.
-        coarselen: usize,
-        /// Number of bytes of fine data
-        finelen: usize,
-        /// A multiplier to convert `finelen` to nanosecods.
-        finemult: f32,
+        num_coarse: usize,
+        num_fine: usize,
+        /// Factor by which to multiple `num_fine` to produce nanoseconds.
+        fine_mult: Option<f32>,
     },
 }
 
-/// Decodes [Timecode]s from bytes.
-pub trait Decoder {
-    /// Decode ``buf`` into a [Timecode] according to ``format``.
-    fn decode(&self, format: Format, buf: &[u8]) -> Result<Timecode, TimecodeError>;
-}
-
-/// The resolution of the Cds The enum value is the number of bytes required of submillisecond data.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub enum CdsRes {
-    Milli = 0,
-    Micro = 2,
-    //Pico = 4,
-}
-
-#[derive(Clone, Debug, PartialEq, PartialOrd, Serialize)]
-pub struct Cds {
-    days: u32,
-    millis: u64,
-    nanos: u64,
-}
-
-impl Cds {
-    /// CCSDS day segmented timecode bytes to UTC microseconds returning `None` if a value
-    /// cannot be decoded from the provided bytes.
-    ///
-    /// `daylen` is the number of bytes to use for the day length component, which can be 2, or 3.
-    /// `res` represents the resloution and implies the number of bytes required for sub-milliseconds.
-    ///
-    /// Reference: [CCSDS Time Code Formats 301.0-B-4](https://public.ccsds.org/Pubs/301x0b4e1.pdf)
-    /// Section 3.3.
-    ///
-    /// # Errors
-    /// [Error::Unsupported] if daylen or reslen are unsupported values.
-    /// [Error::Other] if the `buf` does not contain enough bytes to decode timecode.
-    pub fn decode(daynum: usize, res: CdsRes, buf: &[u8]) -> Result<Cds, Error> {
-        if daynum != 2 && daynum != 3 {
-            return Err(super::Error::Timecode(TimecodeError::Invalid(
-                "daynum must be 2 or 3".to_string(),
-            )));
-        }
-        let want = daynum + (res.clone() as usize) + 4;
-        if buf.len() < want {
-            return Err(super::Error::NotEnoughData(want, buf.len()));
-        }
-
-        let (x, rest) = buf.split_at(daynum);
-        let mut day_bytes = vec![0u8; 4 - daynum];
-        day_bytes.extend(x);
-        let days = u32::from_be_bytes(day_bytes.try_into().unwrap());
-
-        Ok(Cds {
-            days,
-            millis: u64::from_be_bytes([0, 0, 0, 0, rest[0], rest[1], rest[2], rest[3]]),
-            nanos: match res {
-                CdsRes::Milli => 0,
-                CdsRes::Micro => u64::from_be_bytes([0, 0, 0, 0, 0, 0, rest[4], rest[5]]),
-            },
-        })
+/// Decode `buf` into [Timecode::Cds].
+///
+/// # Errors
+/// [Error::Unsupported] If `numday` and `num_submillis` is not a valid combination
+fn decode_cds(num_day: usize, num_submillis: usize, buf: &[u8]) -> Result<Timecode, Error> {
+    let want = num_day + num_submillis + Timecode::NUM_CDS_MILLIS_OF_DAY_BYTES;
+    if buf.len() < want {
+        return Err(Error::NotEnoughData {
+            actual: buf.len(),
+            minimum: want,
+        });
     }
+
+    let (x, rest) = buf.split_at(num_day);
+    let mut day_bytes = vec![0u8; 4 - num_day];
+    day_bytes.extend(x);
+    let days = u32::from_be_bytes([day_bytes[0], day_bytes[1], day_bytes[2], day_bytes[3]]);
+
+    Ok(Timecode::Cds {
+        days,
+        millis: u32::from_be_bytes([rest[0], rest[1], rest[2], rest[3]]),
+        nanos: match num_submillis {
+            0 => 0,
+            2 => u32::from_be_bytes([0, 0, rest[4], rest[5]]) * 1_000,
+            4 => u32::from_be_bytes([rest[4], rest[5], rest[6], rest[7]]) * 1_000_000,
+            _ => panic!("number of sub-millisecond must be 0, 2, or 4; got {num_submillis}"),
+        },
+    })
 }
 
-impl TryFrom<Cds> for Timecode {
-    type Error = TimecodeError;
-
-    fn try_from(cds: Cds) -> std::result::Result<Timecode, Self::Error> {
-        Ok(cds.days as u64 * 86_400_000_000_000 + cds.millis * 1_000_000 + cds.nanos)
+/// Decode `buf` into [Timecode::Cuc].
+///
+/// # Errors
+/// [Error::Unsupported] If `num_coarse` and `num_fine` is not a valid combination
+///
+/// # Panics
+/// If decoding bytes to number fails, which it should not
+fn decode_cuc(
+    num_coarse: usize,
+    num_fine: usize,
+    fine_mult: Option<f32>,
+    buf: &[u8],
+) -> Result<Timecode, Error> {
+    if !(1..=4).contains(&num_coarse) {
+        return Err(Error::Unsupported("Invalid CUC coarse config"));
     }
-}
-
-/// CCSDS Level-1 Unsegmented Timecode
-#[derive(Clone, Debug, PartialEq, PartialOrd, Serialize)]
-pub struct Cuc {
-    seconds: u64,
-    fine: u64,
-    fine_mult: f32,
-}
-
-impl Cuc {
-    /// Deocde a CCSDS Unsegmented Time Code.
-    ///
-    /// # Example
-    /// ```
-    /// // NASA EOS Spacecraft (BGAD) data
-    /// let buf = vec![0xc3, 0xaa, 0x00, 0x77, 0xae, 0x25];
-    /// let cuc = Cuc::decode(4, 2, 15.2, &buf);
-    /// ```
-    ///
-    /// # Errors
-    /// [TimecodeError::Invalid] if `coarse` or `fine` are >= 8.
-    /// [Error::NotEnoughData](super) if `buf` is too short.
-    pub fn decode(
-        coarsenum: usize,
-        finenum: usize,
-        fine_mult: Option<f32>,
-        buf: &[u8],
-    ) -> Result<Cuc, Error> {
-        if coarsenum > 8 {
-            return Err(Error::Timecode(TimecodeError::Invalid(
-                "CUC coarse must be < 8".to_string(),
-            )));
-        }
-        if finenum > 8 {
-            return Err(Error::Timecode(TimecodeError::Invalid(
-                "CUC fine must be < 8".to_string(),
-            )));
-        }
-        if buf.len() < coarsenum + finenum {
-            return Err(super::Error::NotEnoughData(coarsenum + finenum, buf.len()));
-        }
-        let (x, rest) = buf.split_at(coarsenum);
-        let mut coarse_bytes = vec![0u8; 8 - coarsenum];
-        coarse_bytes.extend(x);
-        let seconds = u64::from_be_bytes(coarse_bytes.try_into().unwrap());
-
-        let (x, _) = rest.split_at(finenum);
-        let mut fine_bytes = vec![0u8; 8 - finenum];
-        fine_bytes.extend(x);
-        let fine = u64::from_be_bytes(fine_bytes.try_into().unwrap());
-
-        Ok(Cuc {
-            seconds,
-            fine,
-            fine_mult: fine_mult.unwrap_or(1.0),
-        })
+    if !(0..=3).contains(&num_fine) {
+        return Err(Error::Unsupported("Invalid CUC fine config"));
     }
-}
-
-impl TryFrom<Cuc> for Timecode {
-    type Error = TimecodeError;
-
-    /// Return nanoseconds since CCSDS epoch of Jan 1, 1958. [Cuc] timecodes use the TAI timescale with an
-    /// epoch of Jan 1, 1958 and are not corrected for leap-seconds.
-    fn try_from(cuc: Cuc) -> Result<Timecode, Self::Error> {
-        let Some(nanos) = (cuc.seconds - CCSDS_UTC_DELTA).checked_mul(10u64.pow(9)) else {
-            return Err(TimecodeError::Unrepresentable);
-        };
-
-        let fine = cuc.fine as f64;
-        if fine.is_infinite() {
-            return Err(TimecodeError::Unrepresentable);
-        }
-        let fine_nanos = (fine * cuc.fine_mult as f64).trunc();
-        if fine_nanos > u64::MAX as f64 {
-            return Err(TimecodeError::Unrepresentable);
-        }
-        Ok(nanos + fine_nanos as u64)
+    if buf.len() < num_coarse + num_fine {
+        return Err(Error::NotEnoughData {
+            minimum: num_coarse + num_fine,
+            actual: buf.len(),
+        });
     }
+    let (x, rest) = buf.split_at(num_coarse);
+    let mut coarse_bytes = vec![0u8; 8 - num_coarse];
+    coarse_bytes.extend(x);
+    let coarse = u64::from_be_bytes(
+        coarse_bytes
+            .try_into()
+            .expect("to be able to convert vec to array"),
+    );
+
+    let (x, _) = rest.split_at(num_fine);
+    let mut fine_bytes = vec![0u8; 8 - num_fine];
+    fine_bytes.extend(x);
+    let fine = u64::from_be_bytes(
+        fine_bytes
+            .try_into()
+            .expect("to be able to convert vec to array"),
+    );
+
+    Ok(Timecode::Cuc {
+        coarse,
+        fine,
+        fine_mult,
+    })
 }
 
 #[cfg(test)]
 mod test {
-    use chrono::{DateTime, Utc};
+    use std::str::FromStr;
 
     use super::*;
 
     #[test]
-    fn test_eos_cuc() {
+    fn cds() {
+        let buf = vec![0x5f, 0x5b, 0x00, 0x00, 0x06, 0x94, 0x02, 0x07];
+        let cds = decode_cds(2, 2, &buf).unwrap();
+
+        let expected = Epoch::from_str("2024-11-01T00:00:01.684519Z").unwrap();
+
+        assert_eq!(cds.epoch().unwrap(), expected, "timecode={:?}", cds);
+    }
+
+    #[test]
+    fn eos_cuc() {
         // NASA EOS Spacecraft (BGAD) data
-        // <Packet apid=957 seqid=938 stamp=2024-10-31 10:48:42.497544 size=126 offset=0>
-        // let buf = vec![0xc3, 0xaa, 0x00, 0x77, 0xae, 0x25];
         let buf = vec![0x7d, 0xb5, 0xbf, 0x2f, 0x80, 0x1f];
-        let cuc = Cuc::decode(4, 2, Some(15200.0), &buf).unwrap();
-        let nanos = Timecode::try_from(cuc).unwrap();
+        let cuc = decode_cuc(4, 2, Some(15200.0), &buf).unwrap();
+        let epoch = cuc.epoch().unwrap();
 
-        let have: DateTime<Utc> = DateTime::from_timestamp_nanos(nanos as i64);
-        println!("have={have:?}");
-        let expected = DateTime::parse_from_rfc3339("2024-10-31T10:49:19.498544800Z").unwrap();
+        let expected = Epoch::from_str("2024-10-31T10:49:19.498544800 TAI").unwrap();
 
-        assert_eq!(have, expected);
+        assert_eq!(epoch, expected);
     }
 }

@@ -9,22 +9,13 @@ pub enum LeapsecError {
     Parse(String),
 }
 
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum TimecodeError {
-    #[error("Unsupported configuration for timecode: {0}")]
-    Invalid(String),
-    #[error("Timecode value is not representable")]
-    Unrepresentable,
-}
-
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
 pub enum Error {
-    #[error("Not enough data to decode; wanted={0}, got={1}")]
-    NotEnoughData(usize, usize),
+    #[error("Not enough bytes")]
+    NotEnoughData { actual: usize, minimum: usize },
     #[error(transparent)]
-    Timecode(#[from] TimecodeError),
+    Timecode(#[from] super::timecode::Error),
     #[error(transparent)]
     Leapsec(#[from] LeapsecError),
 }

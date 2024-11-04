@@ -105,12 +105,11 @@
 mod bytes;
 mod error;
 mod framing;
-mod leapsecs;
 mod pn;
 mod rs;
 mod spacepacket;
 mod synchronizer;
-mod timecode;
+pub mod timecode;
 
 pub use error::{Error, Result};
 
