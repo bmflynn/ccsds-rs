@@ -37,6 +37,11 @@ rand = "0.8.5"
 tempfile = "3.9.0"
 criterion = { version = "0.5.1", features = ["html_reports"] }
 
+[build-dependencies]
+spacecrafts.workspace = true
+serde_json.workspace = true
+
+
 [[bench]]
 name = "benches"
 harness = false

@@ -144,6 +144,10 @@ enum Commands {
         /// Spacecraft identifier
         #[arg(short, long)]
         scid: Option<SCID>,
+
+        /// Path to spacecraft database to merge with built-in spacecrafts.
+        #[arg(short, long)]
+        db: Option<PathBuf>,
     },
 }
 
@@ -279,12 +283,8 @@ fn main() -> Result<()> {
 
             filter::filter(src, dest, &include, &exclude, *before, *after)
         }
-        Commands::Spacecraft { scid } => {
-            let Some(scid) = scid else {
-                bail!("Spacecraft is currently required. This may change in the future!");
-            };
-
-            spacecraft::spacecraft_info(*scid, true, true)
+        Commands::Spacecraft { scid, db } => {
+            spacecraft::spacecraft_info(db.as_ref(), scid.as_ref().copied(), true, true)
         }
     }
 }

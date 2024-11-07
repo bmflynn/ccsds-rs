@@ -109,6 +109,8 @@ mod pn;
 mod rs;
 mod spacepacket;
 mod synchronizer;
+
+pub mod spacecrafts;
 pub mod timecode;
 
 pub use error::{Error, Result};

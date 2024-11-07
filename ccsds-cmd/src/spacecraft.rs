@@ -1,46 +1,62 @@
 use anyhow::{bail, Context, Result};
+use ccsds::spacecrafts::Spacecrafts;
 use ccsds::SCID;
 use handlebars::handlebars_helper;
 use serde::Serialize;
-use spacecrafts::{Spacecraft, DB};
 use std::{
     io::{stdout, Write},
+    path::Path,
     vec::Vec,
 };
 
-pub fn spacecraft_info(scid: SCID, show_apids: bool, show_vcids: bool) -> Result<()> {
-    let scdb = DB::new()
-        .context("loading spacecraft db")
-        .with_context(|| {
-            "Spacecraft database not found!
-
-Please download a spacecraft database from https://github.com/bmflynn/spacecraftsdb/releases"
-        })?;
-    let Some(sc) = scdb.find(scid) else {
-        bail!("No spacraft found for scid={scid}");
+pub fn spacecraft_info<P: AsRef<Path>>(
+    path: Option<P>,
+    scid: Option<SCID>,
+    show_apids: bool,
+    show_vcids: bool,
+) -> Result<()> {
+    let spacecrafts = match path {
+        Some(path) => Spacecrafts::with_file(&path).with_context(|| {
+            format!("loading spacecrafts from {:?}", path.as_ref().to_path_buf())
+        })?,
+        None => Spacecrafts::default(),
     };
 
-    let data = render(&RenderData {
-        sc,
-        show_framing: true,
-        show_apids,
-        show_vcids,
-    })
+    let output = match scid {
+        Some(scid) => {
+            let Some(sc) = spacecrafts.lookup(scid) else {
+                bail!("No spacecraft found for scid={scid}");
+            };
+            let data = SpacecraftRenderData {
+                sc,
+                show_framing: true,
+                show_apids,
+                show_vcids,
+            };
+            render_spacecraft(data)
+        }
+        None => render_spacecrafts(spacecrafts.all()),
+    }
     .context("rendering")?;
     stdout()
-        .write_all(str::as_bytes(&data))
+        .write_all(str::as_bytes(&output))
         .context("writing to stdout")
 }
 
 #[derive(Serialize)]
-struct RenderData {
-    sc: Spacecraft,
+struct SpacecraftsRenderData {
+    spacecrafts: Vec<spacecrafts::Spacecraft>,
+}
+
+#[derive(Serialize)]
+struct SpacecraftRenderData {
+    sc: spacecrafts::Spacecraft,
     show_framing: bool,
     show_vcids: bool,
     show_apids: bool,
 }
 
-fn render(data: &RenderData) -> Result<String> {
+fn setup_handlebars() -> handlebars::Handlebars<'static> {
     let mut hb = handlebars::Handlebars::new();
 
     handlebars_helper!(join: |arr: array, sep: str| {
@@ -51,7 +67,7 @@ fn render(data: &RenderData) -> Result<String> {
             }
         }).collect();
 
-        strings.join(sep);
+        strings.join(sep)
     });
     hb.register_helper("join", Box::new(join));
 
@@ -93,20 +109,49 @@ fn render(data: &RenderData) -> Result<String> {
     });
     hb.register_helper("rpad", Box::new(right_pad));
 
-    hb.register_template_string("info", TEXT_TEMPLATE)
-        .context("registering template")?;
-
-    hb.render("info", &data).context("rendering text")
+    hb
 }
 
-const TEXT_TEMPLATE: &str = r#"
-- Spacecraft ------------------------------------------------------------------------------
+fn render_spacecraft(data: SpacecraftRenderData) -> Result<String> {
+    let mut hb = setup_handlebars();
+
+    hb.register_template_string("template", SPACECRAFT_TEMPLATE)
+        .context("registering template")?;
+
+    hb.render("template", &data).context("rendering text")
+}
+
+fn render_spacecrafts(spacecrafts: Vec<spacecrafts::Spacecraft>) -> Result<String> {
+    let mut hb = setup_handlebars();
+
+    hb.register_template_string("template", SPACECRAFTS_TEMPLATE)
+        .context("registering template")?;
+
+    hb.render("template", &SpacecraftsRenderData { spacecrafts })
+        .context("rendering text")
+}
+
+const SPACECRAFTS_TEMPLATE: &str = r#"
+-------------------------------------------------------------------------------------------
+SCID    Name       CatNum    Aliases
+-------------------------------------------------------------------------------------------
+{{ #each spacecrafts }}
+{{ lpad 4 scid }}    {{ rpad 10 name }} {{ rpad 9 catalogNumber }} {{ join aliases ", " }}
+{{ /each ~}}
+"#;
+
+const SPACECRAFT_TEMPLATE: &str = r#"
+===========================================================================================
+Spacecraft SCID {{ sc.scid }}
+===========================================================================================
   Name:        {{ sc.name }}
   SCID:        {{ sc.scid }}
   Aliases:     {{ join sc.aliases "," }}
   Catalog Num: {{ sc.catalogNumber }}
 {{ #if show_framing and sc.framing ~}}
-- Framing ---------------------------------------------------------------------------------
+===========================================================================================
+Framing 
+-------------------------------------------------------------------------------------------
 Length:           {{ sc.framingConfig.length }}
 InsertZoneLength: {{ sc.framingConfig.insertZoneLength }}
 TrailerLength:    {{ sc.framingConfig.trailerLength }}
@@ -120,16 +165,16 @@ ReedSolomon:
 -------------------------------------------------------------------------------------------
 VCID   Description 
 -------------------------------------------------------------------------------------------
-{{ #each sc.vcids }}{{ lpad 4 vcid }}  {{ description }}
+{{ #each sc.vcids }}{{ lpad 4 vcid }}   {{ description }}
 {{ /each ~}}
 {{ /if ~}}
 {{ #if show_apids ~}}
 -------------------------------------------------------------------------------------------
-VCID  APID  Sensor           Description 
+VCID    APID    Sensor           Description 
 -------------------------------------------------------------------------------------------
 {{ #each sc.vcids ~}}
-{{ #each apids ~}}
-{{ lpad 4 ../vcid }}  {{ lpad 4 apid }}  {{ rpad 16 sensor }}  {{ description }}
+{{ #each apids }}
+{{ lpad 4 ../vcid }}    {{ lpad 4 apid }}    {{ rpad 18 sensor }}  {{ description }}
 {{ /each ~}}
 {{ /each }}
 {{ /if ~}}
