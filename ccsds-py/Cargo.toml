@@ -1,5 +1,5 @@
 [package]
-name = "ccsdspy"
+name = "ccsds-py"
 edition.workspace = true
 version.workspace = true
 authors.workspace = true
@@ -15,5 +15,5 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = { version = "0.22.0", features = ["extension-module", "abi3-py39"] }
-ccsds = { path = "../lib" }
+ccsds = { path = "../ccsds-lib" }
 spacecrafts = "^0.1.0-beta.3"

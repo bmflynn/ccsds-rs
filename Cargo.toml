@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["cmd", "lib", "pybind"]
-default-members = ["cmd", "lib"]
+members = ["ccsds-cmd", "ccsds-lib", "ccsds-py"]
+default-members = ["ccsds-cmd", "ccsds-lib"]
 
 [workspace.package]
 version = "0.1.0-beta.14"

@@ -1,5 +1,5 @@
 [package]
-name = "ccsds-cli"
+name = "ccsds-cmd"
 description = "CCSDS spacecraft data stream decoding CLI tool"
 edition.workspace = true
 version.workspace = true
@@ -16,7 +16,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1.0.86"
 clap = { version = "4.5.7", features = ["derive"] }
-ccsds = { path = "../lib" }
+ccsds = { path = "../ccsds-lib" }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 spacecrafts.workspace = true
