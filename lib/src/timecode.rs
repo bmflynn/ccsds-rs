@@ -2,6 +2,7 @@
 //!
 //! Reference: [CCSDS Time Code Formats](https://public.ccsds.org/Pubs/301x0b4e1.pdf)
 use hifitime::{Duration, Epoch};
+
 use serde::Serialize;
 
 #[derive(Debug, thiserror::Error)]
@@ -25,12 +26,14 @@ pub enum Error {
 pub enum Timecode {
     /// CCSDS Day Segmneted time code format.
     ///
+    /// This format assumes the epoch of Jan 1, 1958.
+    ///
     /// See: [CCSDS Time Code Formats 301.0-B-4](https://public.ccsds.org/Pubs/301x0b4e1.pdf), Section 3.3.
     #[non_exhaustive]
     Cds { days: u32, millis: u32, nanos: u32 },
     /// CCSDS Unsegmented time code format.
     ///
-    /// This format assumes the coarse time unit is seconds.
+    /// This format assumes the coarse time unit is seconds and epoch is Jan 1, 1958.
     ///
     /// See: [CCSDS Time Code Formats 301.0-B-4](https://public.ccsds.org/Pubs/301x0b4e1.pdf), Section 3.2.
     #[non_exhaustive]
@@ -48,10 +51,16 @@ pub enum Timecode {
 impl Timecode {
     /// Number of seconds between the 1958 and 1900
     const CCSDS_HIFIEPOCH_DELTA_SECS: u64 = 1830297600;
-
+    /// Default number of bytes for the CDS milliseconds field
     const NUM_CDS_MILLIS_OF_DAY_BYTES: usize = 4;
 
+    /// Max number of u64 nanoseconds that can be cast to f64 w/o precision loss
+    const MAX_FINE_NANOS: f64 = 4_503_599_627_370_496.0;
+
     /// Decode this timecode into a [hifitime::Epoch].
+    ///
+    /// # Errors
+    /// [Error::Overflow] If numeric conversions would result in overflow or precision loss
     pub fn epoch(&self) -> Result<Epoch, Error> {
         match self {
             Timecode::Cds {
@@ -81,11 +90,8 @@ impl Timecode {
                 let coarse = coarse + Self::CCSDS_HIFIEPOCH_DELTA_SECS;
 
                 let fine = *fine as f64;
-                if fine.is_infinite() {
-                    return Err(Error::Overflow);
-                }
                 let fine_nanos = (fine * fine_mult.unwrap_or(1.0) as f64).trunc();
-                if fine_nanos > u64::MAX as f64 {
+                if fine_nanos > Self::MAX_FINE_NANOS {
                     return Err(Error::Overflow);
                 }
                 let dur = Duration::compose(0, 0, 0, 0, coarse, 0, 0, fine_nanos as u64);
@@ -94,6 +100,10 @@ impl Timecode {
         }
     }
 
+    /// Return the number of nanoseconds since Jan 1, 1958
+    ///
+    /// # Errors
+    /// [Error::Overflow] If numeric conversions would result in overflow or precision loss
     pub fn nanos(&self) -> Result<u64, Error> {
         match self {
             Timecode::Cds {
@@ -115,20 +125,13 @@ impl Timecode {
                 fine_mult,
             } => {
                 // Convert to hifi epoch
-                let coarse = coarse + Self::CCSDS_HIFIEPOCH_DELTA_SECS;
                 let Some(coarse_nanos) = coarse.checked_mul(1_000_000_000) else {
                     return Err(Error::Overflow);
                 };
 
                 let fine = *fine as f64;
-                if fine.is_infinite() {
-                    return Err(Error::Overflow);
-                }
-                if fine < 0.0 {
-                    return Err(Error::Underflow);
-                }
                 let fine_nanos = (fine * fine_mult.unwrap_or(1.0) as f64).trunc();
-                if fine_nanos > u64::MAX as f64 {
+                if fine_nanos > Self::MAX_FINE_NANOS {
                     return Err(Error::Overflow);
                 }
                 Ok(coarse_nanos + fine_nanos as u64)
@@ -170,9 +173,10 @@ pub enum Format {
     },
 }
 
-/// Decode from the provided buffer.
+/// Decode `buf` into [Timecode::Cuc].
 ///
 /// # Errors
+/// - [Error::Unsupported] If `num_coarse` and `num_fine` is not a valid combination
 /// - [Error::Unsupported] if a timecode cannot be created from `buf` according to `format`
 /// - [Error::Overflow] or [Error::Underflow] if the numeric conversions don't work out.
 pub fn decode(format: &Format, buf: &[u8]) -> Result<Timecode, Error> {
@@ -189,10 +193,6 @@ pub fn decode(format: &Format, buf: &[u8]) -> Result<Timecode, Error> {
     }
 }
 
-/// Decode `buf` into [Timecode::Cds].
-///
-/// # Errors
-/// [Error::Unsupported] If `numday` and `num_submillis` is not a valid combination
 fn decode_cds(num_day: usize, num_submillis: usize, buf: &[u8]) -> Result<Timecode, Error> {
     let want = num_day + num_submillis + Timecode::NUM_CDS_MILLIS_OF_DAY_BYTES;
     if buf.len() < want {
@@ -219,13 +219,6 @@ fn decode_cds(num_day: usize, num_submillis: usize, buf: &[u8]) -> Result<Timeco
     })
 }
 
-/// Decode `buf` into [Timecode::Cuc].
-///
-/// # Errors
-/// [Error::Unsupported] If `num_coarse` and `num_fine` is not a valid combination
-///
-/// # Panics
-/// If decoding bytes to number fails, which it should not
 fn decode_cuc(
     num_coarse: usize,
     num_fine: usize,
