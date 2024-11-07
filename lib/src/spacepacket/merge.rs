@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use std::{
     collections::{HashMap, HashSet},
     fs::File,
@@ -6,6 +7,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use hifitime::{Duration, Epoch};
 use tracing::trace;
 
 use crate::spacepacket::{Apid, PacketGroupIter, PacketReaderIter, PrimaryHeader};
@@ -42,6 +44,9 @@ where
     T: TimeDecoder,
     W: Write,
 {
+    let to = epoch_or_default(to, 2200);
+    let from = epoch_or_default(from, 1900);
+
     let apids: HashSet<Apid> = apids.unwrap_or_default().iter().copied().collect();
     let mut readers: HashMap<PathBuf, BufReader<File>> = HashMap::default();
     for path in paths {
@@ -69,7 +74,7 @@ where
                     return None;
                 }
                 let first = &g.packets[0];
-                let usecs = time_decoder.decode_time(first).unwrap_or_else(|| {
+                let epoch = time_decoder.decode_time(first).unwrap_or_else(|_| {
                     panic!(
                         "failed to decode timecode from {first}: {:?}",
                         &first.data[..14]
@@ -77,10 +82,10 @@ where
                 });
 
                 // enforce time range, inclusice on the from, exclusive on to
-                if from.is_some() && usecs < from.unwrap() {
+                if epoch < from {
                     return None;
                 }
-                if to.is_some() && usecs >= to.unwrap() {
+                if epoch >= to {
                     return None;
                 }
                 if !apids.is_empty() && !apids.contains(&first.header.apid) {
@@ -97,7 +102,7 @@ where
                 Some(Ptr {
                     path: (*path).clone(),
                     offset: first.offset,
-                    time: usecs,
+                    time: epoch,
                     apid: first.header.apid,
                     seqid: first.header.sequence_id,
                     size: total_size,
@@ -130,6 +135,13 @@ where
     Ok(())
 }
 
+fn epoch_or_default(t: Option<u64>, year: u64) -> Epoch {
+    t.map_or_else(
+        || Epoch::from_str(&format!("{year}-01-01T00:00:00Z")).unwrap(),
+        |micros| Epoch::from_utc_duration(Duration::compose(0, 0, 0, 0, 0, 0, micros, 0)),
+    )
+}
+
 #[derive(Debug, Clone)]
 struct Ptr {
     path: PathBuf,
@@ -137,7 +149,7 @@ struct Ptr {
     size: usize,
 
     // The following are considered for hashing purposes
-    time: u64,
+    time: Epoch,
     apid: Apid,
     seqid: u16,
 

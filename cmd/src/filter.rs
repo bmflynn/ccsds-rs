@@ -4,23 +4,24 @@ use std::{
 };
 
 use anyhow::{bail, Result};
-use ccsds::{Apid, TimeDecoder};
-use chrono::{DateTime, FixedOffset};
+use ccsds::{Apid, CdsTimeDecoder, TimeDecoder};
+use hifitime::{Duration, Epoch};
 
-struct Ptr(Vec<u8>, Apid, u64);
+struct Ptr(Vec<u8>, Apid, Epoch);
 
 fn packets_with_times<R: Read + Send>(input: R) -> impl Iterator<Item = Ptr> {
-    let time_decoder = &ccsds::CDSTimeDecoder;
     ccsds::read_packet_groups(input)
         .filter_map(Result::ok)
         .filter_map(|g| {
+            let time_decoder = &CdsTimeDecoder::default();
+
             if g.packets.is_empty() || !(g.packets[0].is_first() || g.packets[0].is_standalone()) {
                 // Drop incomplete packet groups
                 return None;
             }
             let first = &g.packets[0];
             let apid = first.header.apid;
-            let usecs = time_decoder.decode_time(first).unwrap_or_else(|| {
+            let nanos = time_decoder.decode_time(first).unwrap_or_else(|_| {
                 panic!(
                     "failed to decode timecode from {first}: {:?}",
                     &first.data[..14]
@@ -39,7 +40,7 @@ fn packets_with_times<R: Read + Send>(input: R) -> impl Iterator<Item = Ptr> {
                 data.extend(packet.data);
             }
 
-            Some(Ptr(data, apid, usecs))
+            Some(Ptr(data, apid, nanos))
         })
 }
 
@@ -48,13 +49,16 @@ pub fn filter<R, W>(
     mut writer: W,
     include: &[Apid],
     exclude: &[Apid],
-    before: Option<DateTime<FixedOffset>>,
-    after: Option<DateTime<FixedOffset>>,
+    before: Option<Epoch>,
+    after: Option<Epoch>,
 ) -> Result<()>
 where
     R: Read + Send,
     W: Write,
 {
+    let min_epoch = Epoch::from_utc_duration(Duration::from_days(0.0));
+    let max_epoch = Epoch::from_utc_duration(Duration::from_days(73049.0));
+
     if include.is_empty() && exclude.is_empty() && before.is_none() && after.is_none() {
         bail!("no filters specified");
     }
@@ -65,7 +69,7 @@ where
         Box::new(
             ccsds::read_packets(input)
                 .map_while(Result::ok)
-                .map(|p| Ptr(p.data, p.header.apid, 0)),
+                .map(|p| Ptr(p.data, p.header.apid, min_epoch)),
         ) as Box<dyn Iterator<Item = Ptr>>
     };
 
@@ -73,28 +77,27 @@ where
     let excluding = !exclude.is_empty();
     let include: HashSet<Apid> = include.iter().copied().collect();
     let exclude: HashSet<Apid> = exclude.iter().copied().collect();
-    let before_us = before.map_or(0, |dt| {
-        u64::try_from(dt.timestamp_nanos_opt().unwrap()).unwrap() / 1000u64
-    });
-    let after_us = after.map_or(0, |dt| {
-        u64::try_from(dt.timestamp_nanos_opt().unwrap()).unwrap() / 1000u64
-    });
+    let have_before = before.is_some();
+    let before = before.unwrap_or(max_epoch);
+    let have_after = after.is_some();
+    let after = after.unwrap_or(min_epoch);
 
-    for Ptr(data, apid, usecs) in packets {
-        if before.is_some() && after.is_some() && (usecs < before_us || usecs > after_us) {
+    for Ptr(data, apid, epoch) in packets {
+        if have_before && have_after && (epoch < before || epoch > after) {
             continue;
         }
-        if before.is_some() && usecs < before_us {
+        if have_before && epoch < before {
             continue;
         }
-        if after.is_some() && usecs > after_us {
+        if have_after && epoch > after {
             continue;
         }
         if including && excluding {
             if include.contains(&apid) && !exclude.contains(&apid) {
                 writer.write_all(&data)?;
             }
-        } else if (including && include.contains(&apid)) || (excluding && !exclude.contains(&apid)) {
+        } else if (including && include.contains(&apid)) || (excluding && !exclude.contains(&apid))
+        {
             writer.write_all(&data)?;
         } else if !excluding && !including {
             writer.write_all(&data)?;
