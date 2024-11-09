@@ -6,6 +6,7 @@ use std::{
 use anyhow::{bail, Result};
 use ccsds::{Apid, CdsTimeDecoder, TimeDecoder};
 use hifitime::{Duration, Epoch};
+use tracing::trace;
 
 struct Ptr(Vec<u8>, Apid, Epoch);
 
@@ -82,24 +83,53 @@ where
     let have_after = after.is_some();
     let after = after.unwrap_or(min_epoch);
 
-    for Ptr(data, apid, epoch) in packets {
-        if have_before && have_after && (epoch < before || epoch > after) {
+    for Ptr(data, apid, stamp) in packets {
+        if have_before && have_after && stamp < after || stamp >= before {
+            trace!(
+                apid,
+                ?stamp,
+                len = data.len(),
+                ?before,
+                ?after,
+                "skip after/before"
+            );
             continue;
-        }
-        if have_before && epoch < before {
+        } else if have_before && stamp >= before {
+            trace!(
+                apid,
+                ?stamp,
+                len = data.len(),
+                ?before,
+                ?after,
+                "skip before"
+            );
             continue;
-        }
-        if have_after && epoch > after {
+        } else if have_after && stamp < after {
+            trace!(
+                apid,
+                ?stamp,
+                len = data.len(),
+                ?before,
+                ?after,
+                "skip after"
+            );
             continue;
         }
         if including && excluding {
             if include.contains(&apid) && !exclude.contains(&apid) {
                 writer.write_all(&data)?;
+            } else {
+                trace!(
+                    apid,
+                    ?stamp,
+                    len = data.len(),
+                    "skip included, not excluded"
+                );
             }
-        } else if (including && include.contains(&apid)) || (excluding && !exclude.contains(&apid))
+        } else if (including && include.contains(&apid))
+            || (excluding && !exclude.contains(&apid))
+            || !(including || excluding)
         {
-            writer.write_all(&data)?;
-        } else if !excluding && !including {
             writer.write_all(&data)?;
         }
     }
