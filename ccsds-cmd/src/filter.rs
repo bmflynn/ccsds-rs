@@ -16,10 +16,11 @@ fn packets_with_times<R: Read + Send>(input: R) -> impl Iterator<Item = Ptr> {
         .filter_map(|g| {
             let time_decoder = &CdsTimeDecoder::default();
 
-            if g.packets.is_empty() || !(g.packets[0].is_first() || g.packets[0].is_standalone()) {
+            if g.packets.is_empty() || g.packets[0].is_last() || g.packets[0].is_cont() {
                 // Drop incomplete packet groups
                 return None;
             }
+            // now we can be sure first packet has a timecode
             let first = &g.packets[0];
             let apid = first.header.apid;
             let nanos = time_decoder.decode_time(first).unwrap_or_else(|_| {
@@ -75,8 +76,8 @@ where
     };
 
     let including = !include.is_empty();
-    let excluding = !exclude.is_empty();
     let include: HashSet<Apid> = include.iter().copied().collect();
+    let excluding = !exclude.is_empty();
     let exclude: HashSet<Apid> = exclude.iter().copied().collect();
     let have_before = before.is_some();
     let before = before.unwrap_or(max_epoch);
@@ -115,23 +116,15 @@ where
             );
             continue;
         }
-        if including && excluding {
-            if include.contains(&apid) && !exclude.contains(&apid) {
-                writer.write_all(&data)?;
-            } else {
-                trace!(
-                    apid,
-                    ?stamp,
-                    len = data.len(),
-                    "skip included, not excluded"
-                );
-            }
-        } else if (including && include.contains(&apid))
-            || (excluding && !exclude.contains(&apid))
-            || !(including || excluding)
-        {
-            writer.write_all(&data)?;
+        if including && !include.contains(&apid) {
+            trace!(apid, ?stamp, len = data.len(), "skip not included");
+            continue;
         }
+        if excluding && exclude.contains(&apid) {
+            trace!(apid, ?stamp, len = data.len(), "skip excluded");
+            continue;
+        }
+        writer.write_all(&data)?;
     }
 
     Ok(())
