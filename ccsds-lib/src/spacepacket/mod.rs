@@ -332,7 +332,7 @@ where
     I: Iterator<Item = Packet> + Send,
 {
     packets: I,
-    group: Option<PacketGroup>,
+    cached: Option<Packet>,
     done: bool,
 }
 
@@ -355,7 +355,7 @@ where
     fn with_packets(packets: I) -> Self {
         PacketGroupIter {
             packets,
-            group: None,
+            cached: None,
             done: false,
         }
     }
@@ -369,61 +369,67 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.done {
+            // only happens when we finish with a packet left in the cache
             return None;
         }
-        'outer: loop {
-            // Get a packet from the iterator. Exit the iterator
-            let packet: Packet = match self.packets.next() {
-                Some(packet) => packet,
-                None => break 'outer,
-            };
-            // Return group of one
-            if packet.is_standalone() {
-                return Some(Ok(PacketGroup {
-                    apid: packet.header.apid,
-                    packets: vec![packet],
-                }));
-            }
 
-            match self.group.take() {
-                Some(mut group) => {
-                    // Apid mismatch, must start a new group with the new packet, returning the old
-                    // group.
-                    if !group.packets.is_empty()
-                        && group.packets[0].header.apid != packet.header.apid
-                    {
-                        self.group = Some(PacketGroup {
+        let mut group: Option<PacketGroup> = None;
+        loop {
+            // Get packet from cache first, then try iter
+            let packet = match self.cached.take() {
+                Some(packet) => packet,
+                None => match self.packets.next() {
+                    Some(packet) => packet,
+                    None => {
+                        // nothing cached and iter is done
+                        break;
+                    }
+                },
+            };
+
+            group = match group.take() {
+                None => {
+                    // standalone packet with no current group, just return it
+                    if packet.is_standalone() {
+                        return Some(Ok(PacketGroup {
                             apid: packet.header.apid,
                             packets: vec![packet],
-                        });
-                        return Some(Ok(group.clone()));
+                        }));
                     }
-
-                    // If there's no APID mismatch the current packet must be part of the current
-                    // group.
-                    group.packets.push(packet);
-
-                    self.group = Some(group);
-                }
-                None => {
-                    // It's not standalone and we don't have a current group so we must be starting
-                    // a new group
-                    self.group = Some(PacketGroup {
+                    // start a new group with our packet
+                    Some(PacketGroup {
                         apid: packet.header.apid,
                         packets: vec![packet],
-                    });
+                    })
                 }
-            }
+                Some(mut group) => {
+                    // Different apids indicate we're done with this group. However we have a
+                    // packet, so we must cache it for use on next iter.
+                    if packet.header.apid != group.packets[0].header.apid {
+                        self.cached = Some(packet);
+                        return Some(Ok(group));
+                    }
+                    // Adding to group we already started
+                    group.packets.push(packet);
+                    Some(group)
+                }
+            };
         }
 
-        self.done = true;
-        // We're all done, so return any partial group
-        if let Some(group) = self.group.take() {
-            if !group.packets.is_empty() {
-                return Some(Ok(group));
-            }
+        // If we have one, return it.
+        if let Some(group) = group {
+            return Some(Ok(group));
         }
-        None
+
+        // Clear cache
+        self.done = true;
+        match self.cached.take() {
+            Some(packet) => Some(Ok(PacketGroup {
+                apid: packet.header.apid,
+                packets: vec![packet],
+            })),
+            None => None,
+        }
     }
 }
 
