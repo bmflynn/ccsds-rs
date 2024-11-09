@@ -4,6 +4,14 @@ use anyhow::{bail, Context, Result};
 use ccsds::Apid;
 use hifitime::Epoch;
 
+pub fn apid_order(name: &str) -> Option<Vec<Apid>> {
+    if name == "jpss-viirs" {
+        Some(vec![826, 821])
+    } else {
+        None
+    }
+}
+
 pub fn merge<W, T>(
     inputs: &[PathBuf],
     time_decoder: &T,

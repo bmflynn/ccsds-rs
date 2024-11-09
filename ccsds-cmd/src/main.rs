@@ -43,9 +43,10 @@ enum Commands {
         #[arg(short = 'O', long, value_delimiter = ',', value_name = "csv")]
         apid_order: Option<Vec<Apid>>,
 
-        /// Alias for --apid-order-826,821, hidden by default because of VIIRS assumption
-        #[arg(long, hide = true, default_value = "false")]
-        viirs: bool,
+        /// A named APID ordering that will override any order provided by --apid-order. The only
+        /// value currently supported is jpss-viirs.
+        #[arg(short = 'A', long)]
+        apid_order_name: Option<String>,
 
         /// Drop any packets with a time before this time (RFC3339).
         #[arg(short, long, value_parser = parse_timestamp, value_name = "timestamp")]
@@ -219,7 +220,7 @@ fn main() -> Result<()> {
             inputs,
             clobber,
             apid_order,
-            viirs,
+            apid_order_name,
             from,
             to,
             apids,
@@ -228,10 +229,12 @@ fn main() -> Result<()> {
                 bail!("{output:?} exists; use --clobber");
             }
             info!("merging {inputs:?} to {output:?}");
-            let apid_order = if *viirs {
-                Some(vec![826, 821])
-            } else {
-                apid_order.as_deref().map(<[Apid]>::to_vec)
+            let apid_order = match apid_order_name {
+                Some(name) => match merge::apid_order(name) {
+                    Some(order) => Some(order),
+                    None => bail!("{name} is not a valid APID order name"),
+                },
+                None => Some(apid_order.as_deref().unwrap_or(&Vec::default()).to_vec()),
             };
             let dest = File::create(output)
                 .with_context(|| format!("failed to create output {output:?}"))?;
