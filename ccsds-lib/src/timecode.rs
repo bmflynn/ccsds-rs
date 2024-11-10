@@ -155,7 +155,6 @@ pub enum Format {
     /// |3|0|No sub-milliseconds|
     /// |3|2|Microsecond resolution|
     /// |3|4|Picosecond resolution|
-    #[non_exhaustive]
     Cds {
         num_day: usize,
         num_submillis: usize,
@@ -164,7 +163,6 @@ pub enum Format {
     ///
     /// Valid `num_coarse` is between 1 and 4.
     /// Valid `num_fine` is between 0 and 3.
-    #[non_exhaustive]
     Cuc {
         num_coarse: usize,
         num_fine: usize,

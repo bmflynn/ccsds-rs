@@ -1,4 +1,5 @@
 use ccsds as my;
+use ccsds::timecode;
 use ccsds::{PNDecoder, ReedSolomon};
 use pyo3::types::PyList;
 use pyo3::{
@@ -509,9 +510,16 @@ impl FrameIterator {
 /// ValueError: If a timecode cannot be created from the provided bytes
 #[pyfunction(signature=(dat))]
 fn decode_cds_timecode(dat: &[u8]) -> PyResult<u64> {
-    match my::decode_cds(dat) {
-        Some(millis) => Ok(millis),
-        None => Err(PyValueError::new_err("failed to decode timecode")),
+    let fmt = &timecode::Format::Cds {
+        num_day: 2,
+        num_submillis: 2,
+    };
+    match my::timecode::decode(fmt, dat) {
+        Ok(tc) => match tc.nanos() {
+            Ok(n) => Ok(n / 1_000_000),
+            Err(_) => Err(PyValueError::new_err("timecode overflow")),
+        },
+        Err(_) => Err(PyValueError::new_err("failed to decode timecode")),
     }
 }
 
@@ -523,9 +531,17 @@ fn decode_cds_timecode(dat: &[u8]) -> PyResult<u64> {
 /// ValueError: If a timecode cannot be created from the provided bytes
 #[pyfunction(signature=(dat))]
 fn decode_eoscuc_timecode(dat: &[u8]) -> PyResult<u64> {
-    match my::decode_eoscuc(dat) {
-        Some(millis) => Ok(millis),
-        None => Err(PyValueError::new_err("failed to decode timecode")),
+    let fmt = &timecode::Format::Cuc {
+        num_coarse: 2,
+        num_fine: 2,
+        fine_mult: Some(15200.0),
+    };
+    match my::timecode::decode(fmt, dat) {
+        Ok(tc) => match tc.nanos() {
+            Ok(n) => Ok(n / 1_000_000),
+            Err(_) => Err(PyValueError::new_err("timecode overflow")),
+        },
+        Err(_) => Err(PyValueError::new_err("failed to decode timecode")),
     }
 }
 
