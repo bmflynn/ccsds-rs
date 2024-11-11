@@ -29,8 +29,8 @@ where
         bail!("no inputs provided");
     }
 
-    let from = from.map(|dt| dt.to_utc_seconds() as u64);
-    let to = to.map(|dt| dt.to_utc_seconds() as u64);
+    let from = from.map(|dt| (dt.to_utc_seconds() * 1_000_000.0) as u64);
+    let to = to.map(|dt| (dt.to_utc_seconds() * 1_000_000.0) as u64);
 
     ccsds::merge_by_timecode(inputs, time_decoder, writer, order, from, to, apids)
         .with_context(|| format!("Merging {} inputs", inputs.len()))
