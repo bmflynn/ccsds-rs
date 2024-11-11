@@ -4,7 +4,7 @@ members = ["ccsds-cmd", "ccsds-lib", "ccsds-py"]
 default-members = ["ccsds-cmd", "ccsds-lib"]
 
 [workspace.package]
-version = "0.1.0-beta.16"
+version = "0.1.0-beta.17"
 edition = "2021"
 authors = ["Bruce Flynn <brucef@ssec.wisc.edu>"]
 repository = "https://github.com/bmflynn/ccsds-rs"
