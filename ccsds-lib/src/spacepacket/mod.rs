@@ -1,4 +1,5 @@
 mod merge;
+mod summary;
 
 use std::collections::HashMap;
 use std::fmt::Display;
@@ -7,7 +8,8 @@ use std::io::Read;
 use super::timecode;
 use serde::{Deserialize, Serialize};
 
-pub use merge::merge_by_timecode;
+pub use merge::Merger;
+pub use summary::*;
 
 pub type Apid = u16;
 
@@ -19,7 +21,12 @@ pub enum Error {
     IO(#[from] std::io::Error),
 
     #[error("Not enough bytes")]
-    NotEnoughData { actual: usize, minimum: usize },
+    NotEnoughData {
+        /// Number of bytes we got
+        actual: usize,
+        /// Minimum number of expected bytes
+        minimum: usize,
+    },
 
     /// Error handling or decoding a timecode
     #[error(transparent)]
@@ -190,7 +197,7 @@ pub fn missing_packets(cur: u16, last: u16) -> u16 {
     0
 }
 
-pub struct PacketReaderIter<R>
+struct PacketReaderIter<R>
 where
     R: Read + Send,
 {
@@ -489,6 +496,8 @@ impl TimecodeDecoder {
 
 #[cfg(test)]
 mod tests {
+    use summary::Summary;
+
     use super::*;
 
     #[test]
@@ -532,8 +541,13 @@ mod tests {
         ];
         let reader = std::io::BufReader::new(dat);
 
+        // FIXME: Testing the summary should probably be a separate test
+        let mut summary = Summary::default();
         let packets: Vec<Packet> = PacketReaderIter::new(reader)
             .filter_map(Result::ok)
+            .inspect(|p| {
+                summary.add(p);
+            })
             .collect();
 
         assert_eq!(packets.len(), 2);

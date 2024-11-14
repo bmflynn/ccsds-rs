@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::result::Result;
 
 use ccsds::spacepacket::{
-    collect_groups, decode_packets, merge_by_timecode, Error, Packet, PacketGroup, TimecodeDecoder,
+    collect_groups, decode_packets, Error, Merger, Packet, PacketGroup, TimecodeDecoder,
 };
 
 fn fixture_path(name: &str) -> PathBuf {
@@ -110,21 +110,17 @@ fn merge_test() {
     let out_path = tmpdir.path().join("output.dat");
     {
         let out_file = File::create(&out_path).unwrap();
-        merge_by_timecode(
-            &[
+        Merger::new(
+            vec![
                 fixture_path("tests/fixtures/viirs_merge1.dat"),
                 fixture_path("tests/fixtures/viirs_merge2.dat"),
             ],
-            &TimecodeDecoder::new(Some(timecode::Format::Cds {
+            TimecodeDecoder::new(Some(timecode::Format::Cds {
                 num_day: 2,
                 num_submillis: 2,
             })),
-            out_file,
-            None,
-            None,
-            None,
-            None,
         )
+        .merge(out_file)
         .unwrap();
     }
 
