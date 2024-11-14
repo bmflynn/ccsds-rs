@@ -8,11 +8,11 @@ use std::{
 };
 
 use hifitime::{Duration, Epoch};
-use tracing::trace;
+use tracing::{debug, trace};
 
 use crate::spacepacket::{Apid, PacketGroupIter, PacketReaderIter, PrimaryHeader};
 
-use super::TimeDecoder;
+use super::TimecodeDecoder;
 
 /// Merge, sort, and deduplicate multiple packet data files into a single file.
 ///
@@ -30,9 +30,9 @@ use super::TimeDecoder;
 /// ## Errors
 /// Any errors that occur while performing IO are propagated.
 #[allow(clippy::missing_panics_doc, clippy::module_name_repetitions)]
-pub fn merge_by_timecode<S, T, W>(
+pub fn merge_by_timecode<S, W>(
     paths: &[S],
-    time_decoder: &T,
+    time_decoder: &TimecodeDecoder,
     mut writer: W,
     order: Option<Vec<Apid>>,
     from: Option<u64>,
@@ -41,7 +41,6 @@ pub fn merge_by_timecode<S, T, W>(
 ) -> std::io::Result<()>
 where
     S: AsRef<Path>,
-    T: TimeDecoder,
     W: Write,
 {
     let to = epoch_or_default(to, 2200);
@@ -74,12 +73,20 @@ where
                     return None;
                 }
                 let first = &g.packets[0];
-                let epoch = time_decoder.decode_time(first).unwrap_or_else(|_| {
-                    panic!(
-                        "failed to decode timecode from {first}: {:?}",
-                        &first.data[..14]
-                    )
-                });
+                let Ok(epoch) = time_decoder
+                    .decode(first)
+                    .unwrap_or_else(|_| {
+                        panic!(
+                            "failed to decode timecode from {first}: {:?}",
+                            &first.data[..14]
+                        )
+                    })
+                    .epoch()
+                else {
+                    // FIXME: Better action to take when timecode decoding fails?
+                    debug!(header=?first.header, "failed decode timecode");
+                    return None;
+                };
 
                 // enforce time range, inclusice on the from, exclusive on to
                 if epoch < from {

@@ -1,53 +1,27 @@
 mod merge;
 
 use std::collections::HashMap;
-use std::collections::VecDeque;
 use std::fmt::Display;
-use std::io::{Read, Result as IOResult};
+use std::io::Read;
 
-use crate::{timecode, Error};
-use crate::{DecodedFrame, SCID, VCID};
-use hifitime::Epoch;
+use super::timecode;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, trace};
-
-pub use merge::merge_by_timecode;
 
 pub type Apid = u16;
 
-/// Decodes a UTC time in microsecods from a packet.
-pub trait TimeDecoder {
-    fn decode_time(&self, pkt: &Packet) -> Result<Epoch, Error>;
-}
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum Error {
+    /// IO error reading or decoding packets
+    #[error(transparent)]
+    IO(#[from] std::io::Error),
 
-/// ``TimeDocoder`` for the CCSDS Day Segmented timecode with no P-field and 2 bytes
-/// of submilliseconds. (See [`Time Code Formats`])
-///
-/// [`Time Code Formats`]: https://public.ccsds.org/Pubs/301x0b4e1.pdf
-pub struct CdsTimeDecoder {
-    format: timecode::Format,
-    offset: usize,
-}
+    #[error("Not enough bytes")]
+    NotEnoughData { actual: usize, minimum: usize },
 
-impl Default for CdsTimeDecoder {
-    fn default() -> Self {
-        Self {
-            format: timecode::Format::Cds {
-                num_day: 2,
-                num_submillis: 2,
-            },
-            offset: 0,
-        }
-    }
-}
-
-impl TimeDecoder for CdsTimeDecoder {
-    fn decode_time(&self, pkt: &Packet) -> Result<Epoch, Error> {
-        Ok(
-            timecode::decode(&self.format, &pkt.data[PrimaryHeader::LEN + self.offset..])?
-                .epoch()?,
-        )
-    }
+    /// Error handling or decoding a timecode
+    #[error(transparent)]
+    Timecode(#[from] super::timecode::Error),
 }
 
 /// Packet represents a single CCSDS space packet and its associated data.
@@ -79,7 +53,7 @@ pub struct Packet {
     /// All packet bytes, including header and user data
     pub data: Vec<u8>,
 
-    offset: usize,
+    pub(crate) offset: usize,
 }
 
 impl Display for Packet {
@@ -97,43 +71,22 @@ impl Display for Packet {
 impl Packet {
     #[must_use]
     pub fn is_first(&self) -> bool {
-        self.header.sequence_flags == SEQ_FIRST
+        self.header.sequence_flags == PrimaryHeader::SEQ_FIRST
     }
 
     #[must_use]
     pub fn is_last(&self) -> bool {
-        self.header.sequence_flags == SEQ_LAST
+        self.header.sequence_flags == PrimaryHeader::SEQ_LAST
     }
 
     #[must_use]
     pub fn is_cont(&self) -> bool {
-        self.header.sequence_flags == SEQ_CONTINUATION
+        self.header.sequence_flags == PrimaryHeader::SEQ_CONTINUATION
     }
 
     #[must_use]
     pub fn is_standalone(&self) -> bool {
-        self.header.sequence_flags == SEQ_UNSEGMENTED
-    }
-
-    /// Decode from bytes. Returns `None` if there are not enough bytes to construct the
-    /// header or if there are not enough bytes to construct the [Packet] of the length
-    /// indicated by the header.
-    #[must_use]
-    pub fn decode(dat: &[u8]) -> Option<Packet> {
-        match PrimaryHeader::decode(dat) {
-            Some(header) => {
-                if dat.len() < header.len_minus1 as usize + 1 {
-                    None
-                } else {
-                    Some(Packet {
-                        header,
-                        data: dat.to_vec(),
-                        offset: 0,
-                    })
-                }
-            }
-            None => None,
-        }
+        self.header.sequence_flags == PrimaryHeader::SEQ_UNSEGMENTED
     }
 
     /// Read a single [Packet].
@@ -141,7 +94,7 @@ impl Packet {
     /// # Errors
     /// Any ``std::io::Error`` reading
     #[allow(clippy::missing_panics_doc)]
-    pub fn read<R>(mut r: R) -> IOResult<Packet>
+    pub fn decode<R>(mut r: R) -> Result<Packet, Error>
     where
         R: Read + Send,
     {
@@ -160,15 +113,6 @@ impl Packet {
         })
     }
 }
-
-/// Packet is the first packet in a packet group
-pub const SEQ_FIRST: u8 = 1;
-/// Packet is a part of a packet group, but not first and not last
-pub const SEQ_CONTINUATION: u8 = 0;
-/// Packet is the last packet in a packet group
-pub const SEQ_LAST: u8 = 2;
-/// Packet is not part of a packet group, i.e., standalone.
-pub const SEQ_UNSEGMENTED: u8 = 3;
 
 /// CCSDS Primary Header
 ///
@@ -189,36 +133,31 @@ pub struct PrimaryHeader {
 impl PrimaryHeader {
     /// Size of a ``PrimaryHeader``
     pub const LEN: usize = 6;
+    /// Maximum supported sequence id value
     pub const SEQ_MAX: u16 = 16383;
-
-    /// Read header from `r`.
-    ///
-    /// # Errors
-    /// Any ``std::io::Error`` reading
-    #[allow(clippy::missing_panics_doc)]
-    pub fn read<R>(mut r: R) -> IOResult<PrimaryHeader>
-    where
-        R: Read + Send,
-    {
-        let mut buf = [0u8; Self::LEN];
-        r.read_exact(&mut buf)?;
-
-        // Can't panic because of read_exact
-        Ok(Self::decode(&buf).unwrap())
-    }
+    /// Packet is the first packet in a packet group
+    pub const SEQ_FIRST: u8 = 1;
+    /// Packet is a part of a packet group, but not first and not last
+    pub const SEQ_CONTINUATION: u8 = 0;
+    /// Packet is the last packet in a packet group
+    pub const SEQ_LAST: u8 = 2;
+    /// Packet is not part of a packet group, i.e., standalone.
+    pub const SEQ_UNSEGMENTED: u8 = 3;
 
     /// Decode from bytes. Returns `None` if there are not enough bytes to construct the
     /// header.
-    #[must_use]
-    pub fn decode(buf: &[u8]) -> Option<Self> {
+    pub fn decode(buf: &[u8]) -> Result<Self, Error> {
         if buf.len() < Self::LEN {
-            return None;
+            return Err(Error::NotEnoughData {
+                actual: buf.len(),
+                minimum: Self::LEN,
+            });
         }
         let d1 = u16::from_be_bytes([buf[0], buf[1]]);
         let d2 = u16::from_be_bytes([buf[2], buf[3]]);
         let d3 = u16::from_be_bytes([buf[4], buf[5]]);
 
-        Some(PrimaryHeader {
+        Ok(PrimaryHeader {
             version: (d1 >> 13 & 0x7) as u8,
             type_flag: (d1 >> 12 & 0x1) as u8,
             has_secondary_header: (d1 >> 11 & 0x1) == 1,
@@ -270,18 +209,20 @@ impl<R> Iterator for PacketReaderIter<R>
 where
     R: Read + Send,
 {
-    type Item = IOResult<Packet>;
+    type Item = Result<Packet, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match Packet::read(&mut self.reader) {
+        match Packet::decode(&mut self.reader) {
             Ok(mut p) => {
                 p.offset = self.offset;
                 self.offset += PrimaryHeader::LEN + p.header.len_minus1 as usize + 1;
                 Some(Ok(p))
             }
             Err(err) => {
-                if err.kind() == std::io::ErrorKind::UnexpectedEof {
-                    return None;
+                if let Error::IO(ref ioerr) = err {
+                    if ioerr.kind() == std::io::ErrorKind::UnexpectedEof {
+                        return None;
+                    }
                 }
                 Some(Err(err))
             }
@@ -340,14 +281,6 @@ impl<I> PacketGroupIter<I>
 where
     I: Iterator<Item = Packet> + Send,
 {
-    /// Create an iterator that reads source packets from the provided reader.
-    // fn with_reader<R>(reader: R) -> Self where R: Read + Send {
-    //     let packets = PacketReaderIter::new(reader)
-    //         .filter(Result::is_ok)
-    //         .map(Result::unwrap);
-    //     Self::with_packets(packets)
-    // }
-
     /// Create an iterator that sources packets directly from the provided vanilla
     /// iterator.
     ///
@@ -365,7 +298,7 @@ impl<I> Iterator for PacketGroupIter<I>
 where
     I: Iterator<Item = Packet> + Send,
 {
-    type Item = IOResult<PacketGroup>;
+    type Item = Result<PacketGroup, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.done {
@@ -437,11 +370,11 @@ where
 /// packet stream.
 ///
 /// For packet streams that may contain packets that utilize packet grouping see
-/// ``read_packet_groups``.
+/// ``decode_packet_groups``.
 ///
 /// # Examples
 /// ```
-/// use ccsds::read_packets;
+/// use ccsds::decode_packets;
 ///
 /// let dat: &[u8] = &[
 ///     // primary header bytes
@@ -453,31 +386,33 @@ where
 /// ];
 ///
 /// let r = std::io::BufReader::new(dat);
-/// read_packets(r).for_each(|zult| {
+/// decode_packets(r).for_each(|zult| {
 ///     let packet = zult.unwrap();
 ///     assert_eq!(packet.header.apid, 1369);
 /// });
 /// ```
-pub fn read_packets<R>(reader: R) -> impl Iterator<Item = IOResult<Packet>> + Send
+pub fn decode_packets<R>(reader: R) -> impl Iterator<Item = Result<Packet, Error>> + Send
 where
     R: Read + Send,
 {
     PacketReaderIter::new(reader)
 }
 
-/// Return an [Iterator] that groups read packets into ``PacketGroup``s.
+/// Return an [Iterator] that groups read packets into [PacketGroup]s.
 ///
 /// This is necessary for packet streams containing APIDs that utilize packet grouping sequence
-/// flags values ``SEQ_FIRST``, ``SEQ_CONTINUATION``, and ``SEQ_LAST``. It can also be used for
-/// non-grouped APIDs (``SEQ_UNSEGMENTED``), however, it is not necessary in such cases. See
-/// ``PrimaryHeader::sequence_flags``.
+/// flags values [SEQ_FIRST](PrimaryHeader), [SEQ_CONTINUATION](PrimaryHeader), and
+/// [SEQ_LAST](PrimaryHeader). It can also be used for
+/// non-grouped APIDs ([SEQ_UNSEGMENTED](PrimaryHeader)), however, it is not necessary in such
+/// cases and will result in each group containing a single packet.
+/// See [sequence_flags](PrimaryHeader).
 ///
 /// # Examples
 ///
 /// Reading packets from data file of space packets (level-0) would look something
 /// like this:
 /// ```
-/// use ccsds::read_packet_groups;
+/// use ccsds::spacepacket::{Packet, collect_groups};
 ///
 /// // data file stand-in
 /// let dat: &[u8] = &[
@@ -489,230 +424,64 @@ where
 ///     0xff
 /// ];
 ///
-/// let r = std::io::BufReader::new(dat);
-/// read_packet_groups(r).for_each(|zult| {
+/// let packets = vec![Packet::decode(dat)];
+/// collect_groups(r).for_each(|zult| {
 ///     let packet = zult.unwrap();
 ///     assert_eq!(packet.apid, 1369);
 /// });
 /// ```
-pub fn read_packet_groups<R>(reader: R) -> impl Iterator<Item = IOResult<PacketGroup>>
-where
-    R: Read + Send,
-{
-    let packets = PacketReaderIter::new(reader).flatten();
-    PacketGroupIter::with_packets(packets)
-}
-
-/// Collects the provided packets into ``PacketGroup``s.
-pub fn collect_packet_groups<I>(packets: I) -> impl Iterator<Item = IOResult<PacketGroup>> + Send
+pub fn collect_groups<I>(packets: I) -> impl Iterator<Item = Result<PacketGroup, Error>> + Send
 where
     I: Iterator<Item = Packet> + Send,
 {
     PacketGroupIter::with_packets(packets)
 }
 
-struct VcidTracker {
-    vcid: VCID,
-    /// Caches partial packets for this vcid
-    cache: Vec<u8>,
-    // True when any frame used to fill the cache was rs corrected
-    rs_corrected: bool,
-    // True when a FHP has been found and data should be added to cache. False
-    // where there is a missing data due to RS failure or missing frames.
-    sync: bool,
+/// Helper class to decode [Timecode](timecode::Timecode)s from [Packet]s.
+///
+/// It manages the match up of packet APIDs to a timecode [Format](timecode::Format), supporting a
+/// default format for the case where a specific format for an APID is not found.
+///
+/// For sequences of packets containing only a single format only the default will be necessary.
+pub struct TimecodeDecoder {
+    formats: HashMap<Apid, timecode::Format>,
+    default: Option<timecode::Format>,
 }
 
-impl VcidTracker {
-    fn new(vcid: VCID) -> Self {
-        VcidTracker {
-            vcid,
-            sync: false,
-            cache: vec![],
-            rs_corrected: false,
+impl TimecodeDecoder {
+    pub fn new(default: Option<timecode::Format>) -> Self {
+        Self {
+            formats: HashMap::default(),
+            default,
         }
     }
 
-    fn clear(&mut self) {
-        self.cache.clear();
-        self.rs_corrected = false;
-    }
-}
-
-impl Display for VcidTracker {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "VcidTracker{{vcid={}, sync={}, cache_len={}, rs_corrected:{}}}",
-            self.vcid,
-            self.sync,
-            self.cache.len(),
-            self.rs_corrected
-        )
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct DecodedPacket {
-    pub scid: SCID,
-    pub vcid: VCID,
-    pub packet: Packet,
-}
-
-struct FramedPacketIter<I>
-where
-    I: Iterator<Item = DecodedFrame> + Send,
-{
-    frames: I,
-    izone_length: usize,
-    trailer_length: usize,
-
-    // Cache of partial packet data from frames that has not yet been decoded into
-    // packets. There should only be up to about 1 frame worth of data in the cache
-    cache: HashMap<VCID, VcidTracker>,
-    // Packets that have already been decoded and are waiting to be provided.
-    ready: VecDeque<DecodedPacket>,
-}
-
-impl<I> Iterator for FramedPacketIter<I>
-where
-    I: Iterator<Item = DecodedFrame> + Send,
-{
-    type Item = DecodedPacket;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        use rs2::RSState::{Corrected, Uncorrectable};
-
-        // If there are ready packets provide the oldest one
-        if let Some(packet) = self.ready.pop_front() {
-            return Some(packet);
+    fn format_for(&self, packet: &Packet) -> Option<timecode::Format> {
+        match self.formats.get(&packet.header.apid) {
+            Some(fmt) => Some(fmt.clone()),
+            None => self.default.clone(),
         }
-
-        // No packet ready, we have to find one
-        'next_frame: loop {
-            let frame = self.frames.next();
-            if frame.is_none() {
-                trace!("no more frames");
-                break;
-            }
-
-            let DecodedFrame {
-                frame,
-                missing,
-                rsstate,
-            } = frame.unwrap();
-            let mpdu = frame.mpdu(self.izone_length, self.trailer_length).unwrap();
-            let tracker = self
-                .cache
-                .entry(frame.header.vcid)
-                .or_insert(VcidTracker::new(frame.header.vcid));
-
-            if let Corrected(num) = rsstate {
-                debug!(vcid = %frame.header.vcid, bytes_corrected=num, "corrected frame");
-                tracker.rs_corrected = true;
-            }
-
-            // Data loss means we dump what we're working on and force resync
-            if let Uncorrectable(_) = rsstate {
-                debug!(vcid = %frame.header.vcid, tracker = %tracker, "uncorrectable frame, dropping tracker");
-                tracker.clear();
-                tracker.sync = false;
-                continue;
-            }
-            // For counter errors, we can still utilize the current frame (no continue)
-            if missing > 0 {
-                trace!(vcid = frame.header.vcid, tracker=%tracker, missing=missing, "missing frames, dropping tracker");
-                tracker.clear();
-                tracker.sync = false;
-            }
-
-            if tracker.sync {
-                // If we have sync all mpdu bytes are for this tracker/vcid
-                tracker.cache.extend_from_slice(mpdu.payload());
-            } else {
-                // No way to get sync if we don't have a header
-                if !mpdu.has_header() {
-                    trace!(vcid = %frame.header.vcid, tracker = %tracker, "frames w/o mpdu, dropping");
-                    continue;
-                }
-
-                if mpdu.header_offset() > mpdu.payload().len() {
-                    panic!("MPDU header offset too large; likely due to an incorrect frame length; offset={} buf size={}",
-                        mpdu.header_offset(),  mpdu.payload().len()
-                    );
-                }
-                tracker.cache = mpdu.payload()[mpdu.header_offset()..].to_vec();
-                tracker.sync = true;
-            }
-
-            if tracker.cache.len() < PrimaryHeader::LEN {
-                continue 'next_frame; // need more frame data for this vcid
-            }
-            let mut header = PrimaryHeader::decode(&tracker.cache).unwrap();
-            let mut need = header.len_minus1 as usize + 1 + PrimaryHeader::LEN;
-            if tracker.cache.len() < need {
-                continue; // need more frame data for this vcid
-            }
-
-            loop {
-                // Grab data we need and update the cache
-                let (data, tail) = tracker.cache.split_at(need);
-                let packet = DecodedPacket {
-                    scid: frame.header.scid,
-                    vcid: frame.header.vcid,
-                    packet: Packet {
-                        header: PrimaryHeader::decode(data)?,
-                        data: data.to_vec(),
-                        offset: 0,
-                    },
-                };
-                tracker.cache = tail.to_vec();
-                self.ready.push_back(packet);
-
-                if tracker.cache.len() < PrimaryHeader::LEN {
-                    break;
-                }
-                header = PrimaryHeader::decode(&tracker.cache).unwrap();
-                need = header.len_minus1 as usize + 1 + PrimaryHeader::LEN;
-                if tracker.cache.len() < need {
-                    break;
-                }
-            }
-
-            return self.ready.pop_front();
-        }
-
-        // Attempted to read a frame, but the iterator is done.  Make sure to
-        // provide a ready frame if there are any.
-        self.ready.pop_front()
     }
-}
 
-/// Decodes the provided frames into a packets contained within the frames' MPDUs.
-///
-/// While not strictly enforced, frames should all be from the same spacecraft, i.e., have
-/// the same spacecraft id.
-///
-/// There are several cases when frame data cannot be fully recovered and is dropped,
-/// i.e., not used to construct packets:
-///
-/// 1. Missing frames
-/// 2. Frames with state ``rs2::RSState::Uncorrectable``
-/// 3. Fill Frames
-/// 4. Frames before the first header is available in an MPDU
-pub fn decode_framed_packets<I>(
-    frames: I,
-    izone_length: usize,
-    trailer_length: usize,
-) -> impl Iterator<Item = DecodedPacket> + Send
-where
-    I: Iterator<Item = DecodedFrame> + Send,
-{
-    FramedPacketIter {
-        frames: frames.filter(move |dc| !dc.frame.is_fill()),
-        izone_length,
-        trailer_length,
-        cache: HashMap::new(),
-        ready: VecDeque::new(),
+    /// Register `format` as a specific format to use for each of `apids`.
+    pub fn register(&mut self, format: timecode::Format, apids: &[Apid]) {
+        apids.iter().for_each(|a| {
+            self.formats.insert(*a, format.clone());
+        });
+    }
+
+    /// Decode a timecode from `packet`.
+    ///
+    /// # Errors
+    /// If a timecode cannot be decoded for `packet` or if there is not specific format for the
+    /// packet's APID and their is no default to fall back to.
+    pub fn decode(&self, packet: &Packet) -> Result<timecode::Timecode, Error> {
+        match self.format_for(packet) {
+            Some(fmt) => Ok(timecode::decode(&fmt, &packet.data)?),
+            None => Err(Error::Timecode(timecode::Error::Unsupported(
+                "No timecode format",
+            ))),
+        }
     }
 }
 
@@ -721,27 +490,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_read_packet() {
+    fn test_decode_packet() {
         let dat: [u8; 15] = [
             // Primary/secondary header and a single byte of user data
             0xd, 0x59, 0xd2, 0xab, 0x0, 0x8, 0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
         ];
         let x = &dat[..];
         let mut r = std::io::BufReader::new(x);
-        let packet = Packet::read(&mut r).unwrap();
+        let packet = Packet::decode(&mut r).unwrap();
 
         assert_eq!(packet.header.version, 0);
     }
 
     #[test]
-    fn test_read_header() {
+    fn test_decode_header() {
         let dat: [u8; 6] = [
             // bytes from a SNPP CrIS packet
             0xd, 0x59, 0xd2, 0xab, 0xa, 0x8f,
         ];
-        let x = &dat[0..];
-        let mut r = std::io::BufReader::new(x);
-        let ph = PrimaryHeader::read(&mut r).unwrap();
+        let ph = PrimaryHeader::decode(&dat).unwrap();
 
         assert_eq!(ph.version, 0);
         assert_eq!(ph.type_flag, 0);

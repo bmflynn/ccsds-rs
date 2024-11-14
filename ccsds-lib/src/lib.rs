@@ -107,10 +107,10 @@ mod error;
 mod framing;
 mod pn;
 mod rs;
-mod spacepacket;
 mod synchronizer;
 
 pub mod spacecrafts;
+pub mod spacepacket;
 pub mod timecode;
 
 pub use error::{Error, Result};
@@ -120,10 +120,5 @@ pub use pn::{DefaultPN, PNDecoder};
 pub use rs::{
     correct_message as rs_correct_message, deinterleave as rs_deinterleave,
     has_errors as rs_has_errors, DefaultReedSolomon, IntegrityError, RSState, ReedSolomon,
-};
-pub use spacepacket::{
-    collect_packet_groups, decode_framed_packets, merge_by_timecode, missing_packets,
-    read_packet_groups, read_packets, Apid, CdsTimeDecoder, DecodedPacket, Packet, PacketGroup,
-    PrimaryHeader, TimeDecoder, SEQ_CONTINUATION, SEQ_FIRST, SEQ_LAST, SEQ_UNSEGMENTED,
 };
 pub use synchronizer::{read_synchronized_blocks, Synchronizer, ASM};
