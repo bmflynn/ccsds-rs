@@ -7,6 +7,8 @@ use std::io::Read;
 use super::timecode;
 use serde::{Deserialize, Serialize};
 
+pub use merge::merge_by_timecode;
+
 pub type Apid = u16;
 
 #[derive(Debug, thiserror::Error)]
