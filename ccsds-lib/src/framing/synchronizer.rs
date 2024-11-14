@@ -77,7 +77,7 @@ where
     masks: Vec<Vec<u8>>,
     // Index of the current pattern in the pattern vector
     pattern_idx: usize,
-
+    /// Count of times each pattern was used.
     pub pattern_hits: HashMap<u8, i32>,
 }
 

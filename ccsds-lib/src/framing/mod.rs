@@ -1,17 +1,22 @@
+mod bytes;
 mod packets;
+mod pn;
+mod rs;
+mod synchronizer;
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
-use crate::rs::{DefaultReedSolomon, IntegrityError, RSState, ReedSolomon};
-use crate::{DefaultPN, PNDecoder};
 use crossbeam::channel::{bounded, unbounded, Receiver};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, span, Level};
 use typed_builder::TypedBuilder;
 
 pub use packets::*;
+pub use pn::*;
+pub use rs::*;
+pub use synchronizer::*;
 
 pub type SCID = u16;
 pub type VCID = u16;
@@ -430,9 +435,6 @@ impl FrameDecoder {
         });
 
         frames
-        // DecodedFrameIter2 {
-        //     frames: Box::new(frames),
-        // }
     }
 }
 
@@ -465,7 +467,6 @@ pub fn missing_frames(cur: u32, last: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Synchronizer, ASM};
     use std::{fs, path::PathBuf};
 
     fn fixture_path(name: &str) -> PathBuf {

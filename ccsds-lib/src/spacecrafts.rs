@@ -1,6 +1,6 @@
 use std::{collections::HashSet, fs::File, path::Path};
 
-use crate::SCID;
+use crate::framing::SCID;
 
 const SPACECRAFTSDB: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
