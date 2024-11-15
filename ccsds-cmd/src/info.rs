@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use ccsds::Apid;
+use ccsds::spacepacket::{decode_packets, missing_packets, Apid, TimecodeDecoder};
 use handlebars::handlebars_helper;
 use hifitime::{Duration, Epoch};
 use serde::Serialize;
@@ -9,7 +9,7 @@ use std::{
     io::{stdout, Write},
     path::Path,
 };
-use tracing::debug;
+use tracing::{debug, warn};
 
 #[derive(Debug, Clone)]
 pub enum Format {
@@ -71,12 +71,18 @@ struct Info {
     apids: HashMap<Apid, Summary>,
 }
 
+fn new_cds_decoder() -> TimecodeDecoder {
+    TimecodeDecoder::new(Some(ccsds::timecode::Format::Cds {
+        num_day: 2,
+        num_submillis: 2,
+    }))
+}
+
 fn summarize(fpath: &Path, tc_format: &TCFormat) -> Result<Info> {
     let reader = std::fs::File::open(fpath).context("opening input")?;
-    let packets = ccsds::read_packets(reader).filter_map(Result::ok);
-    let cds_decoder = ccsds::CdsTimeDecoder::default();
-    let time_decoder: Option<&dyn ccsds::TimeDecoder> = match tc_format {
-        TCFormat::Cds => Some(&cds_decoder), // TCFormat::EosCuc => unimplemented!(),
+    let packets = decode_packets(reader).filter_map(Result::ok);
+    let time_decoder: Option<TimecodeDecoder> = match tc_format {
+        TCFormat::Cds => Some(new_cds_decoder()),
         TCFormat::None => None,
     };
 
@@ -93,7 +99,7 @@ fn summarize(fpath: &Path, tc_format: &TCFormat) -> Result<Info> {
         } else {
             let cur = packet.header.sequence_id;
             let last = last_seqid.get(&packet.header.apid).unwrap(); // we know it exists
-            ccsds::missing_packets(cur, *last)
+            missing_packets(cur, *last)
         };
         last_seqid.insert(packet.header.apid, packet.header.sequence_id);
         summary.missing_packets += missing as usize;
@@ -106,8 +112,12 @@ fn summarize(fpath: &Path, tc_format: &TCFormat) -> Result<Info> {
             continue;
         }
 
-        if let Some(tc) = time_decoder {
-            if let Ok(epoch) = tc.decode_time(&packet) {
+        if let Some(ref time_decoder) = time_decoder {
+            if let Ok(tc) = time_decoder.decode(&packet) {
+                let Ok(epoch) = tc.epoch() else {
+                    warn!("failed to decode timecode");
+                    continue;
+                };
                 summary.first_packet_time = summary
                     .first_packet_time
                     .map_or(Some(epoch), |cur| Some(cmp::min(epoch, cur)));

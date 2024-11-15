@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
+use ccsds::framing::SCID;
 use ccsds::spacecrafts::Spacecrafts;
-use ccsds::SCID;
 use handlebars::handlebars_helper;
 use serde::Serialize;
 use std::{
@@ -16,7 +16,7 @@ pub fn spacecraft_info<P: AsRef<Path>>(
     show_vcids: bool,
 ) -> Result<()> {
     let spacecrafts = match path {
-        Some(path) => Spacecrafts::with_file(&path).with_context(|| {
+        Some(path) => Spacecrafts::with_file(&path, false).with_context(|| {
             format!("loading spacecrafts from {:?}", path.as_ref().to_path_buf())
         })?,
         None => Spacecrafts::default(),

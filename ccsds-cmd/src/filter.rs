@@ -4,17 +4,25 @@ use std::{
 };
 
 use anyhow::{bail, Result};
-use ccsds::{Apid, CdsTimeDecoder, TimeDecoder};
+use ccsds::{
+    spacepacket::{collect_groups, decode_packets, Apid, PrimaryHeader, TimecodeDecoder},
+    timecode::Format,
+};
 use hifitime::{Duration, Epoch};
-use tracing::trace;
+use tracing::{debug, trace};
 
 struct Ptr(Vec<u8>, Apid, Epoch);
 
 fn packets_with_times<R: Read + Send>(input: R) -> impl Iterator<Item = Ptr> {
-    ccsds::read_packet_groups(input)
+    let packets = decode_packets(input).filter_map(Result::ok);
+    collect_groups(packets)
         .filter_map(Result::ok)
         .filter_map(|g| {
-            let time_decoder = &CdsTimeDecoder::default();
+            // FIXME: Hard-coded to JPSS cds format
+            let timecode_decoder = TimecodeDecoder::new(Some(Format::Cds {
+                num_day: 0,
+                num_submillis: 0,
+            }));
 
             if g.packets.is_empty() || g.packets[0].is_last() || g.packets[0].is_cont() {
                 // Drop incomplete packet groups
@@ -23,18 +31,28 @@ fn packets_with_times<R: Read + Send>(input: R) -> impl Iterator<Item = Ptr> {
             // now we can be sure first packet has a timecode
             let first = &g.packets[0];
             let apid = first.header.apid;
-            let nanos = time_decoder.decode_time(first).unwrap_or_else(|_| {
-                panic!(
-                    "failed to decode timecode from {first}: {:?}",
-                    &first.data[..14]
-                )
-            });
+            let nanos = match timecode_decoder
+                .decode(first)
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "failed to decode timecode from {first}: {:?}",
+                        &first.data[..14]
+                    )
+                })
+                .epoch()
+            {
+                Ok(e) => e,
+                Err(err) => {
+                    debug!("failed to convert timecode to epoch: {err}");
+                    return None;
+                }
+            };
 
             // total size of all packets in group
             let total_size = g
                 .packets
                 .iter()
-                .map(|p| ccsds::PrimaryHeader::LEN + p.header.len_minus1 as usize + 1)
+                .map(|p| PrimaryHeader::LEN + p.header.len_minus1 as usize + 1)
                 .sum();
 
             let mut data = Vec::with_capacity(total_size);
@@ -69,7 +87,7 @@ where
         Box::new(packets_with_times(input))
     } else {
         Box::new(
-            ccsds::read_packets(input)
+            decode_packets(input)
                 .map_while(Result::ok)
                 .map(|p| Ptr(p.data, p.header.apid, min_epoch)),
         ) as Box<dyn Iterator<Item = Ptr>>

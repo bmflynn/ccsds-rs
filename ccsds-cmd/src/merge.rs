@@ -1,7 +1,7 @@
 use std::{io::Write, path::PathBuf};
 
 use anyhow::{bail, Context, Result};
-use ccsds::Apid;
+use ccsds::spacepacket::{Apid, Merger, TimecodeDecoder};
 use hifitime::Epoch;
 
 pub fn apid_order(name: &str) -> Option<Vec<Apid>> {
@@ -12,9 +12,9 @@ pub fn apid_order(name: &str) -> Option<Vec<Apid>> {
     }
 }
 
-pub fn merge<W, T>(
+pub fn merge<W>(
     inputs: &[PathBuf],
-    time_decoder: &T,
+    time_decoder: TimecodeDecoder,
     writer: W,
     order: Option<Vec<Apid>>,
     from: Option<Epoch>,
@@ -22,7 +22,6 @@ pub fn merge<W, T>(
     apids: Option<&[Apid]>,
 ) -> Result<()>
 where
-    T: ccsds::TimeDecoder,
     W: Write,
 {
     if inputs.is_empty() {
@@ -32,6 +31,21 @@ where
     let from = from.map(|dt| (dt.to_utc_seconds() * 1_000_000.0) as u64);
     let to = to.map(|dt| (dt.to_utc_seconds() * 1_000_000.0) as u64);
 
-    ccsds::merge_by_timecode(inputs, time_decoder, writer, order, from, to, apids)
+    let mut merger = Merger::new(inputs.to_vec(), time_decoder);
+    if let Some(order) = order {
+        merger = merger.with_apid_order(&order);
+    }
+    if let Some(from) = from {
+        merger = merger.with_from(from);
+    }
+    if let Some(to) = to {
+        merger = merger.with_to(to);
+    }
+    if let Some(apids) = apids {
+        merger = merger.with_apids(&apids);
+    }
+
+    merger
+        .merge(writer)
         .with_context(|| format!("Merging {} inputs", inputs.len()))
 }

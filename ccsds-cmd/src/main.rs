@@ -8,7 +8,8 @@ use std::str::FromStr;
 use std::{fs::File, io::stderr};
 
 use anyhow::{anyhow, bail, Context, Result};
-use ccsds::{Apid, SCID};
+use ccsds::spacepacket::TimecodeDecoder;
+use ccsds::{framing::SCID, spacepacket::Apid};
 use clap::{Parser, Subcommand};
 use hifitime::Epoch;
 use tracing::{debug, info};
@@ -241,7 +242,10 @@ fn main() -> Result<()> {
 
             merge::merge(
                 inputs,
-                &ccsds::CdsTimeDecoder::default(),
+                TimecodeDecoder::new(Some(ccsds::timecode::Format::Cds {
+                    num_day: 2,
+                    num_submillis: 2,
+                })),
                 dest,
                 apid_order,
                 *from,
