@@ -8,9 +8,9 @@ use std::{
 };
 
 use hifitime::{Duration, Epoch};
-use tracing::{debug, trace};
+use tracing::{debug, error, trace, warn};
 
-use crate::spacepacket::{Apid, PacketGroupIter, PacketReaderIter, PrimaryHeader};
+use crate::spacepacket::{Apid, Error, PacketGroupIter, PacketReaderIter, PrimaryHeader};
 
 use super::TimecodeDecoder;
 
@@ -67,7 +67,7 @@ impl Merger {
         self
     }
 
-    pub fn merge<W: Write>(self, mut writer: W) -> std::io::Result<()> {
+    pub fn merge<W: Write>(self, mut writer: W) -> Result<(), Error> {
         let to = epoch_or_default(self.to, 2200);
         let from = epoch_or_default(self.from, 1900);
 
@@ -97,7 +97,7 @@ impl Merger {
                         return None;
                     }
                     let first = &g.packets[0];
-                    let Ok(epoch) = self
+                    let epoch = self
                         .time_decoder
                         .decode(first)
                         .unwrap_or_else(|_| {
@@ -107,11 +107,7 @@ impl Merger {
                             )
                         })
                         .epoch()
-                    else {
-                        // FIXME: Better action to take when timecode decoding fails?
-                        debug!(header=?first.header, "failed decode timecode");
-                        return None;
-                    };
+                        .unwrap();
 
                     // enforce time range, inclusice on the from, exclusive on to
                     if epoch < from {
@@ -141,12 +137,67 @@ impl Merger {
                         order: *order.get(&first.header.apid).unwrap_or(&first.header.apid),
                     })
                 })
+                //.filter_map(|g| {
+                //    if g.packets.is_empty() {
+                //        warn!("dropping group with no packets");
+                //        return None;
+                //    }
+                //    let first = &g.packets[0];
+                //    if !(first.is_first() || first.is_standalone()) {
+                //        warn!(
+                //            header=?first.header,
+                //            packets = g.packets.len(),
+                //            "dropping partial group"
+                //        );
+                //        return None;
+                //    }
+                //
+                //    // Timecode comparisons
+                //    let Ok(timecode) = self.time_decoder.decode(first) else {
+                //        error!(header=?first.header, "timecode decode error; skipping");
+                //        return None;
+                //    };
+                //    let Ok(epoch) = timecode.epoch() else {
+                //        error!(header=?first.header, "timecode epoch error; skipping");
+                //        return None;
+                //    };
+                //    if epoch < from {
+                //        debug!(?epoch, "dropping group before 'from'");
+                //        return None;
+                //    }
+                //    if epoch >= to {
+                //        debug!(?epoch, "dropping group after 'to'");
+                //        return None;
+                //    }
+                //    if !apids.is_empty() && !apids.contains(&first.header.apid) {
+                //        debug!(apid = first.header.apid, "dropping apid not in list");
+                //        return None;
+                //    }
+                //
+                //    // total size of all packets in group
+                //    let total_size = g
+                //        .packets
+                //        .iter()
+                //        .map(|p| PrimaryHeader::LEN + p.header.len_minus1 as usize + 1)
+                //        .sum();
+                //
+                //    Some(Ptr {
+                //        path: (*path).clone(),
+                //        offset: first.offset,
+                //        time: epoch,
+                //        apid: first.header.apid,
+                //        seqid: first.header.sequence_id,
+                //        size: total_size,
+                //        order: *order.get(&first.header.apid).unwrap_or(&first.header.apid),
+                //    })
+                //})
                 .collect::<HashSet<_>>();
 
             index = index.union(&pointers).cloned().collect();
         }
 
         let mut index: Vec<Ptr> = index.into_iter().collect();
+        // Sort by time and apid, or the order index if set
         index.sort_by_key(|ptr| (ptr.time, ptr.order));
 
         for ptr in &index {
@@ -158,7 +209,7 @@ impl Merger {
             let mut buf = vec![0u8; ptr.size];
             if let Err(err) = reader.read_exact(&mut buf) {
                 let msg = format!("Reading {ptr:?}: {err}");
-                return Err(IOError::new(std::io::ErrorKind::Other, msg));
+                return Err(Error::IO(IOError::new(std::io::ErrorKind::Other, msg)));
             }
             trace!("writing packet: {ptr:?}");
             writer.write_all(&buf)?;

@@ -33,7 +33,7 @@ fn packet_iter() {
 fn group_iter() {
     let fpath = fixture_path("tests/fixtures/viirs_packets.dat");
     let reader = fs::File::open(fpath).unwrap();
-    let packets = decode_packets(reader).filter_map(Result::ok);
+    let packets = decode_packets(reader).map(Result::unwrap);
     let iter = collect_groups(packets);
     let groups: Vec<Result<PacketGroup, Error>> = iter.collect();
 
@@ -72,13 +72,13 @@ fn full_decode() {
     let reader = fs::File::open(fpath).unwrap();
     let blocks = Synchronizer::new(reader, &ASM, 1020)
         .into_iter()
-        .filter_map(Result::ok);
+        .map(Result::unwrap);
 
     let frames: Vec<DecodedFrame> = FrameRSDecoder::builder()
         .interleave(4)
         .build()
         .decode(blocks)
-        .filter_map(Result::ok)
+        .map(Result::unwrap)
         .collect();
     assert_eq!(frames.len(), 65, "expected frame count doesn't match");
 
@@ -98,7 +98,7 @@ fn full_decode() {
     // into their associated groups.
     let packets: Vec<Packet> = packets.iter().map(|p| p.packet.clone()).collect();
     let groups: Vec<PacketGroup> = collect_groups(packets.into_iter())
-        .filter_map(Result::ok)
+        .map(Result::unwrap)
         .collect();
 
     assert_eq!(groups.len(), 2, "expected group count doesn't match");
@@ -108,30 +108,36 @@ fn full_decode() {
 fn merge_test() {
     let tmpdir = tempfile::tempdir().unwrap();
     let out_path = tmpdir.path().join("output.dat");
-    {
-        let out_file = File::create(&out_path).unwrap();
-        Merger::new(
-            vec![
-                fixture_path("tests/fixtures/viirs_merge1.dat"),
-                fixture_path("tests/fixtures/viirs_merge2.dat"),
-            ],
-            TimecodeDecoder::new(Some(timecode::Format::Cds {
-                num_day: 2,
-                num_submillis: 2,
-            })),
-        )
-        .merge(out_file)
-        .unwrap();
-    }
+    let out_file = File::create(&out_path).unwrap();
+    Merger::new(
+        vec![
+            fixture_path("tests/fixtures/viirs_merge1.dat"),
+            fixture_path("tests/fixtures/viirs_merge2.dat"),
+        ],
+        TimecodeDecoder::new(timecode::Format::Cds {
+            num_day: 2,
+            num_submillis: 2,
+        }),
+    )
+    .merge(out_file)
+    .unwrap();
 
     // Get the merged files' packet groups, sorted
     let merged = File::open(&out_path).unwrap();
-    let packets = decode_packets(merged).filter_map(Result::ok);
-    let mut groups: Vec<PacketGroup> = collect_groups(packets).filter_map(Result::ok).collect();
-    groups.sort_by(|a, b| a.apid.cmp(&b.apid));
+    let packets: Vec<Packet> = decode_packets(merged).map(Result::unwrap).collect();
+    assert_eq!(
+        packets.len(),
+        244,
+        "Expected 235 packets, got {}",
+        packets.len()
+    );
 
+    let mut groups: Vec<PacketGroup> = collect_groups(packets.into_iter())
+        .map(Result::unwrap)
+        .collect();
     assert_eq!(groups.len(), 20, "expected 20 total groups");
 
+    groups.sort_by(|a, b| a.apid.cmp(&b.apid));
     for (i, group) in groups.iter().take(7).enumerate() {
         assert_eq!(group.apid, 800, "group {i} has wrong apid");
         assert!(group.complete(), "group {i} should be complete");

@@ -1,8 +1,8 @@
 use super::error::Error;
-use super::{Apid, Packet};
+use super::{Apid, Packet, PrimaryHeader};
 use std::collections::HashMap;
 
-use crate::timecode::{decode as decode_timecode, Error as TimecodeError, Format, Timecode};
+use crate::timecode::{decode as decode_timecode, Format, Timecode};
 
 /// Helper class to decode [Timecode](timecode::Timecode)s from [Packet]s.
 ///
@@ -12,21 +12,14 @@ use crate::timecode::{decode as decode_timecode, Error as TimecodeError, Format,
 /// For sequences of packets containing only a single format only the default will be necessary.
 pub struct TimecodeDecoder {
     formats: HashMap<Apid, Format>,
-    default: Option<Format>,
+    default: Format,
 }
 
 impl TimecodeDecoder {
-    pub fn new(default: Option<Format>) -> Self {
+    pub fn new(default: Format) -> Self {
         Self {
             formats: HashMap::default(),
             default,
-        }
-    }
-
-    fn format_for(&self, packet: &Packet) -> Option<Format> {
-        match self.formats.get(&packet.header.apid) {
-            Some(fmt) => Some(fmt.clone()),
-            None => self.default.clone(),
         }
     }
 
@@ -43,11 +36,41 @@ impl TimecodeDecoder {
     /// If a timecode cannot be decoded for `packet` or if there is not specific format for the
     /// packet's APID and their is no default to fall back to.
     pub fn decode(&self, packet: &Packet) -> Result<Timecode, Error> {
-        match self.format_for(packet) {
-            Some(fmt) => Ok(decode_timecode(&fmt, &packet.data)?),
-            None => Err(Error::Timecode(TimecodeError::Unsupported(
-                "No timecode format",
-            ))),
-        }
+        let fmt = self
+            .formats
+            .get(&packet.header.apid)
+            .unwrap_or(&self.default);
+        Ok(decode_timecode(fmt, &packet.data[PrimaryHeader::LEN..])?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::spacepacket::PrimaryHeader;
+
+    use super::*;
+
+    #[test]
+    fn test_cds() {
+        let dat: Vec<u8> = vec![
+            0x0b, 0x20, 0x52, 0xc4, 0x00, 0xad, 0x5c, 0xbd, 0x03, 0xc4, 0x1a, 0x6e, 0x03, 0xc9,
+        ];
+
+        let packet = Packet {
+            header: PrimaryHeader::decode(&dat).unwrap(),
+            data: dat,
+            offset: 0,
+        };
+        let decoder = TimecodeDecoder::new(Format::Cds {
+            num_day: 2,
+            num_submillis: 2,
+        });
+
+        let timecode = decoder.decode(&packet).unwrap();
+
+        assert_eq!(
+            timecode.epoch().unwrap().to_string(),
+            "2023-01-01T17:33:03.470969000 UTC"
+        );
     }
 }

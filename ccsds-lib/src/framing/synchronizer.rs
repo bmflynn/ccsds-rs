@@ -106,7 +106,7 @@ where
     /// in effect. If there are not enough bytes to check the sync marker return Ok(None).
     ///
     /// # Errors
-    /// On ``ErrorKind::UnexpectedEof`` this will return [Ok(None)]. Any other error will result
+    /// On [ErrorKind::UnexpectedEof] this will return [Ok(None)]. Any other error will result
     /// in [Err(err)].
     ///
     /// # Panics
@@ -176,7 +176,7 @@ where
     /// Fetch a block from the stream.
     ///
     /// # Errors
-    /// On ``std::io::Error``s filling buffer
+    /// On [std::io::Error]s filling buffer
     pub fn block(&mut self) -> Result<Vec<u8>> {
         let mut buf = vec![0u8; self.block_size];
         if self.pattern_idx != 0 {
@@ -188,7 +188,6 @@ where
             // There's a partially used byte, so push it back for the next read
             self.bytes.push(&[buf[buf.len() - 1]]);
         }
-        #[allow(clippy::cast_possible_truncation)]
         let buf = left_shift(&buf, self.pattern_idx)[..self.block_size].to_vec();
 
         Ok(buf)
@@ -286,7 +285,7 @@ mod tests {
             [0, 53, 159, 248, 58],
         ];
         for i in expected.len()..0 {
-            let zult = left_shift(&input[..].to_vec(), i);
+            let zult = left_shift(&input[..], i);
             zult.iter().zip(expected[i]).for_each(|(x, y)| {
                 assert_eq!(
                     x, &y,
@@ -299,7 +298,7 @@ mod tests {
     #[test]
     fn create_patterns_over_asm_bytes() {
         let asm = ASM;
-        let (patterns, _) = create_patterns(&ASM.to_vec());
+        let (patterns, _) = create_patterns(ASM.as_ref());
         for (i, x) in asm.iter().enumerate() {
             assert_eq!(patterns[0][i], *x, "missmatch at index {i}");
         }
