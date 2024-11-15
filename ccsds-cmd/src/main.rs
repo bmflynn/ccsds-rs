@@ -242,10 +242,10 @@ fn main() -> Result<()> {
 
             merge::merge(
                 inputs,
-                TimecodeDecoder::new(Some(ccsds::timecode::Format::Cds {
+                TimecodeDecoder::new(ccsds::timecode::Format::Cds {
                     num_day: 2,
                     num_submillis: 2,
-                })),
+                }),
                 dest,
                 apid_order,
                 *from,

@@ -19,10 +19,10 @@ fn packets_with_times<R: Read + Send>(input: R) -> impl Iterator<Item = Ptr> {
         .filter_map(Result::ok)
         .filter_map(|g| {
             // FIXME: Hard-coded to JPSS cds format
-            let timecode_decoder = TimecodeDecoder::new(Some(Format::Cds {
-                num_day: 0,
-                num_submillis: 0,
-            }));
+            let timecode_decoder = TimecodeDecoder::new(Format::Cds {
+                num_day: 2,
+                num_submillis: 2,
+            });
 
             if g.packets.is_empty() || g.packets[0].is_last() || g.packets[0].is_cont() {
                 // Drop incomplete packet groups

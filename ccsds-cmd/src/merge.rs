@@ -42,7 +42,7 @@ where
         merger = merger.with_to(to);
     }
     if let Some(apids) = apids {
-        merger = merger.with_apids(&apids);
+        merger = merger.with_apids(apids);
     }
 
     merger

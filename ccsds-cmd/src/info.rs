@@ -72,10 +72,10 @@ struct Info {
 }
 
 fn new_cds_decoder() -> TimecodeDecoder {
-    TimecodeDecoder::new(Some(ccsds::timecode::Format::Cds {
+    TimecodeDecoder::new(ccsds::timecode::Format::Cds {
         num_day: 2,
         num_submillis: 2,
-    }))
+    })
 }
 
 fn summarize(fpath: &Path, tc_format: &TCFormat) -> Result<Info> {
