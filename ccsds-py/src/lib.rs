@@ -1,6 +1,6 @@
 use ccsds as my;
+use ccsds::framing::{PNDecoder, ReedSolomon};
 use ccsds::timecode;
-use ccsds::{PNDecoder, ReedSolomon};
 use pyo3::types::PyList;
 use pyo3::{
     exceptions::{PyStopIteration, PyValueError},
@@ -40,9 +40,9 @@ fn synchronized_blocks(
     asm: Option<&[u8]>,
 ) -> PyResult<BlockIterator> {
     let file: Box<dyn Read + Send> = Box::new(File::open(source)?);
-    let asm = asm.unwrap_or(&my::ASM);
+    let asm = asm.unwrap_or(&my::framing::ASM);
 
-    let blocks = my::Synchronizer::new(file, asm, block_size)
+    let blocks = my::framing::Synchronizer::new(file, asm, block_size)
         .into_iter()
         .filter_map(Result::ok);
     let iter = BlockIterator {
@@ -69,7 +69,7 @@ fn pndecode<'a>(py: Python<'a>, dat: &[u8]) -> PyResult<Bound<'a, PyBytes>> {
             "PN data longer than 1275 bytes".to_string(),
         ));
     }
-    let dat = my::DefaultPN {}.decode(dat);
+    let dat = my::framing::DefaultPN {}.decode(dat);
     let bytes = PyBytes::new_bound(py, &dat);
     Ok(bytes)
 }
@@ -82,7 +82,7 @@ fn rs_correct_codeblock<'a>(
     block: &[u8],
     interleave: u8,
 ) -> PyResult<(Bound<'a, PyBytes>, RSState)> {
-    let rs = my::DefaultReedSolomon {};
+    let rs = my::framing::DefaultReedSolomon {};
 
     match rs.correct_codeblock(block, interleave) {
         Ok((block, state)) => {
@@ -126,15 +126,17 @@ impl PrimaryHeader {
 
     #[classmethod]
     fn decode(_cls: &Bound<'_, PyType>, dat: &[u8]) -> Option<Self> {
-        my::PrimaryHeader::decode(dat).map(|hdr| Self {
-            version: hdr.version,
-            type_flag: hdr.type_flag,
-            has_secondary_header: hdr.has_secondary_header,
-            apid: hdr.apid,
-            sequence_flags: hdr.sequence_flags,
-            sequence_id: hdr.sequence_id,
-            len_minus1: hdr.len_minus1,
-        })
+        my::spacepacket::PrimaryHeader::decode(dat)
+            .ok()
+            .map(|hdr| Self {
+                version: hdr.version,
+                type_flag: hdr.type_flag,
+                has_secondary_header: hdr.has_secondary_header,
+                apid: hdr.apid,
+                sequence_flags: hdr.sequence_flags,
+                sequence_id: hdr.sequence_id,
+                len_minus1: hdr.len_minus1,
+            })
     }
 }
 
@@ -163,12 +165,12 @@ impl Packet {
     }
     #[classmethod]
     fn decode(_cls: Bound<'_, PyType>, dat: &[u8]) -> Option<Self> {
-        my::Packet::decode(dat).map(Packet::new)
+        my::spacepacket::Packet::decode(dat).ok().map(Packet::new)
     }
 }
 
 impl Packet {
-    fn new(packet: my::Packet) -> Self {
+    fn new(packet: my::spacepacket::Packet) -> Self {
         Python::with_gil(|py| Packet {
             header: PrimaryHeader {
                 version: packet.header.version,
@@ -209,7 +211,7 @@ impl DecodedPacket {
 }
 
 impl DecodedPacket {
-    fn new(packet: my::DecodedPacket) -> Self {
+    fn new(packet: my::framing::DecodedPacket) -> Self {
         DecodedPacket {
             scid: packet.scid,
             vcid: packet.vcid,
@@ -220,7 +222,7 @@ impl DecodedPacket {
 
 #[pyclass]
 struct PacketIterator {
-    packets: Box<dyn Iterator<Item = my::Packet> + Send>,
+    packets: Box<dyn Iterator<Item = my::spacepacket::Packet> + Send>,
 }
 
 #[pymethods]
@@ -256,15 +258,16 @@ fn decode_packets(source: PyObject) -> PyResult<PacketIterator> {
     };
 
     let file: Box<dyn Read + Send> = Box::new(File::open(path)?);
-    let packets: Box<dyn Iterator<Item = my::Packet> + Send + 'static> =
-        Box::new(my::read_packets(file).filter_map(Result::ok));
+    //let packets = my::spacepacket::decode_packets(file).filter_map(Result::ok);
+    let packets: Box<dyn Iterator<Item = my::spacepacket::Packet> + Send + 'static> =
+        Box::new(my::spacepacket::decode_packets(file).filter_map(Result::ok));
 
     Ok(PacketIterator { packets })
 }
 
 #[pyclass]
 struct DecodedPacketIterator {
-    packets: Box<dyn Iterator<Item = my::DecodedPacket> + Send>,
+    packets: Box<dyn Iterator<Item = my::framing::DecodedPacket> + Send>,
 }
 
 #[pymethods]
@@ -288,8 +291,9 @@ fn decode_packet_groups(source: PyObject) -> PyResult<PacketGroupIterator> {
         Err(e) => return Err(e),
     };
     let file: Box<dyn Read + Send> = Box::new(File::open(path)?);
-    let groups: Box<dyn Iterator<Item = my::PacketGroup> + Send + 'static> =
-        Box::new(my::read_packet_groups(file).filter_map(Result::ok));
+    let packets = my::spacepacket::decode_packets(file).filter_map(Result::ok);
+    let groups: Box<dyn Iterator<Item = my::spacepacket::PacketGroup> + Send + 'static> =
+        Box::new(my::spacepacket::collect_groups(packets).filter_map(Result::ok));
 
     Ok(PacketGroupIterator { groups })
 }
@@ -304,7 +308,7 @@ struct PacketGroup {
 
 #[pyclass]
 struct PacketGroupIterator {
-    groups: Box<dyn Iterator<Item = my::PacketGroup> + Send>,
+    groups: Box<dyn Iterator<Item = my::spacepacket::PacketGroup> + Send>,
 }
 
 #[pymethods]
@@ -360,14 +364,13 @@ impl RSState {
     }
 }
 
-impl From<my::RSState> for RSState {
-    fn from(value: my::RSState) -> Self {
-        use my::RSState::*;
+impl From<my::framing::RSState> for RSState {
+    fn from(value: my::framing::RSState) -> Self {
         match value {
-            Ok => Self::Ok,
-            my::RSState::Corrected(_) => Self::Corrected,
-            my::RSState::Uncorrectable(_) => Self::Uncorrectable,
-            my::RSState::NotPerformed => Self::NotPerformed,
+            my::framing::RSState::Ok => Self::Ok,
+            my::framing::RSState::Corrected(_) => Self::Corrected,
+            my::framing::RSState::Uncorrectable(_) => Self::Uncorrectable,
+            my::framing::RSState::NotPerformed => Self::NotPerformed,
         }
     }
 }
@@ -432,12 +435,12 @@ impl Frame {
 
     #[staticmethod]
     fn decode(dat: &[u8]) -> Option<Self> {
-        my::Frame::decode(dat.to_vec()).map(Self::with_frame)
+        my::framing::Frame::decode(dat.to_vec()).map(Self::with_frame)
     }
 }
 
 impl Frame {
-    fn with_frame(frame: my::Frame) -> Self {
+    fn with_frame(frame: my::framing::Frame) -> Self {
         let h = frame.header;
         Self {
             header: VCDUHeader {
@@ -453,8 +456,8 @@ impl Frame {
             data: frame.data,
         }
     }
-    fn with_decoded_frame(decoded_frame: my::DecodedFrame) -> Self {
-        use my::RSState::{Corrected, NotPerformed, Ok, Uncorrectable};
+    fn with_decoded_frame(decoded_frame: my::framing::DecodedFrame) -> Self {
+        use my::framing::RSState::{Corrected, NotPerformed, Ok, Uncorrectable};
         let frame = decoded_frame.frame;
         let h = frame.header;
         Self {
@@ -480,7 +483,7 @@ impl Frame {
 
 #[pyclass]
 struct FrameIterator {
-    frames: Box<dyn Iterator<Item = my::DecodedFrame> + Send>,
+    frames: Box<dyn Iterator<Item = my::framing::DecodedFrame> + Send>,
 }
 
 #[pymethods]
@@ -550,7 +553,7 @@ fn decode_eoscuc_timecode(dat: &[u8]) -> PyResult<u64> {
 /// Note, packet sequence counters are per-APID.
 #[pyfunction(signature=(cur, last))]
 fn missing_packets(cur: u16, last: u16) -> u16 {
-    my::missing_packets(cur, last)
+    my::spacepacket::missing_packets(cur, last)
 }
 
 /// Calculate the number of missing frames between cur and last.
@@ -558,7 +561,7 @@ fn missing_packets(cur: u16, last: u16) -> u16 {
 /// Note frame sequence counts are per-VCID.
 #[pyfunction(signature=(cur, last))]
 fn missing_frames(cur: u32, last: u32) -> u32 {
-    my::missing_frames(cur, last)
+    my::framing::missing_frames(cur, last)
 }
 
 #[pyclass]
@@ -745,7 +748,7 @@ fn ccsdspy(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(missing_frames, m)?)?;
     m.add_function(wrap_pyfunction!(framing_config, m)?)?;
 
-    m.add("ASM", my::ASM)?;
+    m.add("ASM", my::framing::ASM)?;
 
     Ok(())
 }
