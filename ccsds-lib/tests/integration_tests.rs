@@ -83,6 +83,9 @@ fn full_decode() {
     assert_eq!(frames.len(), 65, "expected frame count doesn't match");
 
     let packets: Vec<DecodedPacket> = decode_framed_packets(frames.into_iter(), 0, 0).collect();
+    for p in &packets {
+        println!("{:?}", p.packet.header);
+    }
     assert_eq!(packets.len(), 12, "expected packet count doesn't match");
 
     let mut hasher = Md5::new();
@@ -127,7 +130,7 @@ fn merge_test() {
     let packets: Vec<Packet> = decode_packets(merged).map(Result::unwrap).collect();
     assert_eq!(
         packets.len(),
-        244,
+        235,
         "Expected 235 packets, got {}",
         packets.len()
     );

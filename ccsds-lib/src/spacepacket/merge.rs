@@ -10,9 +10,9 @@ use std::{
 use hifitime::{Duration, Epoch};
 use tracing::{debug, error, trace, warn};
 
-use crate::spacepacket::{Apid, Error, PacketGroupIter, PacketReaderIter, PrimaryHeader};
+use crate::spacepacket::{Apid, Error, PrimaryHeader};
 
-use super::TimecodeDecoder;
+use super::{collect_groups, decode_packets, TimecodeDecoder};
 
 /// Merge, sort, and deduplicate multiple packet data files into a single file.
 ///
@@ -20,10 +20,17 @@ use super::TimecodeDecoder;
 /// Therefore, all packets in each packet data file must either have a time that can
 /// be decoded using `time_decoder` or be part of a packet group with a first packet
 /// with a time that can be decoded by `time_decoder`.
+///
+/// Packets are all grouped when merging using [collect_groups] when merging. Any incomplete
+/// groups, i.e., groups where [PacketGroup::complete](super::PacketGroup) returns `false`,
+/// are dropped and not merged.
+///
+/// Additionally, any packet groups where a timecode cannot be successfully decode are dropped.
 pub struct Merger {
     paths: Vec<PathBuf>,
     time_decoder: TimecodeDecoder,
-    order: Vec<Apid>,
+    /// Maps an APID to its value used for ordering.
+    order: HashMap<Apid, i32>,
     from: Option<u64>,
     to: Option<u64>,
     apids: Option<Vec<Apid>>,
@@ -34,7 +41,7 @@ impl Merger {
         Self {
             paths: paths.iter().map(|s| s.as_ref().to_path_buf()).collect(),
             time_decoder: decoder,
-            order: Vec::default(),
+            order: HashMap::default(),
             from: None,
             to: None,
             apids: None,
@@ -43,9 +50,13 @@ impl Merger {
 
     /// Merged output will be sorted according the given order when multiple APIDs are available
     /// for a given time. APIDs appearing first in `order` will appear first in the output. If an
-    /// APID is not in `order` its value will be used to determine the order.
+    /// APID is not in `order` its numerical APID value will be used to determine the order.
     pub fn with_apid_order(mut self, order: &[Apid]) -> Self {
-        self.order = order.to_vec();
+        for (i, a) in order.iter().enumerate() {
+            // order will be negative enough to not interfere with valid APIDs (0-2048) while still
+            // supporting ordering as necessary.
+            self.order.insert(*a, 4096 - i as i32);
+        }
         self
     }
 
@@ -67,6 +78,7 @@ impl Merger {
         self
     }
 
+    /// Perform the merge writing output to `writer`.
     pub fn merge<W: Write>(self, mut writer: W) -> Result<(), Error> {
         let to = epoch_or_default(self.to, 2200);
         let from = epoch_or_default(self.from, 1900);
@@ -77,46 +89,48 @@ impl Merger {
             trace!("opening reader: {path:?}");
             readers.insert(path.clone(), BufReader::new(File::open(path)?));
         }
-        let order: HashMap<Apid, Apid> = self
-            .order
-            .into_iter()
-            .enumerate()
-            .map(|(i, a)| (a, Apid::try_from(i).unwrap()))
-            .collect();
 
         let mut index: HashSet<Ptr> = HashSet::default();
         for (path, reader) in &mut readers {
-            let packets = PacketReaderIter::new(reader).filter_map(Result::ok);
-            let pointers = PacketGroupIter::with_packets(packets)
+            let packets = decode_packets(reader).filter_map(Result::ok);
+            let pointers = collect_groups(packets)
                 .filter_map(Result::ok)
                 .filter_map(|g| {
-                    if g.packets.is_empty()
-                        || !(g.packets[0].is_first() || g.packets[0].is_standalone())
-                    {
-                        // Drop incomplete packet groups
+                    if g.packets.is_empty() {
+                        warn!("dropping group with no packets");
                         return None;
                     }
                     let first = &g.packets[0];
-                    let epoch = self
-                        .time_decoder
-                        .decode(first)
-                        .unwrap_or_else(|_| {
-                            panic!(
-                                "failed to decode timecode from {first}: {:?}",
-                                &first.data[..14]
-                            )
-                        })
-                        .epoch()
-                        .unwrap();
+                    // If the first packet in the group is not a first or standalone packet the
+                    // group is "corrupt"
+                    if !(first.is_first() || first.is_standalone()) {
+                        warn!(
+                            header=?first.header,
+                            packets = g.packets.len(),
+                            "dropping bad group"
+                        );
+                        return None;
+                    }
 
-                    // enforce time range, inclusice on the from, exclusive on to
+                    // Timecode comparisons
+                    let Ok(timecode) = self.time_decoder.decode(first) else {
+                        error!(header=?first.header, "timecode decode error; skipping");
+                        return None;
+                    };
+                    let Ok(epoch) = timecode.epoch() else {
+                        error!(header=?first.header, "timecode epoch error; skipping");
+                        return None;
+                    };
                     if epoch < from {
+                        debug!(?epoch, "dropping group before 'from'");
                         return None;
                     }
                     if epoch >= to {
+                        debug!(?epoch, "dropping group after 'to'");
                         return None;
                     }
                     if !apids.is_empty() && !apids.contains(&first.header.apid) {
+                        debug!(apid = first.header.apid, "dropping apid not in list");
                         return None;
                     }
 
@@ -134,63 +148,12 @@ impl Merger {
                         apid: first.header.apid,
                         seqid: first.header.sequence_id,
                         size: total_size,
-                        order: *order.get(&first.header.apid).unwrap_or(&first.header.apid),
+                        order: *self
+                            .order
+                            .get(&first.header.apid)
+                            .unwrap_or(&(first.header.apid as i32)),
                     })
                 })
-                //.filter_map(|g| {
-                //    if g.packets.is_empty() {
-                //        warn!("dropping group with no packets");
-                //        return None;
-                //    }
-                //    let first = &g.packets[0];
-                //    if !(first.is_first() || first.is_standalone()) {
-                //        warn!(
-                //            header=?first.header,
-                //            packets = g.packets.len(),
-                //            "dropping partial group"
-                //        );
-                //        return None;
-                //    }
-                //
-                //    // Timecode comparisons
-                //    let Ok(timecode) = self.time_decoder.decode(first) else {
-                //        error!(header=?first.header, "timecode decode error; skipping");
-                //        return None;
-                //    };
-                //    let Ok(epoch) = timecode.epoch() else {
-                //        error!(header=?first.header, "timecode epoch error; skipping");
-                //        return None;
-                //    };
-                //    if epoch < from {
-                //        debug!(?epoch, "dropping group before 'from'");
-                //        return None;
-                //    }
-                //    if epoch >= to {
-                //        debug!(?epoch, "dropping group after 'to'");
-                //        return None;
-                //    }
-                //    if !apids.is_empty() && !apids.contains(&first.header.apid) {
-                //        debug!(apid = first.header.apid, "dropping apid not in list");
-                //        return None;
-                //    }
-                //
-                //    // total size of all packets in group
-                //    let total_size = g
-                //        .packets
-                //        .iter()
-                //        .map(|p| PrimaryHeader::LEN + p.header.len_minus1 as usize + 1)
-                //        .sum();
-                //
-                //    Some(Ptr {
-                //        path: (*path).clone(),
-                //        offset: first.offset,
-                //        time: epoch,
-                //        apid: first.header.apid,
-                //        seqid: first.header.sequence_id,
-                //        size: total_size,
-                //        order: *order.get(&first.header.apid).unwrap_or(&first.header.apid),
-                //    })
-                //})
                 .collect::<HashSet<_>>();
 
             index = index.union(&pointers).cloned().collect();
@@ -203,7 +166,7 @@ impl Merger {
         for ptr in &index {
             // We know path is in readers
             let reader = readers.get_mut(&ptr.path).unwrap();
-            trace!("seeing to pointer: {ptr:?}");
+            trace!("seeking to pointer: {ptr:?}");
             reader.seek(SeekFrom::Start(ptr.offset as u64))?;
 
             let mut buf = vec![0u8; ptr.size];
@@ -238,7 +201,7 @@ struct Ptr {
     seqid: u16,
 
     // Sets the order packets are sorted in
-    order: Apid,
+    order: i32,
 }
 
 impl Hash for Ptr {

@@ -145,10 +145,8 @@ where
             if tracker.cache.len() < PrimaryHeader::LEN {
                 continue 'next_frame; // need more frame data for this vcid
             }
-            let Ok(header) = PrimaryHeader::decode(&tracker.cache) else {
-                debug!("failed to decode primary header");
-                continue 'next_frame;
-            };
+            let mut header =
+                PrimaryHeader::decode(&tracker.cache).expect("failed to decode primary header");
             let mut need = header.len_minus1 as usize + 1 + PrimaryHeader::LEN;
             if tracker.cache.len() < need {
                 continue; // need more frame data for this vcid
@@ -157,15 +155,12 @@ where
             loop {
                 // Grab data we need and update the cache
                 let (data, tail) = tracker.cache.split_at(need);
-                let Ok(header) = PrimaryHeader::decode(data) else {
-                    debug!("failed to decode primary header");
-                    continue;
-                };
                 let packet = DecodedPacket {
                     scid: frame.header.scid,
                     vcid: frame.header.vcid,
                     packet: Packet {
-                        header,
+                        header: PrimaryHeader::decode(data)
+                            .expect("failed to decode primary header"),
                         data: data.to_vec(),
                         offset: 0,
                     },
@@ -176,6 +171,8 @@ where
                 if tracker.cache.len() < PrimaryHeader::LEN {
                     break;
                 }
+                header =
+                    PrimaryHeader::decode(&tracker.cache).expect("failed to decode primary header");
                 need = header.len_minus1 as usize + 1 + PrimaryHeader::LEN;
                 if tracker.cache.len() < need {
                     break;
