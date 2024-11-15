@@ -1,37 +1,19 @@
+mod error;
 mod merge;
 mod summary;
+mod timecode;
 
-use std::collections::HashMap;
 use std::fmt::Display;
 use std::io::Read;
 
-use super::timecode;
 use serde::{Deserialize, Serialize};
 
-pub use merge::Merger;
+pub use error::*;
+pub use merge::*;
 pub use summary::*;
+pub use timecode::*;
 
 pub type Apid = u16;
-
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum Error {
-    /// IO error reading or decoding packets
-    #[error(transparent)]
-    IO(#[from] std::io::Error),
-
-    #[error("Not enough bytes")]
-    NotEnoughData {
-        /// Number of bytes we got
-        actual: usize,
-        /// Minimum number of expected bytes
-        minimum: usize,
-    },
-
-    /// Error handling or decoding a timecode
-    #[error(transparent)]
-    Timecode(#[from] super::timecode::Error),
-}
 
 /// Packet represents a single CCSDS space packet and its associated data.
 ///
@@ -42,7 +24,7 @@ pub enum Error {
 /// # Example
 /// Create a packet from the minimum number of bytes.
 /// ```
-/// use ccsds::{Packet, PrimaryHeader};
+/// use ccsds::spacepacket::{Packet, PrimaryHeader};
 ///
 /// let dat: &[u8] = &[
 ///     // primary header bytes
@@ -52,8 +34,7 @@ pub enum Error {
 ///     // minimum 1 byte of user data
 ///     0xff
 /// ];
-/// let mut r = std::io::BufReader::new(dat);
-/// let packet = Packet::read(&mut r).unwrap();
+/// let packet = Packet::decode(dat).unwrap();
 /// ```
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Packet {
@@ -178,6 +159,44 @@ impl PrimaryHeader {
     }
 }
 
+/// Packet data representing a CCSDS packet group according to the packet
+/// sequencing value in primary header.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PacketGroup {
+    pub apid: Apid,
+    pub packets: Vec<Packet>,
+}
+
+impl PacketGroup {
+    /// Return true if this packet group is complete.
+    ///
+    /// Valid means at least 1 packet and all the packets for a complete group with no missing
+    /// packets.
+    #[allow(clippy::missing_panics_doc)]
+    #[must_use]
+    pub fn complete(&self) -> bool {
+        if self.packets.is_empty() {
+            false
+        } else if self.packets.len() == 1 {
+            self.packets[0].is_standalone()
+        } else {
+            self.packets[0].is_first()
+                && self.packets.last().unwrap().is_last()
+                && self.have_missing()
+        }
+    }
+
+    #[must_use]
+    pub fn have_missing(&self) -> bool {
+        for (a, b) in self.packets.iter().zip(self.packets[1..].iter()) {
+            if missing_packets(a.header.sequence_id, b.header.sequence_id) > 0 {
+                return true;
+            }
+        }
+        false
+    }
+}
+
 /// Calculate the number of missing sequence ids.
 ///
 /// `cur` is the current sequence id. `last` is the sequence id seen before `cur`.
@@ -195,6 +214,77 @@ pub fn missing_packets(cur: u16, last: u16) -> u16 {
         return cur - last - 1;
     }
     0
+}
+
+/// Return an iterator providing [Packet] data read from a byte synchronized ungrouped
+/// packet stream.
+///
+/// For packet streams that may contain packets that utilize packet grouping see
+/// ``decode_packet_groups``.
+///
+/// # Examples
+/// ```
+/// use ccsds::spacepacket::decode_packets;
+///
+/// let dat: &[u8] = &[
+///     // primary header bytes
+///     0xd, 0x59, 0xd2, 0xab, 0x0, 07,
+///     // CDS timecode bytes in secondary header
+///     0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
+///     // minimum 1 byte of user data
+///     0xff
+/// ];
+///
+/// let r = std::io::BufReader::new(dat);
+/// decode_packets(r).for_each(|zult| {
+///     let packet = zult.unwrap();
+///     assert_eq!(packet.header.apid, 1369);
+/// });
+/// ```
+pub fn decode_packets<R>(reader: R) -> impl Iterator<Item = Result<Packet, Error>> + Send
+where
+    R: Read + Send,
+{
+    PacketReaderIter::new(reader)
+}
+
+/// Return an [Iterator] that groups read packets into [PacketGroup]s.
+///
+/// This is necessary for packet streams containing APIDs that utilize packet grouping sequence
+/// flags values [SEQ_FIRST](PrimaryHeader), [SEQ_CONTINUATION](PrimaryHeader), and
+/// [SEQ_LAST](PrimaryHeader). It can also be used for
+/// non-grouped APIDs ([SEQ_UNSEGMENTED](PrimaryHeader)), however, it is not necessary in such
+/// cases and will result in each group containing a single packet.
+/// See [sequence_flags](PrimaryHeader).
+///
+/// # Examples
+///
+/// Reading packets from data file of space packets (level-0) would look something
+/// like this:
+/// ```
+/// use ccsds::spacepacket::{Packet, collect_groups};
+///
+/// // data file stand-in
+/// let dat: &[u8] = &[
+///     // primary header bytes
+///     0xd, 0x59, 0xd2, 0xab, 0x0, 07,
+///     // CDS timecode bytes in secondary header
+///     0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
+///     // minimum 1 byte of user data
+///     0xff
+/// ];
+///
+/// let packets = vec![Packet::decode(dat).unwrap()];
+/// collect_groups(packets.into_iter()).for_each(|zult| {
+///     let packet = zult.unwrap();
+///     assert_eq!(packet.apid, 1369);
+/// });
+/// ```
+pub fn collect_groups<I>(packets: I) -> impl Iterator<Item = Result<PacketGroup, Error>> + Send
+where
+    I: Iterator<Item = Packet> + Send,
+{
+    PacketGroupIter::with_packets(packets)
 }
 
 struct PacketReaderIter<R>
@@ -236,44 +326,6 @@ where
                 Some(Err(err))
             }
         }
-    }
-}
-
-/// Packet data representing a CCSDS packet group according to the packet
-/// sequencing value in primary header.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct PacketGroup {
-    pub apid: Apid,
-    pub packets: Vec<Packet>,
-}
-
-impl PacketGroup {
-    /// Return true if this packet group is complete.
-    ///
-    /// Valid means at least 1 packet and all the packets for a complete group with no missing
-    /// packets.
-    #[allow(clippy::missing_panics_doc)]
-    #[must_use]
-    pub fn complete(&self) -> bool {
-        if self.packets.is_empty() {
-            false
-        } else if self.packets.len() == 1 {
-            self.packets[0].is_standalone()
-        } else {
-            self.packets[0].is_first()
-                && self.packets.last().unwrap().is_last()
-                && self.have_missing()
-        }
-    }
-
-    #[must_use]
-    pub fn have_missing(&self) -> bool {
-        for (a, b) in self.packets.iter().zip(self.packets[1..].iter()) {
-            if missing_packets(a.header.sequence_id, b.header.sequence_id) > 0 {
-                return true;
-            }
-        }
-        false
     }
 }
 
@@ -371,125 +423,6 @@ where
                 packets: vec![packet],
             })),
             None => None,
-        }
-    }
-}
-
-/// Return an iterator providing [Packet] data read from a byte synchronized ungrouped
-/// packet stream.
-///
-/// For packet streams that may contain packets that utilize packet grouping see
-/// ``decode_packet_groups``.
-///
-/// # Examples
-/// ```
-/// use ccsds::decode_packets;
-///
-/// let dat: &[u8] = &[
-///     // primary header bytes
-///     0xd, 0x59, 0xd2, 0xab, 0x0, 07,
-///     // CDS timecode bytes in secondary header
-///     0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
-///     // minimum 1 byte of user data
-///     0xff
-/// ];
-///
-/// let r = std::io::BufReader::new(dat);
-/// decode_packets(r).for_each(|zult| {
-///     let packet = zult.unwrap();
-///     assert_eq!(packet.header.apid, 1369);
-/// });
-/// ```
-pub fn decode_packets<R>(reader: R) -> impl Iterator<Item = Result<Packet, Error>> + Send
-where
-    R: Read + Send,
-{
-    PacketReaderIter::new(reader)
-}
-
-/// Return an [Iterator] that groups read packets into [PacketGroup]s.
-///
-/// This is necessary for packet streams containing APIDs that utilize packet grouping sequence
-/// flags values [SEQ_FIRST](PrimaryHeader), [SEQ_CONTINUATION](PrimaryHeader), and
-/// [SEQ_LAST](PrimaryHeader). It can also be used for
-/// non-grouped APIDs ([SEQ_UNSEGMENTED](PrimaryHeader)), however, it is not necessary in such
-/// cases and will result in each group containing a single packet.
-/// See [sequence_flags](PrimaryHeader).
-///
-/// # Examples
-///
-/// Reading packets from data file of space packets (level-0) would look something
-/// like this:
-/// ```
-/// use ccsds::spacepacket::{Packet, collect_groups};
-///
-/// // data file stand-in
-/// let dat: &[u8] = &[
-///     // primary header bytes
-///     0xd, 0x59, 0xd2, 0xab, 0x0, 07,
-///     // CDS timecode bytes in secondary header
-///     0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
-///     // minimum 1 byte of user data
-///     0xff
-/// ];
-///
-/// let packets = vec![Packet::decode(dat)];
-/// collect_groups(r).for_each(|zult| {
-///     let packet = zult.unwrap();
-///     assert_eq!(packet.apid, 1369);
-/// });
-/// ```
-pub fn collect_groups<I>(packets: I) -> impl Iterator<Item = Result<PacketGroup, Error>> + Send
-where
-    I: Iterator<Item = Packet> + Send,
-{
-    PacketGroupIter::with_packets(packets)
-}
-
-/// Helper class to decode [Timecode](timecode::Timecode)s from [Packet]s.
-///
-/// It manages the match up of packet APIDs to a timecode [Format](timecode::Format), supporting a
-/// default format for the case where a specific format for an APID is not found.
-///
-/// For sequences of packets containing only a single format only the default will be necessary.
-pub struct TimecodeDecoder {
-    formats: HashMap<Apid, timecode::Format>,
-    default: Option<timecode::Format>,
-}
-
-impl TimecodeDecoder {
-    pub fn new(default: Option<timecode::Format>) -> Self {
-        Self {
-            formats: HashMap::default(),
-            default,
-        }
-    }
-
-    fn format_for(&self, packet: &Packet) -> Option<timecode::Format> {
-        match self.formats.get(&packet.header.apid) {
-            Some(fmt) => Some(fmt.clone()),
-            None => self.default.clone(),
-        }
-    }
-
-    /// Register `format` as a specific format to use for each of `apids`.
-    pub fn register(&mut self, format: timecode::Format, apids: &[Apid]) {
-        apids.iter().for_each(|a| {
-            self.formats.insert(*a, format.clone());
-        });
-    }
-
-    /// Decode a timecode from `packet`.
-    ///
-    /// # Errors
-    /// If a timecode cannot be decoded for `packet` or if there is not specific format for the
-    /// packet's APID and their is no default to fall back to.
-    pub fn decode(&self, packet: &Packet) -> Result<timecode::Timecode, Error> {
-        match self.format_for(packet) {
-            Some(fmt) => Ok(timecode::decode(&fmt, &packet.data)?),
-            None => Err(Error::Timecode(timecode::Error::Unsupported(
-                "No timecode format",
-            ))),
         }
     }
 }

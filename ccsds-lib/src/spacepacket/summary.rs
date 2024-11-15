@@ -15,9 +15,12 @@ pub struct ApidSummary {
 ///
 /// # Example
 /// ```
+/// use std::io::Read;
+/// use ccsds::spacepacket::{Packet, decode_packets, Summary};
 /// let dat: &[u8] = &[0xd, 0x59, 0xc0, 0x01, 0x0, 0x8, 0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff];
 ///
-/// let packets: Vec<Packet> = PacketReaderIter::new(&dat)
+/// let mut summary = Summary::default();
+/// let packets: Vec<Packet> = decode_packets(dat)
 ///     .filter_map(Result::ok)
 ///     .inspect(|p| {
 ///         summary.add(p);

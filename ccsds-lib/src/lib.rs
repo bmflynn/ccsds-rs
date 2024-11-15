@@ -28,7 +28,7 @@
 //! ```no_run
 //! use std::fs::File;
 //! use std::io::BufReader;
-//! use ccsds::{ASM, FrameRSDecoder, SCID, Synchronizer, decode_framed_packets};
+//! use ccsds::framing::{ASM, FrameRSDecoder, SCID, Synchronizer, decode_framed_packets};
 //!
 //! // Framing configuration
 //! let block_len = 1020; // CADU length - ASM length
@@ -61,7 +61,7 @@
 //! ```no_run
 //! use std::fs::File;
 //! use std::io::BufReader;
-//! use ccsds::{ASM, FrameDecoder, SCID, Synchronizer, decode_framed_packets};
+//! use ccsds::framing::{ASM, FrameDecoder, SCID, Synchronizer, decode_framed_packets};
 //!
 //! let block_len = 892; // Frame length
 //! let interleave: u8 = 4;
