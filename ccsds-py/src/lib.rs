@@ -1,5 +1,5 @@
 use ccsds as my;
-use ccsds::framing::{PNDecoder, ReedSolomon};
+use ccsds::framing::{Derandomizer, ReedSolomon};
 use ccsds::timecode;
 use pyo3::types::PyList;
 use pyo3::{
@@ -40,7 +40,7 @@ fn synchronized_blocks(
     asm: Option<&[u8]>,
 ) -> PyResult<BlockIterator> {
     let file: Box<dyn Read + Send> = Box::new(File::open(source)?);
-    let asm = asm.unwrap_or(&my::framing::ASM);
+    let asm = asm.unwrap_or(&my::framing::Asm);
 
     let blocks = my::framing::Synchronizer::new(file, asm, block_size)
         .into_iter()
@@ -69,7 +69,7 @@ fn pndecode<'a>(py: Python<'a>, dat: &[u8]) -> PyResult<Bound<'a, PyBytes>> {
             "PN data longer than 1275 bytes".to_string(),
         ));
     }
-    let dat = my::framing::DefaultPN {}.decode(dat);
+    let dat = my::framing::DefaultDerandomizer {}.derandomize(dat);
     let bytes = PyBytes::new_bound(py, &dat);
     Ok(bytes)
 }
@@ -748,7 +748,7 @@ fn ccsdspy(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(missing_frames, m)?)?;
     m.add_function(wrap_pyfunction!(framing_config, m)?)?;
 
-    m.add("ASM", my::framing::ASM)?;
+    m.add("ASM", my::framing::Asm)?;
 
     Ok(())
 }

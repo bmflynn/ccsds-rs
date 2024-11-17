@@ -28,7 +28,7 @@
 //! ```no_run
 //! use std::fs::File;
 //! use std::io::BufReader;
-//! use ccsds::framing::{ASM, FrameRSDecoder, SCID, Synchronizer, decode_framed_packets};
+//! use ccsds::framing::{ASM, Decoder, Scid, Synchronizer, decode_framed_packets};
 //!
 //! // Framing configuration
 //! let block_len = 1020; // CADU length - ASM length
@@ -43,9 +43,7 @@
 //!     .filter_map(Result::ok);
 //!
 //! // 2. Decode (PN & RS) those blocks into Frames, ignoring frames with errors
-//! let frames = FrameRSDecoder::builder()
-//!     .interleave(4)
-//!     .build()
+//! let frames = Decoder::default_ccsds(4)
 //!     .decode(blocks)
 //!     .filter_map(Result::ok);
 //!
@@ -61,7 +59,12 @@
 //! ```no_run
 //! use std::fs::File;
 //! use std::io::BufReader;
-//! use ccsds::framing::{ASM, FrameDecoder, SCID, Synchronizer, decode_framed_packets};
+//! use ccsds::framing::{
+//!     ASM, Decoder,
+//!     DefaultDerandomizer, Scid, Synchronizer,
+//!     decode_framed_packets,
+//!     DefaultReedSolomon,
+//! };
 //!
 //! let block_len = 892; // Frame length
 //! let interleave: u8 = 4;
@@ -75,10 +78,9 @@
 //!     .filter_map(Result::ok);
 //!
 //! // 2. Decode blocks into Frames
-//! let frames = FrameDecoder::builder()
-//!     .pseudo_randomized(false)
-//!     .build()
-//!     .decode(blocks);
+//! let frames = Decoder::new()
+//!     .decode(blocks)
+//!     .filter_map(Result::ok);
 //!
 //! // 3. Extract packets from Frames
 //! let packets = decode_framed_packets(frames, izone_len, trailer_len);
@@ -105,6 +107,7 @@
 mod error;
 
 pub mod framing;
+pub mod prelude;
 pub mod spacecrafts;
 pub mod spacepacket;
 pub mod timecode;

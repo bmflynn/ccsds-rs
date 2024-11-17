@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use crate::timecode::{decode as decode_timecode, Format, Timecode};
 
-/// Helper class to decode [Timecode](timecode::Timecode)s from [Packet]s.
+/// Helper class to decode [Timecode]s from [Packet]s.
 ///
 /// It manages the match up of packet APIDs to a timecode [Format](Format), supporting a
 /// default format for the case where a specific format for an APID is not found.

@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Result};
-use ccsds::framing::SCID;
+use ccsds::framing::Scid;
 use ccsds::spacecrafts::Spacecrafts;
 use handlebars::handlebars_helper;
 use serde::Serialize;
@@ -11,7 +11,7 @@ use std::{
 
 pub fn spacecraft_info<P: AsRef<Path>>(
     path: Option<P>,
-    scid: Option<SCID>,
+    scid: Option<Scid>,
     show_apids: bool,
     show_vcids: bool,
 ) -> Result<()> {

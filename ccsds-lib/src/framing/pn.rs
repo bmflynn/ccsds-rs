@@ -157,8 +157,8 @@ fn _decode(buf: &mut [u8]) {
 }
 
 /// An implementation of Pseudo-noise removal.
-pub trait PNDecoder: Send + Sync {
-    fn decode(&self, dat: &[u8]) -> Vec<u8>;
+pub trait Derandomizer: Send + Sync {
+    fn derandomize(&self, dat: &[u8]) -> Vec<u8>;
 }
 
 /// Remove pseudo-noise for data up to the length of [SEQUENCE].
@@ -167,7 +167,7 @@ pub trait PNDecoder: Send + Sync {
 /// - If the provided data is longer than [SEQUENCE]
 ///
 // FIXME: Support data longer than [SEQUENCE]
-fn decode(buf: &[u8]) -> Vec<u8> {
+fn derandomize(buf: &[u8]) -> Vec<u8> {
     assert!(
         buf.len() <= SEQUENCE.len(),
         "data longer than the PN sequence: got {}, wanted < {}",
@@ -183,11 +183,12 @@ fn decode(buf: &[u8]) -> Vec<u8> {
 
 /// ``PNDecoder`` implementing standard CCSDS pseudo-noise derandomizon
 /// (See [`TM Synchronization and Channel Coding`](https://public.ccsds.org/Pubs/131x0b5.pdf))
-pub struct DefaultPN;
+#[derive(Clone, Default)]
+pub struct DefaultDerandomizer;
 
-impl PNDecoder for DefaultPN {
-    fn decode(&self, dat: &[u8]) -> Vec<u8> {
-        decode(dat)
+impl Derandomizer for DefaultDerandomizer {
+    fn derandomize(&self, dat: &[u8]) -> Vec<u8> {
+        derandomize(dat)
     }
 }
 
@@ -224,7 +225,7 @@ mod tests {
 
         let mut buf = [0u8; 6];
         buf.clone_from_slice(&dat[..]);
-        let zult = decode(&buf);
+        let zult = derandomize(&buf);
 
         for (i, (a, b)) in zult.iter().zip(expected.iter()).enumerate() {
             assert_eq!(*a, *b, "failed at index {i}");

@@ -5,12 +5,11 @@ use std::{
 
 use tracing::{debug, trace};
 
+use crate::framing::{integrity::Integrity, DecodedFrame, Scid, Vcid};
 use crate::spacepacket::{Packet, PrimaryHeader};
 
-use super::{DecodedFrame, SCID, VCID};
-
 struct VcidTracker {
-    vcid: VCID,
+    vcid: Vcid,
     /// Caches partial packets for this vcid
     cache: Vec<u8>,
     // True when any frame used to fill the cache was rs corrected
@@ -21,7 +20,7 @@ struct VcidTracker {
 }
 
 impl VcidTracker {
-    fn new(vcid: VCID) -> Self {
+    fn new(vcid: Vcid) -> Self {
         VcidTracker {
             vcid,
             sync: false,
@@ -49,10 +48,11 @@ impl Display for VcidTracker {
     }
 }
 
+/// A [Packet] with additional framing metadata.
 #[derive(Debug, Clone)]
 pub struct DecodedPacket {
-    pub scid: SCID,
-    pub vcid: VCID,
+    pub scid: Scid,
+    pub vcid: Vcid,
     pub packet: Packet,
 }
 
@@ -66,7 +66,7 @@ where
 
     // Cache of partial packet data from frames that has not yet been decoded into
     // packets. There should only be up to about 1 frame worth of data in the cache
-    cache: HashMap<VCID, VcidTracker>,
+    cache: HashMap<Vcid, VcidTracker>,
     // Packets that have already been decoded and are waiting to be provided.
     ready: VecDeque<DecodedPacket>,
 }
@@ -78,8 +78,6 @@ where
     type Item = DecodedPacket;
 
     fn next(&mut self) -> Option<Self::Item> {
-        use rs2::RSState::{Corrected, Uncorrectable};
-
         // If there are ready packets provide the oldest one
         if let Some(packet) = self.ready.pop_front() {
             return Some(packet);
@@ -96,7 +94,7 @@ where
             let DecodedFrame {
                 frame,
                 missing,
-                rsstate,
+                integrity,
             } = frame.unwrap();
             let mpdu = frame.mpdu(self.izone_length, self.trailer_length).unwrap();
             let tracker = self
@@ -104,17 +102,18 @@ where
                 .entry(frame.header.vcid)
                 .or_insert(VcidTracker::new(frame.header.vcid));
 
-            if let Corrected(num) = rsstate {
-                debug!(vcid = %frame.header.vcid, bytes_corrected=num, "corrected frame");
-                tracker.rs_corrected = true;
-            }
-
-            // Data loss means we dump what we're working on and force resync
-            if let Uncorrectable(_) = rsstate {
-                debug!(vcid = %frame.header.vcid, tracker = %tracker, "uncorrectable frame, dropping tracker");
-                tracker.clear();
-                tracker.sync = false;
-                continue;
+            match integrity {
+                Some(Integrity::Corrected) => {
+                    debug!(vcid = %frame.header.vcid, "corrected frame");
+                    tracker.rs_corrected = true;
+                }
+                Some(Integrity::Uncorrectable) | Some(Integrity::HasErrors) => {
+                    debug!(vcid = %frame.header.vcid, tracker = %tracker, "uncorrectable or errored frame, dropping tracker");
+                    tracker.clear();
+                    tracker.sync = false;
+                    continue;
+                }
+                _ => {}
             }
             // For counter errors, we can still utilize the current frame (no continue)
             if missing > 0 {
@@ -209,7 +208,7 @@ where
     I: Iterator<Item = DecodedFrame> + Send,
 {
     FramedPacketIter {
-        frames: frames.filter(move |dc| !dc.frame.is_fill()),
+        frames: frames.filter(|dc| !dc.frame.is_fill()),
         izone_length,
         trailer_length,
         cache: HashMap::new(),

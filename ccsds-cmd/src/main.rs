@@ -9,7 +9,7 @@ use std::{fs::File, io::stderr};
 
 use anyhow::{anyhow, bail, Context, Result};
 use ccsds::spacepacket::TimecodeDecoder;
-use ccsds::{framing::SCID, spacepacket::Apid};
+use ccsds::{framing::Scid, spacepacket::Apid};
 use clap::{Parser, Subcommand};
 use hifitime::Epoch;
 use tracing::{debug, info};
@@ -94,7 +94,7 @@ enum Commands {
     Filter {
         /// Include these apids or apid ranges.
         ///
-        /// This accepts a CSV of APIDs as well as ranges of the format <start>-<end>
+        /// This accepts a CSV of APIDs as well as ranges of the format `<start>-<end>`
         /// where start and end are inclusive. For example, you can specify
         /// --include 0,1,2,3,4,5,10,20,30 or --include 0-5,10,20,30
         ///
@@ -104,7 +104,7 @@ enum Commands {
 
         /// Exclude these apids or apid ranges.
         ///
-        /// This accepts a CSV of APIDs as well as ranges of the format <start>-<end>
+        /// This accepts a CSV of APIDs as well as ranges of the format `<start>-<end>`
         /// where start is inclusive and end is exclusive.
         ///
         /// If used with --include, values are first included, then excluded.
@@ -141,11 +141,11 @@ enum Commands {
     /// This requires a spacecraft database be available a ./spacecraftdb.json or
     /// ~/.spacecraftdb.json.
     ///
-    /// See: https://github.com/bmflynn/spacecraftsdb/releases
+    /// See: <https://github.com/bmflynn/spacecraftsdb/releases>
     Spacecraft {
         /// Spacecraft identifier
         #[arg(short, long)]
-        scid: Option<SCID>,
+        scid: Option<Scid>,
 
         /// Path to spacecraft database to merge with built-in spacecrafts.
         #[arg(short, long)]

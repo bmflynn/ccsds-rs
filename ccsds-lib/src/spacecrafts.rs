@@ -1,6 +1,6 @@
 use std::{collections::HashSet, fs::File, path::Path};
 
-use crate::framing::SCID;
+use crate::framing::Scid;
 
 const SPACECRAFTSDB: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -41,7 +41,7 @@ impl Spacecrafts {
         built_in: bool,
     ) -> Result<Spacecrafts, std::io::Error> {
         let mut db: spacecrafts::DB = serde_json::from_reader(File::open(path)?)?;
-        let file_ids: HashSet<SCID> = db.spacecrafts.iter().map(|sc| sc.scid).collect();
+        let file_ids: HashSet<Scid> = db.spacecrafts.iter().map(|sc| sc.scid).collect();
 
         if built_in {
             let builtin: spacecrafts::DB =
@@ -63,7 +63,7 @@ impl Spacecrafts {
         self.db.spacecrafts.clone()
     }
 
-    pub fn lookup(&self, scid: SCID) -> Option<spacecrafts::Spacecraft> {
+    pub fn lookup(&self, scid: Scid) -> Option<spacecrafts::Spacecraft> {
         self.db.find(scid)
     }
 }

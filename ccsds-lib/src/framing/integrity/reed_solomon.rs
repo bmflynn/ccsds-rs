@@ -1,12 +1,7 @@
-pub use rs2::{correct_message, has_errors, RSState, N, PARITY_LEN};
+use rs2::{correct_message, RSState, N, PARITY_LEN};
 
-#[derive(thiserror::Error, Debug)]
-pub enum IntegrityError {
-    #[error("input is not valid for this algorithm")]
-    InvalidInput,
-    #[error("input failed integrity check")]
-    Failed,
-}
+use super::{Error, Integrity, IntegrityAlgorithm};
+use crate::prelude::*;
 
 /// Deinterleave an interleaved RS block (code block + check symbols).
 ///
@@ -14,8 +9,7 @@ pub enum IntegrityError {
 /// - If length of data is not a multiple of the interleave
 ///
 /// Ref: 130.1-G-2, Section 5.3
-#[must_use]
-pub fn deinterleave(data: &[u8], interleave: u8) -> Vec<[u8; 255]> {
+fn deinterleave(data: &[u8], interleave: u8) -> Vec<[u8; 255]> {
     assert!(
         data.len() % interleave as usize == 0,
         "data length must be multiple of interleave"
@@ -30,68 +24,47 @@ pub fn deinterleave(data: &[u8], interleave: u8) -> Vec<[u8; 255]> {
     zult
 }
 
-pub trait ReedSolomon: Send + Sync {
-    /// Correct an interleaved code block, i.e., a codeblock that is `255 * interleave` in length.
-    ///
-    /// This returns the code block data without the RS check symbols/bytes and a state indicating
-    /// the algorithm disposition.
-    ///
-    /// ## Errors
-    /// This returns ``IntegrityError::InvalidInput`` if length of `block` is not `255 * interleave`.
-    /// ``IntegrityError::Failed`` will be returned if correction is attempted but failed, likely
-    /// because there were more errors found than could be corrected.
-    ///
-    /// ## Panics
-    /// - If interleave is 0
-    ///
-    /// [can_correct]: Self::can_correct
-    fn correct_codeblock(
-        &self,
-        block: &[u8],
-        interleave: u8,
-    ) -> Result<(Vec<u8>, RSState), IntegrityError>;
+/// CCSDS documented Reed-Solomon (223/255) Forward Error Correction.
+#[derive(Clone, Debug)]
+pub struct DefaultReedSolomon {
+    pub interleave: u8,
+    pub parity_len: usize,
 }
 
-/// Implements the CCSDS documented Reed-Solomon (223/255) Forward Error Correct.
-///
-/// All blocks must must be a multiple of 255 bytes, otherwise ``Self::correct_codeblock`` will
-/// return ``IntegrityError::InvalidInput``.
-#[derive(Clone)]
-pub struct DefaultReedSolomon;
-
 impl DefaultReedSolomon {
+    pub fn new(interleave: u8) -> Self {
+        Self {
+            interleave,
+            parity_len: PARITY_LEN,
+        }
+    }
     fn can_correct(block: &[u8], interleave: u8) -> bool {
         block.len() == N as usize * interleave as usize
     }
-
-    fn strip_parity(block: &[u8], interleave: u8) -> Vec<u8> {
-        // Length without the RS parity bytes. This is effectively the frame
-        let data_len = block.len() - (interleave as usize * PARITY_LEN);
-        block[..data_len].to_vec()
-    }
 }
 
-impl ReedSolomon for DefaultReedSolomon {
-    fn correct_codeblock(
-        &self,
-        block: &[u8],
-        interleave: u8,
-    ) -> Result<(Vec<u8>, RSState), IntegrityError> {
-        assert!(interleave != 0, "interleave cannot be 0");
-
-        if !DefaultReedSolomon::can_correct(block, interleave) {
-            return Err(IntegrityError::InvalidInput);
+//impl Corrector for DefaultReedSolomon {
+impl IntegrityAlgorithm for DefaultReedSolomon {
+    fn perform(&self, cadu_dat: &[u8]) -> Result<(Integrity, Vec<u8>)> {
+        if !DefaultReedSolomon::can_correct(cadu_dat, self.interleave) {
+            return Err(Error::IntegrityAlgorithm(format!(
+                "codeblock len={} cannot be corrected by this algorithm with interleave={}",
+                cadu_dat.len(),
+                self.interleave,
+            )));
         }
 
-        let block: Vec<u8> = block.to_vec();
+        let block: Vec<u8> = cadu_dat.to_vec();
         let mut corrected = vec![0u8; block.len()];
         let mut num_corrected = 0;
-        let messages = deinterleave(&block, interleave);
+        let messages = deinterleave(cadu_dat, self.interleave);
         for (idx, msg) in messages.iter().enumerate() {
             let zult = correct_message(msg);
             match zult.state {
                 RSState::Uncorrectable(_) => {
-                    return Err(IntegrityError::Failed);
+                    let zult =
+                        &corrected[..block.len() - (self.interleave as usize + self.parity_len)];
+                    return Ok((Integrity::Uncorrectable, zult.to_vec()));
                 }
                 RSState::Corrected(num) => {
                     num_corrected += num;
@@ -100,17 +73,15 @@ impl ReedSolomon for DefaultReedSolomon {
             }
             let message = zult.message.expect("corrected rs message has no data");
             for j in 0..message.len() {
-                corrected[idx + j * interleave as usize] = message[j];
+                corrected[idx + j * self.interleave as usize] = message[j];
             }
         }
 
-        let zult = Self::strip_parity(&corrected, interleave);
-        let state = match num_corrected {
-            0 => RSState::Ok, // no rs messages in block were corrected
-            _ => RSState::Corrected(num_corrected),
-        };
-
-        Ok((zult, state))
+        let zult = &corrected[..block.len() - (self.interleave as usize * self.parity_len)];
+        match num_corrected {
+            0 => Ok((Integrity::Ok, zult.to_vec())),
+            _ => Ok((Integrity::Corrected, zult.to_vec())),
+        }
     }
 }
 
@@ -150,31 +121,37 @@ mod tests {
     }
 
     fn test_correct_codeblock(interleave: u8, blocksize: usize) {
-        let mut block = vec![0u8; FIXTURE_MSG.len() * interleave as usize];
+        let mut cadu = vec![0u8; FIXTURE_MSG.len() * interleave as usize];
 
         // Interleave the same message interleave number of times
         for j in 0..FIXTURE_MSG.len() {
             for i in 0..interleave {
-                block[interleave as usize * j + i as usize] = FIXTURE_MSG[j];
+                cadu[interleave as usize * j + i as usize] = FIXTURE_MSG[j];
             }
         }
-        assert_eq!(block.len(), blocksize); // sanity check
+        assert_eq!(cadu.len(), blocksize); // sanity check
 
-        // introduce an error by just adding one with wrap to a byte
-        block[100] += 1;
-        //let block = block;
-
-        let rs = DefaultReedSolomon {};
-        let zult = rs.correct_codeblock(&block, interleave);
-
-        let (block, state) = zult.unwrap();
+        let rs = DefaultReedSolomon::new(interleave);
         let expected_block_len = if interleave == 4 { 892 } else { 1115 };
+
+        // Check original data tests out OK
+        let (status, block) = rs.perform(&cadu).unwrap();
         assert_eq!(
-            block.len(),
-            expected_block_len,
-            "expect length {expected_block_len} for I={interleave} header and frame data"
+            status,
+            Integrity::Ok,
+            "expected source test data to not have errors, but it was not Ok"
         );
-        assert_eq!(state, RSState::Corrected(1));
+        assert_eq!(block.len(), expected_block_len);
+
+        // Introduce an error by just adding one with wrap to a byte and make sure it's corrected
+        cadu[100] += 1;
+        let (status, block) = rs.perform(&cadu).unwrap();
+        assert_eq!(
+            status,
+            Integrity::Corrected,
+            "expected data to be corrected with introduced error, it was not"
+        );
+        assert_eq!(block.len(), expected_block_len);
     }
 
     #[test]
