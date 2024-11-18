@@ -3,7 +3,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs::File,
     hash::Hash,
-    io::{BufReader, Error as IOError, Read, Seek, SeekFrom, Write},
+    io::{BufReader, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
 };
 
@@ -170,10 +170,8 @@ impl Merger {
             reader.seek(SeekFrom::Start(ptr.offset as u64))?;
 
             let mut buf = vec![0u8; ptr.size];
-            if let Err(err) = reader.read_exact(&mut buf) {
-                let msg = format!("Reading {ptr:?}: {err}");
-                return Err(Error::IO(IOError::new(std::io::ErrorKind::Other, msg)));
-            }
+            reader.read_exact(&mut buf)?;
+
             trace!("writing packet: {ptr:?}");
             writer.write_all(&buf)?;
         }

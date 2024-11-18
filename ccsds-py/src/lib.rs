@@ -40,7 +40,7 @@ fn synchronized_blocks(
     asm: Option<&[u8]>,
 ) -> PyResult<BlockIterator> {
     let file: Box<dyn Read + Send> = Box::new(File::open(source)?);
-    let asm = asm.unwrap_or(&my::framing::Asm);
+    let asm = asm.unwrap_or(&my::framing::ASM);
 
     let blocks = my::framing::Synchronizer::new(file, asm, block_size)
         .into_iter()

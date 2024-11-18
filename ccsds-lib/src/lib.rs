@@ -10,7 +10,7 @@
 //!     - Pseudo-noise removal
 //!     - Reed-Solomon FEC
 //! - Spacepacket decoding
-//!     - Telemetry packets, i.e., packets with type 0
+//!     - Telemetry packets
 //!     - Sequencing
 //!     - Packet groups
 //! - Limited support for secondary header timecodes
@@ -28,7 +28,7 @@
 //! ```no_run
 //! use std::fs::File;
 //! use std::io::BufReader;
-//! use ccsds::framing::{ASM, Decoder, Scid, Synchronizer, decode_framed_packets};
+//! use ccsds::framing::*;
 //!
 //! // Framing configuration
 //! let block_len = 1020; // CADU length - ASM length
@@ -38,14 +38,16 @@
 //!
 //! // 1. Synchronize stream and extract blocks
 //! let file = BufReader::new(File::open("snpp.dat").unwrap());
-//! let blocks = Synchronizer::new(file, &ASM.to_vec(), block_len)
+//! let cadus = Synchronizer::new(file, &ASM.to_vec(), block_len)
 //!     .into_iter()
 //!     .filter_map(Result::ok);
 //!
 //! // 2. Decode (PN & RS) those blocks into Frames, ignoring frames with errors
-//! let frames = Decoder::default_ccsds(4)
-//!     .decode(blocks)
-//!     .filter_map(Result::ok);
+//! let frames = decode_frames(
+//!     cadus,
+//!     Some(Box::new(DefaultReedSolomon::new(interleave))),
+//!     Some(Box::new(DefaultDerandomizer)),
+//! ).filter_map(Result::ok);
 //!
 //! // 3. Extract packets from Frames
 //! let packets = decode_framed_packets(frames, izone_len, trailer_len);
@@ -59,12 +61,7 @@
 //! ```no_run
 //! use std::fs::File;
 //! use std::io::BufReader;
-//! use ccsds::framing::{
-//!     ASM, Decoder,
-//!     DefaultDerandomizer, Scid, Synchronizer,
-//!     decode_framed_packets,
-//!     DefaultReedSolomon,
-//! };
+//! use ccsds::framing::*;
 //!
 //! let block_len = 892; // Frame length
 //! let interleave: u8 = 4;
@@ -73,14 +70,12 @@
 //!
 //! // 1. Synchronize stream and extract blocks
 //! let file = BufReader::new(File::open("frames.dat").unwrap());
-//! let blocks = Synchronizer::new(file, &ASM.to_vec(), block_len)
+//! let cadus = Synchronizer::new(file, &ASM.to_vec(), block_len)
 //!     .into_iter()
 //!     .filter_map(Result::ok);
 //!
 //! // 2. Decode blocks into Frames
-//! let frames = Decoder::new()
-//!     .decode(blocks)
-//!     .filter_map(Result::ok);
+//! let frames = decode_frames(cadus, None, None).filter_map(|z| z.ok());
 //!
 //! // 3. Extract packets from Frames
 //! let packets = decode_framed_packets(frames, izone_len, trailer_len);

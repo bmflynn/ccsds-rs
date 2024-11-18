@@ -1,6 +1,7 @@
 use super::bytes::Bytes;
+use crate::prelude::*;
 use std::collections::HashMap;
-use std::io::{ErrorKind, Read, Result};
+use std::io::{ErrorKind, Read};
 
 /// Default CCSDS attached sync marker.
 pub const ASM: [u8; 4] = [0x1a, 0xcf, 0xfc, 0x1d];
@@ -122,7 +123,7 @@ where
                         if err.kind() == ErrorKind::UnexpectedEof {
                             return Ok(None);
                         }
-                        return Err(err);
+                        return Err(Error::Io(err));
                     }
                     Ok(b) => b,
                 };
@@ -176,7 +177,7 @@ where
     /// Fetch a block from the stream.
     ///
     /// # Errors
-    /// On [std::io::Error]s filling buffer
+    /// On [Error]s filling buffer
     pub fn block(&mut self) -> Result<Vec<u8>> {
         let mut buf = vec![0u8; self.block_size];
         if self.pattern_idx != 0 {

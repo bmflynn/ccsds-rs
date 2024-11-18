@@ -1,4 +1,3 @@
-mod error;
 mod merge;
 mod summary;
 mod timecode;
@@ -8,7 +7,7 @@ use std::io::Read;
 
 use serde::{Deserialize, Serialize};
 
-pub use error::*;
+pub use crate::prelude::*;
 pub use merge::*;
 pub use summary::*;
 pub use timecode::*;
@@ -84,7 +83,7 @@ impl Packet {
     /// # Errors
     /// Any ``std::io::Error`` reading
     #[allow(clippy::missing_panics_doc)]
-    pub fn decode<R>(mut r: R) -> Result<Packet, Error>
+    pub fn decode<R>(mut r: R) -> Result<Packet>
     where
         R: Read + Send,
     {
@@ -136,7 +135,7 @@ impl PrimaryHeader {
 
     /// Decode from bytes. Returns `None` if there are not enough bytes to construct the
     /// header.
-    pub fn decode(buf: &[u8]) -> Result<Self, Error> {
+    pub fn decode(buf: &[u8]) -> Result<Self> {
         if buf.len() < Self::LEN {
             return Err(Error::NotEnoughData {
                 actual: buf.len(),
@@ -241,7 +240,7 @@ pub fn missing_packets(cur: u16, last: u16) -> u16 {
 ///     assert_eq!(packet.header.apid, 1369);
 /// });
 /// ```
-pub fn decode_packets<R>(reader: R) -> impl Iterator<Item = Result<Packet, Error>> + Send
+pub fn decode_packets<R>(reader: R) -> impl Iterator<Item = Result<Packet>> + Send
 where
     R: Read + Send,
 {
@@ -280,7 +279,7 @@ where
 ///     assert_eq!(packet.apid, 1369);
 /// });
 /// ```
-pub fn collect_groups<I>(packets: I) -> impl Iterator<Item = Result<PacketGroup, Error>> + Send
+pub fn collect_groups<I>(packets: I) -> impl Iterator<Item = Result<PacketGroup>> + Send
 where
     I: Iterator<Item = Packet> + Send,
 {
@@ -308,7 +307,7 @@ impl<R> Iterator for PacketReaderIter<R>
 where
     R: Read + Send,
 {
-    type Item = Result<Packet, Error>;
+    type Item = Result<Packet>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match Packet::decode(&mut self.reader) {
@@ -318,7 +317,7 @@ where
                 Some(Ok(p))
             }
             Err(err) => {
-                if let Error::IO(ref ioerr) = err {
+                if let Error::Io(ref ioerr) = err {
                     if ioerr.kind() == std::io::ErrorKind::UnexpectedEof {
                         return None;
                     }
@@ -359,7 +358,7 @@ impl<I> Iterator for PacketGroupIter<I>
 where
     I: Iterator<Item = Packet> + Send,
 {
-    type Item = Result<PacketGroup, Error>;
+    type Item = Result<PacketGroup>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.done {

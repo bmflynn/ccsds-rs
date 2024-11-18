@@ -3,20 +3,8 @@
 //! Reference: [CCSDS Time Code Formats](https://public.ccsds.org/Pubs/301x0b4e1.pdf)
 use hifitime::{Duration, Epoch};
 
+use crate::prelude::*;
 use serde::Serialize;
-
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum Error {
-    #[error("Unsupported configuration for timecode: {0}")]
-    Unsupported(&'static str),
-    #[error("Overflow")]
-    Overflow,
-    #[error("Underflow")]
-    Underflow,
-    #[error("Not enough bytes")]
-    NotEnoughData { actual: usize, minimum: usize },
-}
 
 /// CCSDS Level-1 Timecode implementations.
 ///
@@ -61,7 +49,7 @@ impl Timecode {
     ///
     /// # Errors
     /// [Error::Overflow] If numeric conversions would result in overflow or precision loss
-    pub fn epoch(&self) -> Result<Epoch, Error> {
+    pub fn epoch(&self) -> Result<Epoch> {
         match self {
             Timecode::Cds {
                 days,
@@ -104,7 +92,7 @@ impl Timecode {
     ///
     /// # Errors
     /// [Error::Overflow] If numeric conversions would result in overflow or precision loss
-    pub fn nanos(&self) -> Result<u64, Error> {
+    pub fn nanos(&self) -> Result<u64> {
         match self {
             Timecode::Cds {
                 days,
@@ -171,13 +159,13 @@ pub enum Format {
     },
 }
 
-/// Decode `buf` into [Timecode::Cuc].
+/// Decode `buf` into [Timecode].
 ///
 /// # Errors
-/// - [Error::Unsupported] If `num_coarse` and `num_fine` is not a valid combination
-/// - [Error::Unsupported] if a timecode cannot be created from `buf` according to `format`
-/// - [Error::Overflow] or [Error::Underflow] if the numeric conversions don't work out.
-pub fn decode(format: &Format, buf: &[u8]) -> Result<Timecode, Error> {
+/// [Error::NotEnoughData] if there is not enough data for the provided format, or
+/// [Error::TimecodeConfig] if a timecode cannot be constructected for the provided format. This
+/// will usually be due to providing unsupported timecode values in a format field.
+pub fn decode(format: &Format, buf: &[u8]) -> Result<Timecode> {
     match format {
         Format::Cds {
             num_day,
@@ -191,7 +179,7 @@ pub fn decode(format: &Format, buf: &[u8]) -> Result<Timecode, Error> {
     }
 }
 
-fn decode_cds(num_day: usize, num_submillis: usize, buf: &[u8]) -> Result<Timecode, Error> {
+fn decode_cds(num_day: usize, num_submillis: usize, buf: &[u8]) -> Result<Timecode> {
     let want = num_day + num_submillis + Timecode::NUM_CDS_MILLIS_OF_DAY_BYTES;
     if buf.len() < want {
         return Err(Error::NotEnoughData {
@@ -212,7 +200,11 @@ fn decode_cds(num_day: usize, num_submillis: usize, buf: &[u8]) -> Result<Timeco
             0 => 0,
             2 => u32::from_be_bytes([0, 0, rest[4], rest[5]]) * 1_000,
             4 => u32::from_be_bytes([rest[4], rest[5], rest[6], rest[7]]) * 1_000_000,
-            _ => panic!("number of sub-millisecond must be 0, 2, or 4; got {num_submillis}"),
+            _ => {
+                return Err(Error::TimecodeConfig(format!(
+                    "Number of CDS sub-millisecond must be 0, 2, or 4; got {num_submillis}"
+                )))
+            }
         },
     })
 }
@@ -222,12 +214,16 @@ fn decode_cuc(
     num_fine: usize,
     fine_mult: Option<f32>,
     buf: &[u8],
-) -> Result<Timecode, Error> {
+) -> Result<Timecode> {
     if !(1..=4).contains(&num_coarse) {
-        return Err(Error::Unsupported("Invalid CUC coarse config"));
+        return Err(Error::TimecodeConfig(
+            "Number of CUC coarse bytes must be 1 to 4".to_string(),
+        ));
     }
     if !(0..=3).contains(&num_fine) {
-        return Err(Error::Unsupported("Invalid CUC fine config"));
+        return Err(Error::TimecodeConfig(
+            "Number of CUC fine bytes must be 0 to 3".to_string(),
+        ));
     }
     if buf.len() < num_coarse + num_fine {
         return Err(Error::NotEnoughData {

@@ -1,5 +1,5 @@
-use super::error::Error;
 use super::{Apid, Packet, PrimaryHeader};
+use crate::prelude::*;
 use std::collections::HashMap;
 
 use crate::timecode::{decode as decode_timecode, Format, Timecode};
@@ -35,7 +35,7 @@ impl TimecodeDecoder {
     /// # Errors
     /// If a timecode cannot be decoded for `packet` or if there is not specific format for the
     /// packet's APID and their is no default to fall back to.
-    pub fn decode(&self, packet: &Packet) -> Result<Timecode, Error> {
+    pub fn decode(&self, packet: &Packet) -> Result<Timecode> {
         let fmt = self
             .formats
             .get(&packet.header.apid)

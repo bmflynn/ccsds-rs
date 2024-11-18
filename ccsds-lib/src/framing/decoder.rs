@@ -18,54 +18,45 @@ use tracing::{debug, span, Level};
 /// # Examples
 /// Default decode using default CCSDS derandomization and reed-solomon.
 /// ```no_run
-/// use ccsds::framing::Decoder;
+/// use ccsds::framing::decode_frames_rs;
 ///
 /// const cadu_len: usize = 1020;
 /// let reed_solomon_interleave = 4;
 /// let blocks: Vec<Vec<u8>> = vec![
 ///   vec![0u8; cadu_len],
 /// ];
-/// let frames = Decoder::default_ccsds(reed_solomon_interleave)
-///     .decode(blocks.into_iter())
+/// let frames = decode_frames_rs(blocks.into_iter(), reed_solomon_interleave)
 ///     .filter_map(Result::ok);
 /// ```
 /// Manually specified decode using default CCSDS derandomization and reed-solomon.
 /// ```no_run
-/// use ccsds::framing::{Decoder, DefaultReedSolomon, DefaultDerandomizer};
+/// use ccsds::framing::{FrameDecoder, DefaultReedSolomon, DefaultDerandomizer};
 /// const cadu_len: usize = 1020;
 /// let reed_solomon_interleave = 4;
 /// let blocks: Vec<Vec<u8>> = vec![
 ///   vec![0u8; cadu_len],
 /// ];
-/// let frames = Decoder::default_ccsds(reed_solomon_interleave)
+/// let frames = FrameDecoder::new()
 ///     .with_integrity(Box::new(DefaultReedSolomon::new(reed_solomon_interleave)))
 ///     .with_derandomization(Box::new(DefaultDerandomizer))
 ///     .decode(blocks.into_iter())
 ///     .filter_map(Result::ok);
 /// ```
 #[derive(Default)]
-pub struct Decoder {
+pub struct FrameDecoder {
     num_threads: Option<u32>,
     derandomization: Option<Box<dyn Derandomizer>>,
     integrity: Option<Box<dyn IntegrityAlgorithm>>,
 }
 
-impl Decoder {
+impl FrameDecoder {
     const DEFAULT_BUFFER_SIZE: usize = 1024;
 
     pub fn new() -> Self {
-        Decoder {
+        FrameDecoder {
             num_threads: None,
             derandomization: None,
             integrity: None,
-        }
-    }
-
-    pub fn default_ccsds(interleave: u8) -> Self {
-        Self {
-            num_threads: None,
-            derandomization: Some(Box::new(DefaultDerandomizer)),
-            integrity: Some(Box::new(DefaultReedSolomon::new(interleave))),
         }
     }
 
@@ -252,6 +243,107 @@ impl Iterator for DecodedFrameIter {
     }
 }
 
+/// Decodes CADU bytes into [Frame]s.
+///
+/// `cadus` must provide `Vec<u8>` data of the length required by the provided integrity algorithm.
+/// For example, [DefaultReedSolomon] requires parity bytes that are not strictly part of the frame data
+/// and will require a CADU length of `255 * rs_interleave` and will result in an output
+/// [DecodedFrame] data length of `255 * rs_interleave - (rs_num_correctable * interleave)` bytes.
+///
+/// Other integrity algorithms, e.g., Crc32, may not require parity bytes and will have the same
+/// length frame data and CADU length.
+///
+/// Also note, the input `cadus` must not include any attached sync marker bytes.
+///
+/// # Examples
+/// ```no_run
+/// use ccsds::framing::{decode_frames, DefaultReedSolomon, DefaultDerandomizer};
+/// const cadu_len: usize = 1020;
+/// let reed_solomon_interleave = 4;
+/// let cadus: Vec<Vec<u8>> = vec![
+///   vec![0u8; cadu_len],
+/// ];
+/// let frames = decode_frames(
+///     cadus.into_iter(),
+///     Some(Box::new(DefaultReedSolomon::new(reed_solomon_interleave))),
+///     Some(Box::new(DefaultDerandomizer)),
+/// ).filter_map(Result::ok);
+/// ```
+pub fn decode_frames<I>(
+    cadus: I,
+    integrity: Option<Box<dyn IntegrityAlgorithm>>,
+    pn: Option<Box<dyn Derandomizer>>,
+) -> impl Iterator<Item = Result<DecodedFrame>>
+where
+    I: Iterator<Item = Vec<u8>> + Send + 'static,
+{
+    let mut decoder = FrameDecoder::new();
+    if let Some(pn) = pn {
+        decoder = decoder.with_derandomization(pn);
+    }
+    if let Some(integrity) = integrity {
+        decoder = decoder.with_integrity(integrity);
+    }
+    decoder.decode(cadus)
+}
+
+/// Wraps [decode_frames] providing standard CCSDS Reed-Solomon(223/255)and the default CCSDS
+/// derandomization appropriate for most spacecraft that use RS.
+///
+/// See [decode_frames].
+///
+/// # Examples
+/// ```no_run
+/// use ccsds::framing::decode_frames_rs;
+/// const cadu_len: usize = 1020;
+/// let reed_solomon_interleave = 4;
+/// let cadus: Vec<Vec<u8>> = vec![
+///   vec![0u8; cadu_len],
+/// ];
+/// let frames = decode_frames_rs(cadus.into_iter(), reed_solomon_interleave)
+///     .filter_map(Result::ok);
+/// ```
+pub fn decode_frames_rs<I>(cadus: I, interleave: u8) -> impl Iterator<Item = Result<DecodedFrame>>
+where
+    I: Iterator<Item = Vec<u8>> + Send + 'static,
+{
+    decode_frames(
+        cadus,
+        Some(Box::new(DefaultReedSolomon::new(interleave))),
+        Some(Box::new(DefaultDerandomizer)),
+    )
+}
+
+/*
+/// Wraps [decode_frames] providing standard CCSDS crc32 and the default CCSDS derandomization
+/// appropriate for most spacecraft that use CRSs.
+///
+/// # Examples
+/// ```no_run
+/// use ccsds::framing::decode_frames_rs;
+/// const cadu_len: usize = 1020;
+/// let offset = 1016;
+/// let cadus: Vec<Vec<u8>> = vec![
+///   vec![0u8; cadu_len],
+/// ];
+/// let frames = decode_frames_crc32(cadus.into_iter(), offset)
+///     .filter_map(Result::ok);
+/// ```
+pub fn decode_frames_crc32<I>(
+    cadus: I,
+    offset: usize,
+) -> impl Iterator<Item = Result<DecodedFrame>>
+where
+    I: Iterator<Item = Vec<u8>> + Send + 'static,
+{
+    decode_frames(
+        cadus,
+        Some(Box::new(DefaultCrc32::new(offset))),
+        Some(Box::new(DefaultDerandomizer)),
+    )
+}
+*/
+
 #[cfg(test)]
 mod tests {
     use std::{fs, path::PathBuf};
@@ -316,9 +408,7 @@ mod tests {
             .collect();
         assert_eq!(blocks.len(), 7);
 
-        let frames: Vec<Result<DecodedFrame>> = Decoder::default_ccsds(4)
-            .decode(blocks.into_iter())
-            .collect();
+        let frames: Vec<Result<DecodedFrame>> = decode_frames_rs(blocks.into_iter(), 4).collect();
 
         assert_eq!(frames.len(), 7, "expected frame count doesn't match");
         for (idx, df) in frames.into_iter().enumerate() {

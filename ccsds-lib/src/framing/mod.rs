@@ -8,13 +8,13 @@ mod packets;
 mod pn;
 mod synchronizer;
 
-use serde::{Deserialize, Serialize};
-
 pub use decoder::*;
 pub use integrity::*;
 pub use packets::*;
 pub use pn::*;
 pub use synchronizer::*;
+
+use serde::{Deserialize, Serialize};
 
 pub type Scid = u16;
 pub type Vcid = u16;

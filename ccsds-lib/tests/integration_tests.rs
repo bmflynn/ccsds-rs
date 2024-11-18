@@ -1,6 +1,6 @@
 use ccsds::framing::{
-    decode_framed_packets, read_synchronized_blocks, DecodedFrame, DecodedPacket, Decoder,
-    DefaultDerandomizer, DefaultReedSolomon, Synchronizer, ASM,
+    decode_framed_packets, read_synchronized_blocks, DecodedFrame, DecodedPacket,
+    DefaultDerandomizer, DefaultReedSolomon, FrameDecoder, Synchronizer, ASM,
 };
 use ccsds::timecode;
 use md5::{Digest, Md5};
@@ -75,7 +75,7 @@ fn full_decode() {
         .map(Result::unwrap);
 
     let rs = DefaultReedSolomon::new(4);
-    let frames: Vec<DecodedFrame> = Decoder::new()
+    let frames: Vec<DecodedFrame> = FrameDecoder::new()
         .with_integrity(Box::new(rs))
         .with_derandomization(Box::new(DefaultDerandomizer))
         .decode(blocks)
