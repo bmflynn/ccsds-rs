@@ -210,14 +210,14 @@ impl PacketGroup {
         } else {
             self.packets[0].is_first()
                 && self.packets.last().unwrap().is_last()
-                && self.have_missing()
+                && !self.have_missing()
         }
     }
 
     #[must_use]
     pub fn have_missing(&self) -> bool {
         for (a, b) in self.packets.iter().zip(self.packets[1..].iter()) {
-            if missing_packets(a.header.sequence_id, b.header.sequence_id) > 0 {
+            if missing_packets(b.header.sequence_id, a.header.sequence_id) > 0 {
                 return true;
             }
         }
