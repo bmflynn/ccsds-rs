@@ -19,4 +19,14 @@ pub enum Error {
     IntegrityAlgorithm(String),
 }
 
+#[cfg(feature = "python")]
+use pyo3::{exceptions::PyValueError, PyErr};
+
+#[cfg(feature = "python")]
+impl From<Error> for PyErr {
+    fn from(value: Error) -> Self {
+        PyValueError::new_err(value.to_string())
+    }
+}
+
 pub type Result<T> = std::result::Result<T, Error>;

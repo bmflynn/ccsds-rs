@@ -13,6 +13,7 @@ repository.workspace = true
 crossbeam = { version = "^0.8.4", features = ["crossbeam-channel"] }
 hifitime.workspace = true
 ndarray = "0.16.1"
+pyo3 = { version = "0.23.1", optional = true }
 rayon = "^1.7.0"
 rs2 = "^0.1.0"
 serde = { workspace = true, features = ["derive"] }
@@ -28,7 +29,8 @@ name = "ccsds"
 path = "src/lib.rs"
 
 [features]
-python = []
+python = ["pyo3"]
+pyo3 = ["dep:pyo3"]
 
 [dev-dependencies]
 hex = "0.4.3"

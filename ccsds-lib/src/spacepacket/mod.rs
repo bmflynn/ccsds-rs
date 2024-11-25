@@ -58,6 +58,8 @@ impl Display for Packet {
 }
 
 impl Packet {
+    const MAX_LEN: usize = 65535;
+
     #[must_use]
     pub fn is_first(&self) -> bool {
         self.header.sequence_flags == PrimaryHeader::SEQ_FIRST
@@ -77,23 +79,50 @@ impl Packet {
     pub fn is_standalone(&self) -> bool {
         self.header.sequence_flags == PrimaryHeader::SEQ_UNSEGMENTED
     }
+}
 
+impl Packet {
     /// Read a single [Packet].
     ///
-    /// # Errors
-    /// Any ``std::io::Error`` reading
-    #[allow(clippy::missing_panics_doc)]
-    pub fn decode<R>(mut r: R) -> Result<Packet>
+    /// # Errors:
+    /// [Error::NotEnoughData] if `buf` does not contain enough data for packet header and the
+    /// length described by that header.
+    pub fn decode(buf: &[u8]) -> Result<Packet> {
+        if buf.len() < PrimaryHeader::LEN {
+            return Err(Error::NotEnoughData {
+                actual: buf.len(),
+                minimum: PrimaryHeader::LEN,
+            });
+        }
+        let ph = PrimaryHeader::decode(&buf[..PrimaryHeader::LEN])?;
+        let data_len = ph.len_minus1 as usize + 1;
+        let total_len = PrimaryHeader::LEN + data_len;
+        if buf.len() < total_len {
+            return Err(Error::NotEnoughData {
+                actual: buf.len(),
+                minimum: total_len,
+            });
+        }
+        Ok(Packet {
+            header: ph,
+            data: buf[..total_len].to_vec(),
+            offset: 0,
+        })
+    }
+}
+
+impl Packet {
+    pub fn read<R>(file: &mut R) -> Result<Packet>
     where
         R: Read + Send,
     {
-        let mut buf = vec![0u8; 65536];
-        r.read_exact(&mut buf[..PrimaryHeader::LEN])?;
-        // we know there are enough bytes because we just read them
-        let ph = PrimaryHeader::decode(&buf[..PrimaryHeader::LEN]).unwrap();
+        let mut buf = vec![0u8; Packet::MAX_LEN];
+        file.read_exact(&mut buf[..PrimaryHeader::LEN])?;
+
+        let ph = PrimaryHeader::decode(&buf[..PrimaryHeader::LEN])?;
         let data_len = ph.len_minus1 as usize + 1;
         let total_len = PrimaryHeader::LEN + data_len;
-        r.read_exact(&mut buf[PrimaryHeader::LEN..total_len])?;
+        file.read_exact(&mut buf[PrimaryHeader::LEN..total_len])?;
 
         Ok(Packet {
             header: ph,
@@ -310,7 +339,7 @@ where
     type Item = Result<Packet>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match Packet::decode(&mut self.reader) {
+        match Packet::read(&mut self.reader) {
             Ok(mut p) => {
                 p.offset = self.offset;
                 self.offset += PrimaryHeader::LEN + p.header.len_minus1 as usize + 1;
@@ -438,9 +467,7 @@ mod tests {
             // Primary/secondary header and a single byte of user data
             0xd, 0x59, 0xd2, 0xab, 0x0, 0x8, 0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
         ];
-        let x = &dat[..];
-        let mut r = std::io::BufReader::new(x);
-        let packet = Packet::decode(&mut r).unwrap();
+        let packet = Packet::decode(&dat).unwrap();
 
         assert_eq!(packet.header.version, 0);
     }
@@ -471,12 +498,11 @@ mod tests {
             0xd, 0x59, 0xc0, 0x01, 0x0, 0x8, 0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
             0xd, 0x59, 0xc0, 0x02, 0x0, 0x8, 0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
         ];
-        let reader = std::io::BufReader::new(dat);
 
         // FIXME: Testing the summary should probably be a separate test
         let mut summary = Summary::default();
-        let packets: Vec<Packet> = PacketReaderIter::new(reader)
-            .filter_map(Result::ok)
+        let packets: Vec<Packet> = decode_packets(dat)
+            .map(|z| z.unwrap())
             .inspect(|p| {
                 summary.add(p);
             })
