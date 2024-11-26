@@ -4,7 +4,7 @@ members = ["ccsds-cmd", "ccsds-lib", "ccsds-py"]
 default-members = ["ccsds-cmd", "ccsds-lib"]
 
 [workspace.package]
-version = "0.1.0-beta.17"
+version = "0.1.0-beta.18"
 edition = "2021"
 authors = ["Bruce Flynn <brucef@ssec.wisc.edu>"]
 repository = "https://github.com/bmflynn/ccsds-rs"
@@ -17,6 +17,6 @@ serde = "1.0"
 serde_json = "1.0"
 tracing = "0.1"
 tracing-subscriber = "0.3"
-spacecrafts = { version = "0.1.0-beta.3", path = "../spacecrafts-rs" }
+spacecrafts = "0.1.0-beta.4"
 hifitime = "4.0.0"
 pyo3 = { version = "^0.22.0" }
