@@ -2,6 +2,9 @@ mod merge;
 mod summary;
 mod timecode;
 
+#[cfg(feature = "python")]
+use pyo3::{prelude::*, types::PyBytes};
+
 use std::fmt::Display;
 use std::io::Read;
 
@@ -36,6 +39,7 @@ pub type Apid = u16;
 /// let packet = Packet::decode(dat).unwrap();
 /// ```
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "python", pyclass(frozen))]
 pub struct Packet {
     /// All packets have a primary header
     pub header: PrimaryHeader,
@@ -57,8 +61,41 @@ impl Display for Packet {
     }
 }
 
+#[cfg_attr(feature = "python", pymethods)]
 impl Packet {
     const MAX_LEN: usize = 65535;
+
+    #[cfg(feature = "python")]
+    #[getter]
+    fn header(&self) -> PrimaryHeader {
+        self.header
+    }
+
+    #[cfg(feature = "python")]
+    #[new]
+    fn py_new(buf: &[u8]) -> PyResult<Self> {
+        //let buf = buf.as_bytes(py);
+        Ok(Packet::decode(buf)?)
+    }
+
+    /// All packet data
+    #[cfg(feature = "python")]
+    #[getter]
+    fn data(&self) -> Vec<u8> {
+        self.data.clone()
+    }
+
+    /// User data, i.e., no primary header data
+    #[cfg(feature = "python")]
+    #[getter]
+    fn user_data<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new_bound(py, &self.data[PrimaryHeader::LEN..])
+    }
+
+    #[cfg(feature = "python")]
+    fn __str__(&self) -> String {
+        format!("{self}")
+    }
 
     #[must_use]
     pub fn is_first(&self) -> bool {
@@ -137,6 +174,7 @@ impl Packet {
 /// The primary header format is common to all CCSDS space packets.
 ///
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
+#[cfg_attr(feature = "python", pyclass(frozen))]
 pub struct PrimaryHeader {
     pub version: u8,
     pub type_flag: u8,
@@ -146,6 +184,50 @@ pub struct PrimaryHeader {
     pub sequence_flags: u8,
     pub sequence_id: u16,
     pub len_minus1: u16,
+}
+
+#[cfg_attr(feature = "python", pymethods)]
+impl PrimaryHeader {
+    #[cfg(feature = "python")]
+    #[getter]
+    fn version(&self) -> u8 {
+        self.version
+    }
+    #[cfg(feature = "python")]
+    #[getter]
+    fn type_flag(&self) -> u8 {
+        self.type_flag
+    }
+    #[cfg(feature = "python")]
+    #[getter]
+    fn has_secondary_header(&self) -> bool {
+        self.has_secondary_header
+    }
+    #[cfg(feature = "python")]
+    #[getter]
+    fn apid(&self) -> Apid {
+        self.apid
+    }
+    #[cfg(feature = "python")]
+    #[getter]
+    fn sequence_flags(&self) -> u8 {
+        self.sequence_flags
+    }
+    #[cfg(feature = "python")]
+    #[getter]
+    fn sequence_id(&self) -> u16 {
+        self.sequence_id
+    }
+    #[cfg(feature = "python")]
+    #[getter]
+    fn len_minus1(&self) -> u16 {
+        self.len_minus1
+    }
+
+    #[cfg(feature = "python")]
+    fn __str__(&self) -> String {
+        format!("{self:?}")
+    }
 }
 
 impl PrimaryHeader {
@@ -190,17 +272,39 @@ impl PrimaryHeader {
 /// Packet data representing a CCSDS packet group according to the packet
 /// sequencing value in primary header.
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "python", pyclass(frozen))]
 pub struct PacketGroup {
     pub apid: Apid,
     pub packets: Vec<Packet>,
 }
 
+#[cfg_attr(feature = "python", pymethods)]
 impl PacketGroup {
+    #[cfg(feature = "python")]
+    #[getter]
+    fn apid(&self) -> Apid {
+        self.apid
+    }
+
+    #[cfg(feature = "python")]
+    #[getter]
+    fn packets(&self) -> Vec<Packet> {
+        self.packets.clone()
+    }
+
+    #[cfg(feature = "python")]
+    fn __str__(&self) -> String {
+        format!(
+            "PacketGroup {{apid={} packets[len={}]}}",
+            self.apid,
+            self.packets.len()
+        )
+    }
+
     /// Return true if this packet group is complete.
     ///
     /// Valid means at least 1 packet and all the packets for a complete group with no missing
     /// packets.
-    #[allow(clippy::missing_panics_doc)]
     #[must_use]
     pub fn complete(&self) -> bool {
         if self.packets.is_empty() {

@@ -1,10 +1,12 @@
+use hifitime::Epoch;
+
 use super::{Apid, Packet, PrimaryHeader};
 use crate::prelude::*;
 use std::collections::HashMap;
 
-use crate::timecode::{decode as decode_timecode, Format, Timecode};
+use crate::timecode::{decode as decode_timecode, Format};
 
-/// Helper class to decode [Timecode]s from [Packet]s.
+/// Helper class to decode [hifitime::Epoch]s from [Packet]s.
 ///
 /// It manages the match up of packet APIDs to a timecode [Format](Format), supporting a
 /// default format for the case where a specific format for an APID is not found.
@@ -35,12 +37,12 @@ impl TimecodeDecoder {
     /// # Errors
     /// If a timecode cannot be decoded for `packet` or if there is not specific format for the
     /// packet's APID and their is no default to fall back to.
-    pub fn decode(&self, packet: &Packet) -> Result<Timecode> {
+    pub fn decode(&self, packet: &Packet) -> Result<Epoch> {
         let fmt = self
             .formats
             .get(&packet.header.apid)
             .unwrap_or(&self.default);
-        Ok(decode_timecode(fmt, &packet.data[PrimaryHeader::LEN..])?)
+        decode_timecode(fmt, &packet.data[PrimaryHeader::LEN..])
     }
 }
 
@@ -68,9 +70,6 @@ mod tests {
 
         let timecode = decoder.decode(&packet).unwrap();
 
-        assert_eq!(
-            timecode.epoch().unwrap().to_string(),
-            "2023-01-01T17:33:03.470969000 UTC"
-        );
+        assert_eq!(timecode.to_string(), "2023-01-01T17:33:03.470969000 UTC");
     }
 }

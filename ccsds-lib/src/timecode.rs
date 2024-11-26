@@ -6,127 +6,12 @@ use hifitime::{Duration, Epoch};
 use crate::prelude::*;
 use serde::Serialize;
 
-/// CCSDS Level-1 Timecode implementations.
-///
-/// Level-1 implies the timecodes use the recommended CCSDS epoch of Jan 1, 1958.
-#[derive(Clone, Debug, Serialize)]
-#[non_exhaustive]
-pub enum Timecode {
-    /// CCSDS Day Segmneted time code format.
-    ///
-    /// This format assumes the epoch of Jan 1, 1958.
-    ///
-    /// See: [CCSDS Time Code Formats 301.0-B-4](https://public.ccsds.org/Pubs/301x0b4e1.pdf), Section 3.3.
-    #[non_exhaustive]
-    Cds { days: u32, millis: u32, nanos: u32 },
-    /// CCSDS Unsegmented time code format.
-    ///
-    /// This format assumes the coarse time unit is seconds and epoch is Jan 1, 1958.
-    ///
-    /// See: [CCSDS Time Code Formats 301.0-B-4](https://public.ccsds.org/Pubs/301x0b4e1.pdf), Section 3.2.
-    #[non_exhaustive]
-    Cuc {
-        coarse: u64,
-        fine: u64,
-        /// This will be some factor used to convert `fine` to nanoseconds. This may be necessary
-        /// for missions such as NASA EOS where the spacecraft telemetry CUC format only uses 2
-        /// bytes for fine time and a multiplier of 15.2 microseconds for each fine time value. In
-        /// this case `fine_mult` would be 15200.0.
-        fine_mult: Option<f32>,
-    },
-}
-
-impl Timecode {
-    /// Number of seconds between the 1958 and 1900
-    const CCSDS_HIFIEPOCH_DELTA_SECS: u64 = 1830297600;
-    /// Default number of bytes for the CDS milliseconds field
-    const NUM_CDS_MILLIS_OF_DAY_BYTES: usize = 4;
-
-    /// Max number of u64 nanoseconds that can be cast to f64 w/o precision loss
-    const MAX_FINE_NANOS: f64 = 4_503_599_627_370_496.0;
-
-    /// Decode this timecode into a [hifitime::Epoch].
-    ///
-    /// # Errors
-    /// [Error::Overflow] If numeric conversions would result in overflow or precision loss
-    pub fn epoch(&self) -> Result<Epoch> {
-        match self {
-            Timecode::Cds {
-                days,
-                millis,
-                nanos,
-            } => {
-                let dur = Duration::compose(
-                    0,
-                    *days as u64,
-                    0,
-                    0,
-                    // Add in delta to get to hifi epoch
-                    Self::CCSDS_HIFIEPOCH_DELTA_SECS,
-                    *millis as u64,
-                    0,
-                    *nanos as u64,
-                );
-                Ok(Epoch::from_utc_duration(dur))
-            }
-            Timecode::Cuc {
-                coarse,
-                fine,
-                fine_mult,
-            } => {
-                // Convert to hifi epoch
-                let coarse = coarse + Self::CCSDS_HIFIEPOCH_DELTA_SECS;
-
-                let fine = *fine as f64;
-                let fine_nanos = (fine * fine_mult.unwrap_or(1.0) as f64).trunc();
-                if fine_nanos > Self::MAX_FINE_NANOS {
-                    return Err(Error::Overflow);
-                }
-                let dur = Duration::compose(0, 0, 0, 0, coarse, 0, 0, fine_nanos as u64);
-                Ok(Epoch::from_tai_duration(dur))
-            }
-        }
-    }
-
-    /// Return the number of nanoseconds since Jan 1, 1958
-    ///
-    /// # Errors
-    /// [Error::Overflow] If numeric conversions would result in overflow or precision loss
-    pub fn nanos(&self) -> Result<u64> {
-        match self {
-            Timecode::Cds {
-                days,
-                millis,
-                nanos,
-            } => {
-                let Some(day_nanos) = (*days as u64).checked_mul(86_400_000_000_000) else {
-                    return Err(Error::Overflow);
-                };
-                let Some(milli_nanos) = (*millis as u64).checked_mul(1_000_000) else {
-                    return Err(Error::Overflow);
-                };
-                Ok(day_nanos + milli_nanos + *nanos as u64)
-            }
-            Timecode::Cuc {
-                coarse,
-                fine,
-                fine_mult,
-            } => {
-                // Convert to hifi epoch
-                let Some(coarse_nanos) = coarse.checked_mul(1_000_000_000) else {
-                    return Err(Error::Overflow);
-                };
-
-                let fine = *fine as f64;
-                let fine_nanos = (fine * fine_mult.unwrap_or(1.0) as f64).trunc();
-                if fine_nanos > Self::MAX_FINE_NANOS {
-                    return Err(Error::Overflow);
-                }
-                Ok(coarse_nanos + fine_nanos as u64)
-            }
-        }
-    }
-}
+/// Number of seconds between the 1958 and 1900
+const CCSDS_HIFIEPOCH_DELTA_SECS: u64 = 1830297600;
+/// Default number of bytes for the CDS milliseconds field
+const NUM_CDS_MILLIS_OF_DAY_BYTES: usize = 4;
+/// Max number of u64 nanoseconds that can be cast to f64 w/o precision loss
+const MAX_FINE_NANOS: f64 = 4_503_599_627_370_496.0;
 
 /// CCSDS timecode format configuration.
 #[derive(Clone, Debug, Serialize)]
@@ -159,13 +44,13 @@ pub enum Format {
     },
 }
 
-/// Decode `buf` into [Timecode].
+/// Decode `buf` into [hifitime::Epoch].
 ///
 /// # Errors
 /// [Error::NotEnoughData] if there is not enough data for the provided format, or
 /// [Error::TimecodeConfig] if a timecode cannot be constructected for the provided format. This
 /// will usually be due to providing unsupported timecode values in a format field.
-pub fn decode(format: &Format, buf: &[u8]) -> Result<Timecode> {
+pub fn decode(format: &Format, buf: &[u8]) -> Result<Epoch> {
     match format {
         Format::Cds {
             num_day,
@@ -179,8 +64,8 @@ pub fn decode(format: &Format, buf: &[u8]) -> Result<Timecode> {
     }
 }
 
-fn decode_cds(num_day: usize, num_submillis: usize, buf: &[u8]) -> Result<Timecode> {
-    let want = num_day + num_submillis + Timecode::NUM_CDS_MILLIS_OF_DAY_BYTES;
+fn decode_cds(num_day: usize, num_submillis: usize, buf: &[u8]) -> Result<Epoch> {
+    let want = num_day + num_submillis + NUM_CDS_MILLIS_OF_DAY_BYTES;
     if buf.len() < want {
         return Err(Error::NotEnoughData {
             actual: buf.len(),
@@ -193,20 +78,30 @@ fn decode_cds(num_day: usize, num_submillis: usize, buf: &[u8]) -> Result<Timeco
     day_bytes.extend(x);
     let days = u32::from_be_bytes([day_bytes[0], day_bytes[1], day_bytes[2], day_bytes[3]]);
 
-    Ok(Timecode::Cds {
-        days,
-        millis: u32::from_be_bytes([rest[0], rest[1], rest[2], rest[3]]),
-        nanos: match num_submillis {
-            0 => 0,
-            2 => u32::from_be_bytes([0, 0, rest[4], rest[5]]) * 1_000,
-            4 => u32::from_be_bytes([rest[4], rest[5], rest[6], rest[7]]) * 1_000_000,
-            _ => {
-                return Err(Error::TimecodeConfig(format!(
-                    "Number of CDS sub-millisecond must be 0, 2, or 4; got {num_submillis}"
-                )))
-            }
-        },
-    })
+    let millis = u32::from_be_bytes([rest[0], rest[1], rest[2], rest[3]]);
+    let nanos = match num_submillis {
+        0 => 0,
+        2 => u32::from_be_bytes([0, 0, rest[4], rest[5]]) * 1_000,
+        4 => u32::from_be_bytes([rest[4], rest[5], rest[6], rest[7]]) * 1_000_000,
+        _ => {
+            return Err(Error::TimecodeConfig(format!(
+                "Number of CDS sub-millisecond must be 0, 2, or 4; got {num_submillis}"
+            )))
+        }
+    };
+
+    let dur = Duration::compose(
+        0,
+        days as u64,
+        0,
+        0,
+        // Add in delta to get to hifi epoch
+        CCSDS_HIFIEPOCH_DELTA_SECS,
+        millis as u64,
+        0,
+        nanos as u64,
+    );
+    Ok(Epoch::from_utc_duration(dur))
 }
 
 fn decode_cuc(
@@ -214,7 +109,7 @@ fn decode_cuc(
     num_fine: usize,
     fine_mult: Option<f32>,
     buf: &[u8],
-) -> Result<Timecode> {
+) -> Result<Epoch> {
     if !(1..=4).contains(&num_coarse) {
         return Err(Error::TimecodeConfig(
             "Number of CUC coarse bytes must be 1 to 4".to_string(),
@@ -249,11 +144,16 @@ fn decode_cuc(
             .expect("to be able to convert vec to array"),
     );
 
-    Ok(Timecode::Cuc {
-        coarse,
-        fine,
-        fine_mult,
-    })
+    // Convert to hifi epoch
+    let coarse = coarse + CCSDS_HIFIEPOCH_DELTA_SECS;
+
+    let fine = fine as f64;
+    let fine_nanos = (fine * fine_mult.unwrap_or(1.0) as f64).trunc();
+    if fine_nanos > MAX_FINE_NANOS {
+        return Err(Error::Overflow);
+    }
+    let dur = Duration::compose(0, 0, 0, 0, coarse, 0, 0, fine_nanos as u64);
+    Ok(Epoch::from_tai_duration(dur))
 }
 
 #[cfg(test)]
@@ -269,7 +169,7 @@ mod test {
 
         let expected = Epoch::from_str("2024-11-01T00:00:01.684519Z").unwrap();
 
-        assert_eq!(cds.epoch().unwrap(), expected, "timecode={:?}", cds);
+        assert_eq!(cds, expected, "timecode={:?}", cds);
     }
 
     #[test]
@@ -277,10 +177,9 @@ mod test {
         // NASA EOS Spacecraft (BGAD) data
         let buf = vec![0x7d, 0xb5, 0xbf, 0x2f, 0x80, 0x1f];
         let cuc = decode_cuc(4, 2, Some(15200.0), &buf).unwrap();
-        let epoch = cuc.epoch().unwrap();
 
         let expected = Epoch::from_str("2024-10-31T10:49:19.498544800 TAI").unwrap();
 
-        assert_eq!(epoch, expected);
+        assert_eq!(cuc, expected);
     }
 }

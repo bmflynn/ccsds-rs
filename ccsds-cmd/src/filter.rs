@@ -31,16 +31,7 @@ fn packets_with_times<R: Read + Send>(input: R) -> impl Iterator<Item = Ptr> {
             // now we can be sure first packet has a timecode
             let first = &g.packets[0];
             let apid = first.header.apid;
-            let nanos = match timecode_decoder
-                .decode(first)
-                .unwrap_or_else(|_| {
-                    panic!(
-                        "failed to decode timecode from {first}: {:?}",
-                        &first.data[..14]
-                    )
-                })
-                .epoch()
-            {
+            let nanos = match timecode_decoder.decode(first) {
                 Ok(e) => e,
                 Err(err) => {
                     debug!("failed to convert timecode to epoch: {err}");

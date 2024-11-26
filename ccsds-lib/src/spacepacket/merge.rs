@@ -113,12 +113,8 @@ impl Merger {
                     }
 
                     // Timecode comparisons
-                    let Ok(timecode) = self.time_decoder.decode(first) else {
+                    let Ok(epoch) = self.time_decoder.decode(first) else {
                         error!(header=?first.header, "timecode decode error; skipping");
-                        return None;
-                    };
-                    let Ok(epoch) = timecode.epoch() else {
-                        error!(header=?first.header, "timecode epoch error; skipping");
                         return None;
                     };
                     if epoch < from {

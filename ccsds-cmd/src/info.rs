@@ -9,7 +9,7 @@ use std::{
     io::{stdout, Write},
     path::Path,
 };
-use tracing::{debug, warn};
+use tracing::debug;
 
 #[derive(Debug, Clone)]
 pub enum Format {
@@ -113,11 +113,7 @@ fn summarize(fpath: &Path, tc_format: &TCFormat) -> Result<Info> {
         }
 
         if let Some(ref time_decoder) = time_decoder {
-            if let Ok(tc) = time_decoder.decode(&packet) {
-                let Ok(epoch) = tc.epoch() else {
-                    warn!("failed to decode timecode");
-                    continue;
-                };
+            if let Ok(epoch) = time_decoder.decode(&packet) {
                 summary.first_packet_time = summary
                     .first_packet_time
                     .map_or(Some(epoch), |cur| Some(cmp::min(epoch, cur)));

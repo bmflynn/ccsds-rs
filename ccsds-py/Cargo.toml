@@ -14,7 +14,8 @@ name = "ccsds"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.23.1", features = ["extension-module", "abi3-py39"] }
+hifitime = {workspace = true, features=["python"]}
+pyo3.workspace = true
 ccsds = { path = "../ccsds-lib", features=["python"]}
 spacecrafts = "^0.1.0-beta.3"
 url = "2.5.4"
