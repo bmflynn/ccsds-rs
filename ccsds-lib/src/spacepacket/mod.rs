@@ -81,8 +81,8 @@ impl Packet {
     /// All packet data
     #[cfg(feature = "python")]
     #[getter]
-    fn data(&self) -> Vec<u8> {
-        self.data.clone()
+    fn data<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new_bound(py, &self.data)
     }
 
     /// User data, i.e., no primary header data
