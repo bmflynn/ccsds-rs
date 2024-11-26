@@ -3,6 +3,9 @@
 //! Reference: [CCSDS Time Code Formats](https://public.ccsds.org/Pubs/301x0b4e1.pdf)
 use hifitime::{Duration, Epoch};
 
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
 use crate::prelude::*;
 use serde::Serialize;
 
@@ -14,6 +17,7 @@ const NUM_CDS_MILLIS_OF_DAY_BYTES: usize = 4;
 const MAX_FINE_NANOS: f64 = 4_503_599_627_370_496.0;
 
 /// CCSDS timecode format configuration.
+#[cfg_attr(feature = "python", pyclass)]
 #[derive(Clone, Debug, Serialize)]
 #[non_exhaustive]
 pub enum Format {

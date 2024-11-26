@@ -2,10 +2,12 @@ use std::{fs::File, io::Read};
 
 use ccsds::{
     spacepacket::{collect_groups, decode_packets, Packet, PacketGroup, PrimaryHeader},
-    timecode::Format,
+    timecode::Format as TimecodeFormat,
 };
 use pyo3::prelude::*;
 
+// FIXME: Remove "unsendable"
+//        This may require some usage of Arc or something
 #[pyclass(unsendable)]
 struct PacketIter {
     packets: Box<dyn Iterator<Item = Packet> + Send>,
@@ -24,9 +26,11 @@ impl PacketIter {
 
 /// Decode packets from a local file.
 ///
-/// Returns
-/// -------
-/// Iterator of `Packet`s
+/// Args:
+///     path: Path to a local file on disk
+///
+/// Returns:
+///     Iterator of decoded Packets.
 #[pyfunction]
 #[pyo3(name = "decode_packets")]
 fn py_decode_packets(path: &str) -> PyResult<PacketIter> {
@@ -50,10 +54,6 @@ impl PacketGroupIter {
 
     fn __next__(mut slf: PyRefMut<Self>) -> Option<PacketGroup> {
         slf.groups.next()
-        //match slf.groups.next() {
-        //    Some(group) => Py::new(slf.py(), PacketGroup::from_group(group)).ok(),
-        //    None => None,
-        //}
     }
 }
 
@@ -63,9 +63,10 @@ impl PacketGroupIter {
 /// standalone packets will be a group of 1. Groups do not need be complete, i.e., start with a
 /// first and end with a last.
 ///
-/// Returns
-/// -------
-/// An iterable of PacketGroups
+/// Args:
+///     path: Path to a local file on disk
+///
+/// Returns: An iterable of PacketGroups
 #[pyfunction]
 fn decode_packet_groups(path: &str) -> PyResult<PacketGroupIter> {
     let file: Box<dyn Read + Send> = Box::new(File::open(path)?);
@@ -76,96 +77,36 @@ fn decode_packet_groups(path: &str) -> PyResult<PacketGroupIter> {
 
 #[pyclass(frozen)]
 struct Timecode {
+    #[pyo3(get)]
     epoch: hifitime::Epoch,
 }
 
 #[pymethods]
 impl Timecode {
-    /// Decode `buf` into a CCSDS Day-segmented timecode.
-    ///
-    /// Parameters
-    /// ----------
-    /// num_day: int
-    ///     Number of bytes composing the day segment. Must be 1 to 4.
-    /// num_submillis: int
-    ///     Number of bytes composing the submillisecond segment. Must be 0 to 4;
-    /// buf: bytes
-    ///     Data to decode
-    ///
-    /// Returns
-    /// -------
-    /// Timecode
-    #[staticmethod]
-    fn decode_cds(num_day: usize, num_submillis: usize, buf: &[u8]) -> PyResult<Self> {
-        let fmt = ccsds::timecode::Format::Cds {
-            num_day,
-            num_submillis,
-        };
-        Ok(Timecode {
-            epoch: ccsds::timecode::decode(&fmt, buf)?,
-        })
+    fn __repr__(&self) -> String {
+        self.__str__()
     }
 
-    /// Decode `buf` into a CCSDS Unsegmented timecode.
-    ///
-    /// Parameters
-    /// ----------
-    /// num_coarse: int
-    ///     Number of bytes of coarse time (days)
-    /// num_submillis: int
-    ///     Number of bytes of fine time
-    /// buf: bytes
-    ///     Data to decode
-    /// fine_mult: float | None
-    ///     Multiplier to convert time to nanoseconds, if any
-    ///
-    /// Returns
-    /// -------
-    /// Timecode
-    #[staticmethod]
-    #[pyo3(signature=(num_coarse, num_fine, buf, fine_mult=None))]
-    fn decode_cuc(
-        num_coarse: usize,
-        num_fine: usize,
-        buf: &[u8],
-        fine_mult: Option<f32>,
-    ) -> PyResult<Self> {
-        let fmt = Format::Cuc {
-            num_coarse,
-            num_fine,
-            fine_mult,
-        };
-        Ok(Timecode {
-            epoch: ccsds::timecode::decode(&fmt, buf)?,
-        })
-    }
-
-    /// Decode JPSS CDS timecode
-    #[staticmethod]
-    fn decode_jpss(buf: &[u8]) -> PyResult<Self> {
-        Self::decode_cds(2, 2, buf)
-    }
-
-    /// Decode NASA EOS (Aqua/Terra) Telemetry CUC timecode
-    #[staticmethod]
-    fn decode_eos(buf: &[u8]) -> PyResult<Self> {
-        Self::decode_cuc(2, 4, buf, Some(15200.0))
-    }
-
+    // str rep that is loadable by datetime.fromisoformat
     fn __str__(&self) -> String {
         self.epoch.to_string()
     }
 
     /// Returns seconds since Jan 1, 1970
+    ///
+    /// Returns:
+    ///     A hifitime.Epoch instance representing this timecode.
     fn unix_seconds(&self) -> f64 {
         self.epoch.to_unix_seconds()
     }
 
-    fn epoch(&self) -> hifitime::Epoch {
-        self.epoch
-    }
-
-    /// Extract timecode  as a `datetime.datetime`
+    /// Extract timecode as a `datetime.datetime`.
+    ///
+    /// Returns:
+    ///     A datetime with its tzinfo set to `datetime.timezone.utc`.
+    ///
+    ///     Note, that datetime does not support time anything more than microsecond precision
+    ///     and any nanoseconds present are silently dropped.
     fn datetime<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let datetime = py.import_bound("datetime")?;
         let utc = datetime.getattr("timezone")?.getattr("utc")?;
@@ -176,17 +117,71 @@ impl Timecode {
     }
 }
 
+/// Decode the provided data into a `Timecode`.
+///
+/// Args:
+///     format:
+///         A Format instance specifying the timecode parameters used for decoding
+///     buf:
+///         Data to decode. Must be at least as long as the format requires. decoding
+///         will always start at index 0.
+///
+/// Returns:
+///     Timecode
+///
+/// Raises:
+///     ValueError: If `buf` cannot meet the format requirements
+#[pyfunction]
+fn decode_timecode(format: TimecodeFormat, buf: &[u8]) -> PyResult<Timecode> {
+    Ok(Timecode {
+        epoch: ccsds::timecode::decode(&format, buf)?,
+    })
+}
+
+/// Decode NASA EOS telemetry CUC timecode
+///
+/// See decode_timecode
+#[pyfunction(name = "_decode_eos_timecode")]
+fn decode_eos_timecode(buf: &[u8]) -> PyResult<Timecode> {
+    let format = TimecodeFormat::Cuc {
+        num_coarse: 2,
+        num_fine: 4,
+        fine_mult: Some(15200.0),
+    };
+    Ok(Timecode {
+        epoch: ccsds::timecode::decode(&format, buf)?,
+    })
+}
+
+/// Decode JPSS CDS timecode.
+///
+/// See decode_timecode
+#[pyfunction(name = "_decode_jpss_timecode")]
+fn decode_jpss_timecode(buf: &[u8]) -> PyResult<Timecode> {
+    let format = TimecodeFormat::Cds {
+        num_day: 2,
+        num_submillis: 2,
+    };
+    Ok(Timecode {
+        epoch: ccsds::timecode::decode(&format, buf)?,
+    })
+}
+
 #[pymodule]
 #[pyo3(name = "ccsds")]
 #[pyo3(module = "ccsds")]
 fn ccsdspy(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_decode_packets, m)?)?;
     m.add_function(wrap_pyfunction!(decode_packet_groups, m)?)?;
+    m.add_function(wrap_pyfunction!(decode_timecode, m)?)?;
+    m.add_function(wrap_pyfunction!(decode_eos_timecode, m)?)?;
+    m.add_function(wrap_pyfunction!(decode_jpss_timecode, m)?)?;
 
     m.add_class::<Packet>()?;
     m.add_class::<PrimaryHeader>()?;
     m.add_class::<PacketGroup>()?;
     m.add_class::<Timecode>()?;
+    m.add_class::<TimecodeFormat>()?;
 
     Ok(())
 }
