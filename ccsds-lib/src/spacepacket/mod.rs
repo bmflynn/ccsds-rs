@@ -159,6 +159,9 @@ impl Packet {
         let ph = PrimaryHeader::decode(&buf[..PrimaryHeader::LEN])?;
         let data_len = ph.len_minus1 as usize + 1;
         let total_len = PrimaryHeader::LEN + data_len;
+        if total_len > buf.len() {
+            return Err(Error::InvalidPacketLen(Packet::MAX_LEN, total_len));
+        }
         file.read_exact(&mut buf[PrimaryHeader::LEN..total_len])?;
 
         Ok(Packet {

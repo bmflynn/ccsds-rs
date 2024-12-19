@@ -6,6 +6,9 @@ pub enum Error {
     #[error(transparent)]
     Io(#[from] std::io::Error),
 
+    #[error("Packet length greater than maximum {0}: {1}")]
+    InvalidPacketLen(usize, usize),
+
     #[error("Invalid timecode config: {0}")]
     TimecodeConfig(String),
 
