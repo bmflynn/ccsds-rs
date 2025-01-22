@@ -19292,9 +19292,2269 @@
           ]
         }
       ]
+    },
+    {
+      "scid": 11,
+      "name": "metopb",
+      "aliases": [
+        "metop-b"
+      ],
+      "catalogNumber": 38771,
+      "framingConfig": {
+        "length": 892,
+        "insertZoneLength": 2,
+        "trailerLength": 0,
+        "pseudoNoise": {},
+        "reedSolomon": {
+          "interleave": 4,
+          "virtualFillLength": 0,
+          "numCorrectable": 16
+        }
+      },
+      "vcids": [
+        {
+          "vcid": 3,
+          "description": "AMSU-A",
+          "apids": [
+            {
+              "apid": 37,
+              "sensor": "sem",
+              "description": "SEM"
+            },
+            {
+              "apid": 38,
+              "sensor": "hirs",
+              "description": "HIRS"
+            },
+            {
+              "apid": 39,
+              "sensor": "amsu-a",
+              "description": "AMSU-A"
+            },
+            {
+              "apid": 40,
+              "sensor": "amsu-a",
+              "description": "AMSU-A"
+            }
+          ]
+        },
+        {
+          "vcid": 9,
+          "description": "AVHRR",
+          "apids": [
+            {
+              "apid": 103,
+              "sensor": "avhrr",
+              "description": "AVHRR"
+            },
+            {
+              "apid": 104,
+              "sensor": "avhrr",
+              "description": "AVHRR"
+            }
+          ]
+        },
+        {
+          "vcid": 10,
+          "description": "IASI",
+          "apids": [
+            {
+              "apid": 130,
+              "sensor": "iasi",
+              "description": "IASI"
+            },
+            {
+              "apid": 135,
+              "sensor": "iasi",
+              "description": "IASI"
+            },
+            {
+              "apid": 140,
+              "sensor": "iasi",
+              "description": "IASI"
+            },
+            {
+              "apid": 145,
+              "sensor": "iasi",
+              "description": "IASI"
+            },
+            {
+              "apid": 150,
+              "sensor": "iasi",
+              "description": "IASI"
+            },
+            {
+              "apid": 160,
+              "sensor": "iasi",
+              "description": "IASI"
+            },
+            {
+              "apid": 180,
+              "sensor": "iasi",
+              "description": "IASI"
+            }
+          ]
+        },
+        {
+          "vcid": 12,
+          "description": "MHS",
+          "apids": [
+            {
+              "apid": 34,
+              "sensor": "mhs",
+              "description": "MHS"
+            }
+          ]
+        },
+        {
+          "vcid": 15,
+          "description": "ASCAT",
+          "apids": [
+            {
+              "apid": 192,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 193,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 194,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 195,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 196,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 197,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 198,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 199,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 200,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 201,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 202,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 203,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 204,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 205,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 206,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 207,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 208,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 209,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 210,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 211,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 212,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 213,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 214,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 215,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 216,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 217,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 218,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 219,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 220,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 221,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 222,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 223,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 224,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 225,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 226,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 227,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 228,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 229,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 230,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 231,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 232,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 233,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 234,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 235,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 236,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 237,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 238,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 239,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 240,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 241,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 242,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 243,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 244,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 245,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 246,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 247,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 248,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 249,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 250,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 251,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 252,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 253,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 254,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 255,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            }
+          ]
+        },
+        {
+          "vcid": 24,
+          "description": "GOME",
+          "apids": [
+            {
+              "apid": 384,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 385,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 386,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 387,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 388,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 389,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 390,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 391,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 392,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 393,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 394,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 395,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 396,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 397,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 398,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 399,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 400,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 401,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 402,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 403,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 404,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 405,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 406,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 407,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 408,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 409,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 410,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 411,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 412,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 413,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 414,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 415,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 416,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 417,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 418,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 419,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 420,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 421,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 422,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 423,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 424,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 425,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 426,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 427,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 428,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 429,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 430,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 431,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 432,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 433,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 434,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 435,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 436,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 437,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 438,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 439,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 440,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 441,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 442,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 443,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 444,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 445,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 446,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 447,
+              "sensor": "gome",
+              "description": "GOME"
+            }
+          ]
+        },
+        {
+          "vcid": 27,
+          "description": "DCS",
+          "apids": [
+            {
+              "apid": 35,
+              "sensor": "dcs",
+              "description": "MHS"
+            }
+          ]
+        },
+        {
+          "vcid": 29,
+          "description": "GRAS",
+          "apids": [
+            {
+              "apid": 448,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 449,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 450,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 451,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 452,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 453,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 454,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 455,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 456,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 457,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 458,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 459,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 460,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 461,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 462,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 463,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 464,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 465,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 466,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 467,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 468,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 469,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 470,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 471,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 472,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 473,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 474,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 475,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 476,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 477,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 478,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 479,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 480,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 481,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 482,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 483,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 484,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 485,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 486,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 487,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 488,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 489,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 490,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 491,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 492,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 493,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 494,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 495,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 496,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 497,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 498,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 499,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 500,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 501,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 502,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 503,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 504,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 505,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 506,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 507,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 508,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 509,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 510,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 511,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            }
+          ]
+        },
+        {
+          "vcid": 34,
+          "description": "GRAS/SC/Admin",
+          "apids": [
+            {
+              "apid": 1,
+              "sensor": "spacecraft",
+              "description": "Spacecraft"
+            },
+            {
+              "apid": 2,
+              "sensor": "gras",
+              "description": "GRAS"
+            },
+            {
+              "apid": 3,
+              "sensor": "gras",
+              "description": "GRAS"
+            },
+            {
+              "apid": 6,
+              "sensor": "",
+              "description": "Admin"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "scid": 13,
+      "name": "metopc",
+      "aliases": [
+        "metop-c"
+      ],
+      "catalogNumber": 43689,
+      "framingConfig": {
+        "length": 892,
+        "insertZoneLength": 2,
+        "trailerLength": 0,
+        "pseudoNoise": {},
+        "reedSolomon": {
+          "interleave": 4,
+          "virtualFillLength": 0,
+          "numCorrectable": 16
+        }
+      },
+      "vcids": [
+        {
+          "vcid": 3,
+          "description": "AMSU-A",
+          "apids": [
+            {
+              "apid": 37,
+              "sensor": "sem",
+              "description": "SEM"
+            },
+            {
+              "apid": 38,
+              "sensor": "hirs",
+              "description": "HIRS"
+            },
+            {
+              "apid": 39,
+              "sensor": "amsu-a",
+              "description": "AMSU-A"
+            },
+            {
+              "apid": 40,
+              "sensor": "amsu-a",
+              "description": "AMSU-A"
+            }
+          ]
+        },
+        {
+          "vcid": 9,
+          "description": "AVHRR",
+          "apids": [
+            {
+              "apid": 103,
+              "sensor": "avhrr",
+              "description": "AVHRR"
+            },
+            {
+              "apid": 104,
+              "sensor": "avhrr",
+              "description": "AVHRR"
+            }
+          ]
+        },
+        {
+          "vcid": 10,
+          "description": "IASI",
+          "apids": [
+            {
+              "apid": 130,
+              "sensor": "iasi",
+              "description": "IASI"
+            },
+            {
+              "apid": 135,
+              "sensor": "iasi",
+              "description": "IASI"
+            },
+            {
+              "apid": 140,
+              "sensor": "iasi",
+              "description": "IASI"
+            },
+            {
+              "apid": 145,
+              "sensor": "iasi",
+              "description": "IASI"
+            },
+            {
+              "apid": 150,
+              "sensor": "iasi",
+              "description": "IASI"
+            },
+            {
+              "apid": 160,
+              "sensor": "iasi",
+              "description": "IASI"
+            },
+            {
+              "apid": 180,
+              "sensor": "iasi",
+              "description": "IASI"
+            }
+          ]
+        },
+        {
+          "vcid": 12,
+          "description": "MHS",
+          "apids": [
+            {
+              "apid": 34,
+              "sensor": "mhs",
+              "description": "MHS"
+            }
+          ]
+        },
+        {
+          "vcid": 15,
+          "description": "ASCAT",
+          "apids": [
+            {
+              "apid": 192,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 193,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 194,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 195,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 196,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 197,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 198,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 199,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 200,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 201,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 202,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 203,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 204,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 205,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 206,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 207,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 208,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 209,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 210,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 211,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 212,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 213,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 214,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 215,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 216,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 217,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 218,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 219,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 220,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 221,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 222,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 223,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 224,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 225,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 226,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 227,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 228,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 229,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 230,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 231,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 232,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 233,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 234,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 235,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 236,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 237,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 238,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 239,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 240,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 241,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 242,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 243,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 244,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 245,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 246,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 247,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 248,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 249,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 250,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 251,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 252,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 253,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 254,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            },
+            {
+              "apid": 255,
+              "sensor": "ascat",
+              "description": "ASCAT"
+            }
+          ]
+        },
+        {
+          "vcid": 24,
+          "description": "GOME",
+          "apids": [
+            {
+              "apid": 384,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 385,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 386,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 387,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 388,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 389,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 390,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 391,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 392,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 393,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 394,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 395,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 396,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 397,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 398,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 399,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 400,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 401,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 402,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 403,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 404,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 405,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 406,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 407,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 408,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 409,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 410,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 411,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 412,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 413,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 414,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 415,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 416,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 417,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 418,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 419,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 420,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 421,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 422,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 423,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 424,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 425,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 426,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 427,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 428,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 429,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 430,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 431,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 432,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 433,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 434,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 435,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 436,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 437,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 438,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 439,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 440,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 441,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 442,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 443,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 444,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 445,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 446,
+              "sensor": "gome",
+              "description": "GOME"
+            },
+            {
+              "apid": 447,
+              "sensor": "gome",
+              "description": "GOME"
+            }
+          ]
+        },
+        {
+          "vcid": 27,
+          "description": "DCS",
+          "apids": [
+            {
+              "apid": 35,
+              "sensor": "dcs",
+              "description": "MHS"
+            }
+          ]
+        },
+        {
+          "vcid": 29,
+          "description": "GRAS",
+          "apids": [
+            {
+              "apid": 448,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 449,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 450,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 451,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 452,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 453,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 454,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 455,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 456,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 457,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 458,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 459,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 460,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 461,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 462,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 463,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 464,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 465,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 466,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 467,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 468,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 469,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 470,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 471,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 472,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 473,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 474,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 475,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 476,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 477,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 478,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 479,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 480,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 481,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 482,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 483,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 484,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 485,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 486,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 487,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 488,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 489,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 490,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 491,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 492,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 493,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 494,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 495,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 496,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 497,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 498,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 499,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 500,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 501,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 502,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 503,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 504,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 505,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 506,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 507,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 508,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 509,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 510,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            },
+            {
+              "apid": 511,
+              "sensor": "gras",
+              "description": "GRAS Sounding"
+            }
+          ]
+        },
+        {
+          "vcid": 34,
+          "description": "GRAS/SC/Admin",
+          "apids": [
+            {
+              "apid": 1,
+              "sensor": "spacecraft",
+              "description": "Spacecraft"
+            },
+            {
+              "apid": 2,
+              "sensor": "gras",
+              "description": "GRAS"
+            },
+            {
+              "apid": 3,
+              "sensor": "gras",
+              "description": "GRAS"
+            },
+            {
+              "apid": 6,
+              "sensor": "",
+              "description": "Admin"
+            }
+          ]
+        }
+      ]
     }
   ],
-  "version": "0.1.1-2-gc6dc433",
-  "gitSha": "c6dc4335cc6ce3b9d7d5149be4d5593f354272af",
-  "generated": "2024-11-07T15:40:04+00:00"
+  "version": "0.2.0",
+  "gitSha": "e53ec841d203e1bff652c42ca283eed0478e4af7",
+  "generated": "2025-01-22T16:03:18+00:00"
 }
