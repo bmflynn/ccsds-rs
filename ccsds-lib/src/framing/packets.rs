@@ -3,7 +3,7 @@ use std::{
     fmt::Display,
 };
 
-use tracing::{debug, trace};
+use tracing::{debug, trace, warn};
 
 use crate::framing::{integrity::Integrity, DecodedFrame, Scid, Vcid};
 use crate::spacepacket::{Packet, PrimaryHeader};
@@ -133,9 +133,14 @@ where
                 }
 
                 if mpdu.header_offset() > mpdu.payload().len() {
-                    panic!("MPDU header offset too large; likely due to an incorrect frame length; offset={} buf size={}",
-                        mpdu.header_offset(),  mpdu.payload().len()
+                    debug!(
+                        "Invalid MPDU header offset; value={} buf size={}",
+                        mpdu.header_offset(),
+                        mpdu.payload().len()
                     );
+                    tracker.clear();
+                    tracker.sync = false;
+                    continue;
                 }
                 tracker.cache = mpdu.payload()[mpdu.header_offset()..].to_vec();
                 tracker.sync = true;
