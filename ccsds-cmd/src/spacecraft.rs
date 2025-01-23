@@ -72,10 +72,10 @@ fn setup_handlebars() -> handlebars::Handlebars<'static> {
     hb.register_helper("join", Box::new(join));
 
     handlebars_helper!(left_pad: |num: u64, v: Json| {
-        let v = if let serde_json::Value::String(s) = v {
-            s.to_owned()
-        } else {
-            v.to_string()
+        let v = match v {
+            serde_json::Value::String(s) => s.to_owned(),
+            serde_json::Value::Null => String::new(),
+            _ => v.to_string()
         };
         let mut num: usize = usize::try_from(num).unwrap();
         if num < v.len() {
@@ -170,11 +170,11 @@ VCID   Description
 {{ /if ~}}
 {{ #if show_apids ~}}
 -------------------------------------------------------------------------------------------
-VCID    APID    Sensor           Description 
+VCID    APID    Sensor              Size (min/max)   Description 
 -------------------------------------------------------------------------------------------
 {{ #each sc.vcids ~}}
 {{ #each apids }}
-{{ lpad 4 ../vcid }}    {{ lpad 4 apid }}    {{ rpad 18 sensor }}  {{ description }}
+{{ lpad 4 ../vcid }}    {{ lpad 4 apid }}    {{ rpad 18 sensor }}  {{lpad 5 minSize}}/{{lpad 5 maxSize}}  {{ description }}
 {{ /each ~}}
 {{ /each }}
 {{ /if ~}}

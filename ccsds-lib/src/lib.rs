@@ -50,7 +50,7 @@
 //! ).filter_map(Result::ok);
 //!
 //! // 3. Extract packets from Frames
-//! let packets = decode_framed_packets(frames, izone_len, trailer_len);
+//! let packets = decode_framed_packets(frames, izone_len, trailer_len, None);
 //! ```
 //!
 //! It is also possible to have more control over the decode process for cases that do not
@@ -78,7 +78,7 @@
 //! let frames = decode_frames(cadus, None, None).filter_map(|z| z.ok());
 //!
 //! // 3. Extract packets from Frames
-//! let packets = decode_framed_packets(frames, izone_len, trailer_len);
+//! let packets = decode_framed_packets(frames, izone_len, trailer_len, None);
 //! ```
 //!
 //! ## References:

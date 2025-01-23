@@ -83,7 +83,8 @@ fn full_decode() {
         .collect();
     assert_eq!(frames.len(), 65, "expected frame count doesn't match");
 
-    let packets: Vec<DecodedPacket> = decode_framed_packets(frames.into_iter(), 0, 0).collect();
+    let packets: Vec<DecodedPacket> =
+        decode_framed_packets(frames.into_iter(), 0, 0, None).collect();
     for p in &packets {
         println!("{:?}", p.packet.header);
     }

@@ -1,5 +1,16 @@
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
+pub enum PacketError {
+    #[error("invaild length; expected [{min}, {max}), got {got}")]
+    Length { min: usize, max: usize, got: usize },
+    #[error("packet version != 0")]
+    Version,
+    #[error("packet type != 1")]
+    Telemetry,
+}
+
+#[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
 pub enum Error {
     #[error("Not enough bytes")]
     NotEnoughData { actual: usize, minimum: usize },
@@ -20,6 +31,9 @@ pub enum Error {
     /// Integrity check or correct error executing the algorithm.
     #[error("integrity algorithm error: {0}")]
     IntegrityAlgorithm(String),
+
+    #[error("Packet error: {0}")]
+    Packet(#[from] PacketError),
 }
 
 #[cfg(feature = "python")]

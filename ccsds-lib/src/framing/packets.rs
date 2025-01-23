@@ -3,10 +3,13 @@ use std::{
     fmt::Display,
 };
 
-use tracing::{debug, trace, warn};
+use spacecrafts::Spacecraft;
+use tracing::{debug, trace};
 
 use crate::framing::{integrity::Integrity, DecodedFrame, Scid, Vcid};
 use crate::spacepacket::{Packet, PrimaryHeader};
+
+use super::Apid;
 
 struct VcidTracker {
     vcid: Vcid,
@@ -63,6 +66,8 @@ where
     frames: I,
     izone_length: usize,
     trailer_length: usize,
+    // Expected min/max total packet length
+    apid_sizes: HashMap<Apid, (usize, usize)>,
 
     // Cache of partial packet data from frames that has not yet been decoded into
     // packets. There should only be up to about 1 frame worth of data in the cache
@@ -78,7 +83,7 @@ where
     type Item = DecodedPacket;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // If there are ready packets provide the oldest one
+        // If there are packets ready to go provide the oldest one
         if let Some(packet) = self.ready.pop_front() {
             return Some(packet);
         }
@@ -115,7 +120,8 @@ where
                 }
                 _ => {}
             }
-            // For counter errors, we can still utilize the current frame (no continue)
+            // Frame error indicates there are frames missing _before_ this one, so clear the
+            // existing cache and continue to process this frame.
             if missing > 0 {
                 trace!(vcid = frame.header.vcid, tracker=%tracker, missing=missing, "missing frames, dropping tracker");
                 tracker.clear();
@@ -123,9 +129,11 @@ where
             }
 
             if tracker.sync {
-                // If we have sync all mpdu bytes are for this tracker/vcid
+                // If we have sync add the MPDU data to the current tracker
                 tracker.cache.extend_from_slice(mpdu.payload());
             } else {
+                // No sync, check for the presence of a FPH (first packet header).
+
                 // No way to get sync if we don't have a header
                 if !mpdu.has_header() {
                     trace!(vcid = %frame.header.vcid, tracker = %tracker, "frames w/o mpdu, dropping");
@@ -134,30 +142,43 @@ where
 
                 if mpdu.header_offset() > mpdu.payload().len() {
                     debug!(
-                        "Invalid MPDU header offset; value={} buf size={}",
+                        "invalid MPDU header offset; value={} buf size={}",
                         mpdu.header_offset(),
                         mpdu.payload().len()
                     );
-                    tracker.clear();
-                    tracker.sync = false;
                     continue;
                 }
-                tracker.cache = mpdu.payload()[mpdu.header_offset()..].to_vec();
+
+                // We have valid packet header, so we have sync; init the cache
                 tracker.sync = true;
+                tracker.cache = mpdu.payload()[mpdu.header_offset()..].to_vec();
             }
 
+            // Handle the case where there are not enough bytes to read a complete header and
+            // just collect the next frame. I'm not sure if this should really happen, but we
+            // cover the case anyways.
             if tracker.cache.len() < PrimaryHeader::LEN {
-                continue 'next_frame; // need more frame data for this vcid
+                continue 'next_frame;
             }
+
+            // The start of the cache should always contain a packet primary header
             let mut header =
                 PrimaryHeader::decode(&tracker.cache).expect("failed to decode primary header");
+
+            // TODO: Add packet validations for length, version, and type
+
+            // Make sure we have enough data to fully construct the packet indicated by the header
             let mut need = header.len_minus1 as usize + 1 + PrimaryHeader::LEN;
             if tracker.cache.len() < need {
-                continue; // need more frame data for this vcid
+                continue 'next_frame;
             }
 
+            // The tracker cache has enough data to construct at least the first packet available
+            // in the tracker cache. It's possible the cache also has enough data for additional
+            // packets as well, so continue constructing packets from the cache while there is more
+            // cache data available. Created packets are pushed onto the ready queue.
             loop {
-                // Grab data we need and update the cache
+                // data is for the current packet, tail is what's left of the cache
                 let (data, tail) = tracker.cache.split_at(need);
                 let packet = DecodedPacket {
                     scid: frame.header.scid,
@@ -197,6 +218,9 @@ where
 /// While not strictly enforced, frames should all be from the same spacecraft, i.e., have
 /// the same spacecraft id.
 ///
+/// If `spacecraft` is provided its configuration is used to perform additional validation for
+/// packet minimum and maximum length.
+///
 /// There are several cases when frame data cannot be fully recovered and is dropped,
 /// i.e., not used to construct packets:
 ///
@@ -208,14 +232,30 @@ pub fn decode_framed_packets<I>(
     frames: I,
     izone_length: usize,
     trailer_length: usize,
+    spacecraft: Option<Spacecraft>,
 ) -> impl Iterator<Item = DecodedPacket> + Send
 where
     I: Iterator<Item = DecodedFrame> + Send,
 {
+    let mut apid_sizes = HashMap::default();
+    if let Some(spacecraft) = spacecraft {
+        for vcid in spacecraft.vcids {
+            for apid in vcid.apids {
+                let val = match (apid.min_size, apid.max_size) {
+                    (Some(min), Some(max)) => (min, max),
+                    (Some(min), None) => (min, 65536),
+                    (None, Some(max)) => (0, max),
+                    (None, None) => continue,
+                };
+                apid_sizes.insert(apid.apid, val);
+            }
+        }
+    }
     FramedPacketIter {
         frames: frames.filter(|dc| !dc.frame.is_fill()),
         izone_length,
         trailer_length,
+        apid_sizes,
         cache: HashMap::new(),
         ready: VecDeque::new(),
     }

@@ -166,10 +166,10 @@ pub fn info(fpath: &Path, format: &Format, tc_format: &TCFormat) -> Result<()> {
 
 fn render_text(info: &Info) -> Result<String> {
     handlebars_helper!(left_pad: |num: u64, v: Json| {
-        let v = if let serde_json::Value::String(s) = v {
-            s.to_owned()
-        } else {
-            v.to_string()
+        let v = match v {
+            serde_json::Value::String(s) => s.to_owned(),
+            serde_json::Value::Null => String::new(),
+            _ => v.to_string()
         };
         let mut num: usize = usize::try_from(num).unwrap();
         if num < v.len() {
@@ -201,6 +201,6 @@ Missing:  {{ summary.missing_packets }}
 -----------------------------------------------------------------------------------------------
 APID    First                              Last                                 Count   Missing
 -----------------------------------------------------------------------------------------------
-{{ #each apids }}{{ lpad 6 @key }}  {{ first_packet_time }}  {{ last_packet_time }}   {{ lpad 6 total_packets }}   {{ lpad 7 missing_packets }}
+{{ #each apids }}{{ lpad 6 @key }}  {{ lpad 33 first_packet_time }}  {{ lpad 33 last_packet_time }}   {{ lpad 6 total_packets }}   {{ lpad 7 missing_packets }}
 {{/each }}
 ";

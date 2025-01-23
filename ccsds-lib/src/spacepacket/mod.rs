@@ -2,15 +2,18 @@ mod merge;
 mod summary;
 mod timecode;
 
+use ::spacecrafts::Spacecraft;
 #[cfg(feature = "python")]
 use pyo3::{prelude::*, types::PyBytes};
 
-use std::fmt::Display;
 use std::io::Read;
+use std::{collections::HashMap, fmt::Display};
 
 use serde::{Deserialize, Serialize};
 
+use crate::error::PacketError;
 pub use crate::prelude::*;
+use crate::spacecrafts;
 pub use merge::*;
 pub use summary::*;
 pub use timecode::*;
@@ -63,7 +66,7 @@ impl Display for Packet {
 
 #[cfg_attr(feature = "python", pymethods)]
 impl Packet {
-    const MAX_LEN: usize = 65535;
+    const MAX_LEN: usize = 65536;
 
     #[cfg(feature = "python")]
     #[getter]
@@ -149,6 +152,9 @@ impl Packet {
 }
 
 impl Packet {
+    const REQUIRED_VERSION: u8 = 0;
+    const TYPE_TELEMETRY: u8 = 0;
+
     pub fn read<R>(file: &mut R) -> Result<Packet>
     where
         R: Read + Send,
@@ -157,6 +163,14 @@ impl Packet {
         file.read_exact(&mut buf[..PrimaryHeader::LEN])?;
 
         let ph = PrimaryHeader::decode(&buf[..PrimaryHeader::LEN])?;
+
+        if ph.version != Self::REQUIRED_VERSION {
+            return Err(Error::Packet(PacketError::Version));
+        }
+        if ph.type_flag != Self::TYPE_TELEMETRY {
+            return Err(Error::Packet(PacketError::Telemetry));
+        }
+
         let data_len = ph.len_minus1 as usize + 1;
         let total_len = PrimaryHeader::LEN + data_len;
         if total_len > buf.len() {
@@ -383,6 +397,21 @@ where
     PacketReaderIter::new(reader)
 }
 
+/// Same as [decode_packets] but provides additional packet length validation on the any APIDs that have a configured
+/// minimum and/or maximum packet size available in the spacecraft configuration.
+///
+/// # Errors
+/// The generated results will be [PacketError] for any packets that fail available spacecraft packet validations.
+pub fn decode_packets_with_validation<R>(
+    reader: R,
+    sc: Spacecraft,
+) -> impl Iterator<Item = Result<Packet>> + Send
+where
+    R: Read + Send,
+{
+    PacketReaderIter::new(reader).with_length_validation(sc)
+}
+
 /// Return an [Iterator] that groups read packets into [PacketGroup]s.
 ///
 /// This is necessary for packet streams containing APIDs that utilize packet grouping sequence
@@ -428,6 +457,7 @@ where
 {
     pub reader: R,
     pub offset: usize,
+    apid_sizes: HashMap<Apid, (usize, usize)>,
 }
 
 impl<R> PacketReaderIter<R>
@@ -435,7 +465,27 @@ where
     R: Read + Send,
 {
     fn new(reader: R) -> Self {
-        PacketReaderIter { reader, offset: 0 }
+        PacketReaderIter {
+            reader,
+            offset: 0,
+            apid_sizes: HashMap::default(),
+        }
+    }
+
+    fn with_length_validation(mut self, sc: Spacecraft) -> Self {
+        self.apid_sizes.clear();
+        for vcid in sc.vcids {
+            for apid in vcid.apids {
+                let val = match (apid.min_size, apid.max_size) {
+                    (Some(min), Some(max)) => (min, max),
+                    (Some(min), None) => (min, Packet::MAX_LEN),
+                    (None, Some(max)) => (0, max),
+                    (None, None) => continue,
+                };
+                self.apid_sizes.insert(apid.apid, val);
+            }
+        }
+        self
     }
 }
 
