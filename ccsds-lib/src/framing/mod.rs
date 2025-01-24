@@ -58,11 +58,22 @@ impl VCDUHeader {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct MPDU {
     // the offset of the header minus 1
     first_header: u16,
     data: Vec<u8>,
+}
+
+impl std::fmt::Debug for MPDU {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "MPDU {{ fill:{} fhp:{:#x} }}",
+            self.is_fill(),
+            self.header_offset()
+        )
+    }
 }
 
 impl MPDU {

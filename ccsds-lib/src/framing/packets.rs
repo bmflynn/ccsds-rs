@@ -129,7 +129,7 @@ where
             }
 
             if tracker.sync {
-                // If we have sync add the MPDU data to the current tracker
+                // If we have sync, add the MPDU data to the current tracker
                 tracker.cache.extend_from_slice(mpdu.payload());
             } else {
                 // No sync, check for the presence of a FPH (first packet header).
@@ -137,6 +137,12 @@ where
                 // No way to get sync if we don't have a header
                 if !mpdu.has_header() {
                     trace!(vcid = %frame.header.vcid, tracker = %tracker, "frames w/o mpdu, dropping");
+                    continue;
+                }
+                // I don't think there should ever be a fill MPDU in a non-fill VCDU, but we check
+                // anyways.
+                if mpdu.is_fill() {
+                    trace!(vcid = %frame.header.vcid, tracker = %tracker, "fill mpdu, dropping");
                     continue;
                 }
 

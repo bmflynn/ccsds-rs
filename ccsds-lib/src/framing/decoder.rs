@@ -111,7 +111,6 @@ impl FrameDecoder {
                     let integrity_alg = integrity_alg.clone();
 
                     // Have to do pn to get the correct header, even for fill
-                    // FIXME: Is it? Randomized fill VCID should be a static value, right?
                     if let Some(ref pn) = self.derandomization {
                         block = pn.derandomize(&block);
                     }
@@ -120,9 +119,15 @@ impl FrameDecoder {
                         debug!(block_idx = idx, "cannot decode header; skipping");
                         continue;
                     };
-                    // We only do RS on non-fill
+
+                    // No integrity checking on FILL, however, we still remove parity bytes
                     if hdr.vcid == VCDUHeader::FILL {
-                        if let Some(frame) = Frame::decode(block) {
+                        let data = match integrity_alg.clone().borrow() {
+                            Some(alg) => alg.remove_parity(&block),
+                            None => &block,
+                        };
+
+                        if let Some(frame) = Frame::decode(data.to_vec()) {
                             if future_tx
                                 .send(Ok(DecodedFrame {
                                     frame,
@@ -135,29 +140,31 @@ impl FrameDecoder {
                             }
                         }
                     } else {
-                        // spawn_fifo makes sure the frame order is maintained
+                        // Do integrity checking in the thread pool. Use spawn_fifo to make sure the frame
+                        // order is maintained.
                         pool.spawn_fifo(move || {
-                            let zult = if let Some(integrity_alg) = integrity_alg.clone().borrow() {
-                                match integrity_alg.perform(&block) {
-                                    Ok((status, data)) => Ok(DecodedFrame {
-                                        frame: Frame { header: hdr, data },
+                            let decoded_frame =
+                                if let Some(integrity_alg) = integrity_alg.clone().borrow() {
+                                    match integrity_alg.perform(&block) {
+                                        Ok((status, data)) => Ok(DecodedFrame {
+                                            frame: Frame { header: hdr, data },
+                                            missing: 0,
+                                            integrity: Some(status),
+                                        }),
+                                        Err(err) => Err(err),
+                                    }
+                                } else {
+                                    Ok(DecodedFrame {
+                                        frame: Frame {
+                                            header: hdr,
+                                            data: block,
+                                        },
                                         missing: 0,
-                                        integrity: Some(status),
-                                    }),
-                                    Err(err) => Err(err),
-                                }
-                            } else {
-                                Ok(DecodedFrame {
-                                    frame: Frame {
-                                        header: hdr,
-                                        data: block,
-                                    },
-                                    missing: 0,
-                                    integrity: None,
-                                })
-                            };
+                                        integrity: None,
+                                    })
+                                };
 
-                            if future_tx.send(zult).is_err() {
+                            if future_tx.send(decoded_frame).is_err() {
                                 debug!(block_idx = idx, "failed to send frame");
                             }
                         });
@@ -182,7 +189,7 @@ impl FrameDecoder {
 /// A [Frame] decoded from CADUs containing additional decode information regarding the
 /// decoding process, e.g., missing frame counts and Reed-Solomon decoding information,
 /// if available.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DecodedFrame {
     pub frame: super::Frame,
     pub missing: u32,

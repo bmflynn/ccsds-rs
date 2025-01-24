@@ -45,6 +45,11 @@ impl DefaultReedSolomon {
 
 //impl Corrector for DefaultReedSolomon {
 impl IntegrityAlgorithm for DefaultReedSolomon {
+    fn remove_parity<'a>(&self, cadu_dat: &'a [u8]) -> &'a [u8] {
+        let parity_len = self.interleave as usize * self.parity_len;
+        &cadu_dat[..cadu_dat.len() - parity_len]
+    }
+
     fn perform(&self, cadu_dat: &[u8]) -> Result<(Integrity, Vec<u8>)> {
         if !DefaultReedSolomon::can_correct(cadu_dat, self.interleave) {
             return Err(Error::IntegrityAlgorithm(format!(
@@ -62,8 +67,8 @@ impl IntegrityAlgorithm for DefaultReedSolomon {
             let zult = correct_message(msg);
             match zult.state {
                 RSState::Uncorrectable(_) => {
-                    let zult =
-                        &corrected[..block.len() - (self.interleave as usize + self.parity_len)];
+                    // Bail if there is any single uncorrectable message in this block
+                    let zult = self.remove_parity(cadu_dat);
                     return Ok((Integrity::Uncorrectable, zult.to_vec()));
                 }
                 RSState::Corrected(num) => {
@@ -77,7 +82,8 @@ impl IntegrityAlgorithm for DefaultReedSolomon {
             }
         }
 
-        let zult = &corrected[..block.len() - (self.interleave as usize * self.parity_len)];
+        // The resulting buffer does not include the parity bytes
+        let zult = self.remove_parity(&corrected);
         match num_corrected {
             0 => Ok((Integrity::Ok, zult.to_vec())),
             _ => Ok((Integrity::Corrected, zult.to_vec())),
