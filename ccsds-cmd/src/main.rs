@@ -1,4 +1,5 @@
 mod filter;
+mod frame;
 mod info;
 mod merge;
 mod spacecraft;
@@ -8,6 +9,8 @@ use std::str::FromStr;
 use std::{fs::File, io::stderr};
 
 use anyhow::{anyhow, bail, Context, Result};
+use ccsds::prelude::Vcid;
+use ccsds::spacecrafts::Spacecrafts;
 use ccsds::spacepacket::TimecodeDecoder;
 use ccsds::{framing::Scid, spacepacket::Apid};
 use clap::{Parser, Subcommand};
@@ -20,6 +23,60 @@ use tracing_subscriber::EnvFilter;
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+}
+
+#[derive(Subcommand)]
+enum FramingCommands {
+    //Info,
+    //CheckRs,
+    /// Byte-align and remove fill
+    ///
+    /// Leaves ASM in place. Performs no PN or integrity checking
+    Sync {
+        /// Output file path. Defaults to input name with .sync suffix.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Spacecraft identifier used to lookup framing config.
+        scid: Scid,
+
+        /// Input CADU file to synchronize
+        input: PathBuf,
+    },
+    /// Frame the input raw data (CADU) file.
+    ///
+    /// The input need not be synchronized. PN and integrity aglorithms will be applied as
+    /// configured for the specified spacecraft.
+    Frame {
+        /// Include these vcids or vcid ranges.
+        ///
+        /// This accepts a CSV of VCIDs as well as ranges of the format `<start>-<end>`
+        /// where start and end are inclusive. For example, you can specify
+        /// --include 0,1,2,3,4,5,10,20,30 or --include 0-5,10,20,30
+        ///
+        /// If used with --exclude, values are first included, then excluded.
+        #[arg(short, long, value_name = "csv", value_delimiter = ',')]
+        include: Vec<String>,
+
+        /// Exclude these vcids or vcid ranges.
+        ///
+        /// This accepts a CSV of vcids as well as ranges of the format `<start>-<end>`
+        /// where start is inclusive and end is exclusive.
+        ///
+        /// If used with --include, values are first included, then excluded.
+        #[arg(short, long, value_name = "csv", value_delimiter = ',')]
+        exclude: Vec<String>,
+
+        /// Output file path. Defaults to input name with .sync suffix.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Spacecraft identifier used to lookup framing config.
+        scid: Scid,
+
+        /// Input CADU file to synchronize
+        input: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
@@ -150,6 +207,13 @@ enum Commands {
         /// Path to spacecraft database to merge with built-in spacecrafts.
         #[arg(short, long)]
         db: Option<PathBuf>,
+    },
+
+    /// Framing commands
+    #[clap(hide = true)]
+    Framing {
+        #[command(subcommand)]
+        command: FramingCommands,
     },
 }
 
@@ -293,5 +357,58 @@ fn main() -> Result<()> {
         Commands::Spacecraft { scid, db } => {
             spacecraft::spacecraft_info(db.as_ref(), scid.as_ref().copied(), true, true)
         }
+        Commands::Framing { command } => match command {
+            FramingCommands::Sync {
+                input,
+                output,
+                scid,
+            } => {
+                let Some(sc) = Spacecrafts::default().lookup(*scid) else {
+                    bail!("No spacecraft config found for {scid}");
+                };
+                let output = match output {
+                    Some(p) => p.clone(),
+                    None => PathBuf::from(format!(
+                        "{}.sync",
+                        input.file_name().unwrap().to_string_lossy()
+                    )),
+                };
+                info!(
+                    "writing to {:?} using block size {}",
+                    &output,
+                    sc.framing_config.codeblock_len()
+                );
+                frame::sync(input, &output, sc.framing_config.codeblock_len())
+            }
+            FramingCommands::Frame {
+                include,
+                exclude,
+                input,
+                output,
+                scid,
+            } => {
+                let Some(sc) = Spacecrafts::default().lookup(*scid) else {
+                    bail!("No spacecraft config found for {scid}");
+                };
+                let include = parse_number_ranges(include.clone())?
+                    .iter()
+                    .filter_map(|v| Vcid::try_from(*v).ok())
+                    .collect::<Vec<Vcid>>();
+                let exclude = parse_number_ranges(exclude.clone())?
+                    .iter()
+                    .filter_map(|v| Vcid::try_from(*v).ok())
+                    .collect::<Vec<Vcid>>();
+                let output = match output {
+                    Some(p) => p.clone(),
+                    None => PathBuf::from(format!(
+                        "{}.frames",
+                        input.file_name().unwrap().to_string_lossy()
+                    )),
+                };
+                info!("writing to {:?} using {:?}", &output, sc.framing_config);
+
+                frame::frame(input, &output, sc.framing_config, include, exclude)
+            }
+        },
     }
 }
