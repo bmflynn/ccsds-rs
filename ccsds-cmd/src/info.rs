@@ -68,7 +68,7 @@ struct Summary {
 struct Info {
     filename: String,
     summary: Summary,
-    apids: HashMap<Apid, Summary>,
+    apids: Vec<(Apid, Summary)>,
 }
 
 fn new_cds_decoder() -> TimecodeDecoder {
@@ -141,6 +141,9 @@ fn summarize(fpath: &Path, tc_format: &TCFormat) -> Result<Info> {
         }
     }
 
+    let mut apids: Vec<(Apid, Summary)> = apids.into_iter().collect();
+    apids.sort_unstable_by_key(|(k, _)| *k);
+
     Ok(Info {
         filename: fpath.to_string_lossy().to_string(),
         summary,
@@ -190,17 +193,17 @@ fn render_text(info: &Info) -> Result<String> {
     hb.render("info", &info).context("rendering text")
 }
 
-const TEXT_TEMPLATE: &str = r"{{ filename }}
+const TEXT_TEMPLATE: &str = r#"{{ filename }}
 ===============================================================================================
 First:    {{ summary.first_packet_time }}
 Last:     {{ summary.last_packet_time }} 
 Duration: {{ summary.duration }}
-APIDS:    {{ #each apids }}{{ @key }}{{ #if @last }}{{ else }}, {{ /if }}{{ /each }}
+APIDS:    {{ #each apids }}{{ this.[0] }}{{ #if @last }}{{ else }}, {{ /if }}{{ /each }}
 Count:    {{ summary.total_packets }}
 Missing:  {{ summary.missing_packets }}
 -----------------------------------------------------------------------------------------------
 APID    First                              Last                                 Count   Missing
 -----------------------------------------------------------------------------------------------
-{{ #each apids }}{{ lpad 6 @key }}  {{ lpad 33 first_packet_time }}  {{ lpad 33 last_packet_time }}   {{ lpad 6 total_packets }}   {{ lpad 7 missing_packets }}
+{{ #each apids }}{{ lpad 6 this.[0] }}  {{ #with this.[1] }}{{ lpad 33 first_packet_time }}  {{ lpad 33 last_packet_time }}   {{ lpad 6 total_packets }}   {{ lpad 7 missing_packets }}{{ /with }}
 {{/each }}
-";
+"#;
