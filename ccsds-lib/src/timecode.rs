@@ -48,7 +48,8 @@ pub enum Format {
     },
 }
 
-/// Decode `buf` into [hifitime::Epoch].
+/// Decode `buf` into [hifitime::Epoch] with reference time 1900-01-01T00:00:00 in either TAI or
+/// UTC timescale as appropriate.
 ///
 /// # Errors
 /// [Error::NotEnoughData] if there is not enough data for the provided format, or

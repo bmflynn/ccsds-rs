@@ -1,10 +1,10 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     fmt::Display,
 };
 
 use spacecrafts::Spacecraft;
-use tracing::{debug, trace};
+use tracing::{debug, trace, warn};
 
 use crate::framing::{integrity::Integrity, DecodedFrame, Scid, Vcid};
 use crate::spacepacket::{Packet, PrimaryHeader};
@@ -32,8 +32,9 @@ impl VcidTracker {
         }
     }
 
-    fn clear(&mut self) {
+    fn reset(&mut self) {
         self.cache.clear();
+        self.sync = false;
         self.rs_corrected = false;
     }
 }
@@ -66,8 +67,7 @@ where
     frames: I,
     izone_length: usize,
     trailer_length: usize,
-    // Expected min/max total packet length
-    apid_sizes: HashMap<Apid, (usize, usize)>,
+    valid_apids: HashSet<Apid>,
 
     // Cache of partial packet data from frames that has not yet been decoded into
     // packets. There should only be up to about 1 frame worth of data in the cache
@@ -114,18 +114,16 @@ where
                 }
                 Some(Integrity::Uncorrectable) | Some(Integrity::HasErrors) => {
                     debug!(vcid = %frame.header.vcid, tracker = %tracker, "uncorrectable or errored frame, dropping tracker");
-                    tracker.clear();
-                    tracker.sync = false;
+                    tracker.reset();
                     continue;
                 }
                 _ => {}
             }
-            // Frame error indicates there are frames missing _before_ this one, so clear the
-            // existing cache and continue to process this frame.
+            // Frame error indicates there are frames missing _before_ this one -- this one is
+            // still useable, so clear the existing cache and continue to process this frame.
             if missing > 0 {
                 trace!(vcid = frame.header.vcid, tracker=%tracker, missing=missing, "missing frames, dropping tracker");
-                tracker.clear();
-                tracker.sync = false;
+                tracker.reset();
             }
 
             if tracker.sync {
@@ -134,7 +132,7 @@ where
             } else {
                 // No sync, check for the presence of a FPH (first packet header).
 
-                // No way to get sync if we don't have a header
+                // No way to get sync if we don't have a packet header
                 if !mpdu.has_header() {
                     trace!(vcid = %frame.header.vcid, tracker = %tracker, "frames w/o mpdu, dropping");
                     continue;
@@ -170,6 +168,10 @@ where
             // The start of the cache should always contain a packet primary header
             let mut header =
                 PrimaryHeader::decode(&tracker.cache).expect("failed to decode primary header");
+            if !valid_packet_header(&header, &self.valid_apids) {
+                tracker.reset();
+                continue;
+            }
 
             // TODO: Add packet validations for length, version, and type
 
@@ -204,6 +206,10 @@ where
                 }
                 header =
                     PrimaryHeader::decode(&tracker.cache).expect("failed to decode primary header");
+                if !valid_packet_header(&header, &self.valid_apids) {
+                    tracker.reset();
+                    break;
+                }
                 need = header.len_minus1 as usize + 1 + PrimaryHeader::LEN;
                 if tracker.cache.len() < need {
                     break;
@@ -219,21 +225,28 @@ where
     }
 }
 
+/// Perform sanity checks on packet header and return true if the packet header appears to be valid
+/// and the APID is in `valid_apids`.
+fn valid_packet_header(header: &PrimaryHeader, valid_apids: &HashSet<Apid>) -> bool {
+    if header.version != 0 || header.type_flag != 0 {
+        warn!("bad packet version or type, dropping {header:?}");
+        false
+    } else if !valid_apids.is_empty() && !valid_apids.contains(&header.apid) {
+        warn!("invalid apid for spacecraft, dropping {header:?}");
+        false
+    } else {
+        true
+    }
+}
+
 /// Decodes the provided frames into a packets contained within the frames' MPDUs.
 ///
 /// While not strictly enforced, frames should all be from the same spacecraft, i.e., have
 /// the same spacecraft id.
 ///
-/// If `spacecraft` is provided its configuration is used to perform additional validation for
-/// packet minimum and maximum length.
-///
-/// There are several cases when frame data cannot be fully recovered and is dropped,
-/// i.e., not used to construct packets:
-///
-/// 1. Missing frames
-/// 2. Frames with state ``rs2::RSState::Uncorrectable``
-/// 3. Fill Frames
-/// 4. Frames before the first header is available in an MPDU
+/// If `spacecraft` is provided its configuration is used to perform additional checks to make sure
+/// any decoded packets have APID present in the spacecraft config. Packets with APIDs not present
+/// are dropped.
 pub fn decode_framed_packets<I>(
     frames: I,
     izone_length: usize,
@@ -243,17 +256,11 @@ pub fn decode_framed_packets<I>(
 where
     I: Iterator<Item = DecodedFrame> + Send,
 {
-    let mut apid_sizes = HashMap::default();
+    let mut valid_apids = HashSet::default();
     if let Some(spacecraft) = spacecraft {
         for vcid in spacecraft.vcids {
             for apid in vcid.apids {
-                let val = match (apid.min_size, apid.max_size) {
-                    (Some(min), Some(max)) => (min, max),
-                    (Some(min), None) => (min, 65536),
-                    (None, Some(max)) => (0, max),
-                    (None, None) => continue,
-                };
-                apid_sizes.insert(apid.apid, val);
+                valid_apids.insert(apid.apid);
             }
         }
     }
@@ -261,7 +268,7 @@ where
         frames: frames.filter(|dc| !dc.frame.is_fill()),
         izone_length,
         trailer_length,
-        apid_sizes,
+        valid_apids,
         cache: HashMap::new(),
         ready: VecDeque::new(),
     }

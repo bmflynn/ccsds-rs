@@ -81,6 +81,7 @@ fn new_cds_decoder() -> TimecodeDecoder {
 fn summarize(fpath: &Path, tc_format: &TCFormat) -> Result<Info> {
     let reader = std::fs::File::open(fpath).context("opening input")?;
     let packets = decode_packets(reader).filter_map(Result::ok);
+
     let time_decoder: Option<TimecodeDecoder> = match tc_format {
         TCFormat::Cds => Some(new_cds_decoder()),
         TCFormat::None => None,
@@ -112,6 +113,8 @@ fn summarize(fpath: &Path, tc_format: &TCFormat) -> Result<Info> {
             continue;
         }
 
+        // NOTE: The resulting Epoch will have a reference time of Jan 1, 1900 and must be
+        // converted to the basetime for the specific APID.
         if let Some(ref time_decoder) = time_decoder {
             if let Ok(epoch) = time_decoder.decode(&packet) {
                 summary.first_packet_time = summary

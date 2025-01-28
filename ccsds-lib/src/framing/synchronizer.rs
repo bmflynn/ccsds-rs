@@ -347,7 +347,7 @@ mod tests {
                 let asm = ASM.to_vec();
                 let mut scanner = Synchronizer::new(&pat[..], &asm, 0);
                 let msg = format!("expected sync for {pat:?}");
-                let loc = scanner.scan().expect(msg.as_str());
+                let loc = scanner.scan().unwrap_or_else(|_| panic!("{msg}"));
 
                 let expected = Loc {
                     offset: 5,

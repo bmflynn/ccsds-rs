@@ -53,23 +53,25 @@ impl FrameDecoder {
     const DEFAULT_BUFFER_SIZE: usize = 1024;
 
     pub fn new() -> Self {
-        FrameDecoder {
-            num_threads: None,
-            derandomization: None,
-            integrity: None,
-        }
+        FrameDecoder::default()
     }
 
+    /// Apply derandomization using the provided algorithm. If not provided no derandomization is
+    /// performed.
     pub fn with_derandomization(mut self, derandomizer: Box<dyn Derandomizer>) -> Self {
         self.derandomization = Some(derandomizer);
         self
     }
 
+    /// Perform integrity checking with the give algorithm. If not provided, no configuration
+    /// checking is performed.
     pub fn with_integrity(mut self, integrity: Box<dyn IntegrityAlgorithm>) -> Self {
         self.integrity = Some(integrity);
         self
     }
 
+    /// Use this number of threads for integrity checks. By default the number of threads is
+    /// configured automatically and is typically the number of CPUs available on the system.
     pub fn with_integrity_threads(mut self, num: u32) -> Self {
         self.num_threads = Some(num);
         self
@@ -78,8 +80,12 @@ impl FrameDecoder {
     /// Returns an interator that performs the decode, including derandomization and integrity
     /// checks, if configured.
     ///
-    /// The returned iterator performs all decoding in a background thread. Integrity checking is
-    /// further performed
+    /// Integrity checks are not performed on VCDU fill frames (vcid=63), however, fill frames are
+    /// not filtered and are produced by the returned iterator.
+    ///
+    /// Integrity checking is handled in parallel with a distinct job per-CADU using an
+    /// automatically configured number of threads by default, otherwise the number of threads
+    /// set using [Self::with_integrity_threads].
     ///
     /// # Errors
     /// [Error] if integrity checking is used and fails.

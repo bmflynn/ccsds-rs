@@ -2,18 +2,15 @@ mod merge;
 mod summary;
 mod timecode;
 
-use ::spacecrafts::Spacecraft;
 #[cfg(feature = "python")]
 use pyo3::{prelude::*, types::PyBytes};
 
+use std::fmt::Display;
 use std::io::Read;
-use std::{collections::HashMap, fmt::Display};
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::PacketError;
 pub use crate::prelude::*;
-use crate::spacecrafts;
 pub use merge::*;
 pub use summary::*;
 pub use timecode::*;
@@ -39,7 +36,9 @@ pub type Apid = u16;
 ///     // minimum 1 byte of user data
 ///     0xff
 /// ];
-/// let packet = Packet::decode(dat).unwrap();
+/// let packet = Packet::decode(dat)?;
+/// assert_eq!(packet.header.apid, 1369);
+/// # Ok::<(), ccsds::prelude::Error>(())
 /// ```
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "python", pyclass(frozen))]
@@ -149,34 +148,27 @@ impl Packet {
             offset: 0,
         })
     }
-}
 
-impl Packet {
-    const REQUIRED_VERSION: u8 = 0;
-    const TYPE_TELEMETRY: u8 = 0;
-
-    pub fn read<R>(file: &mut R) -> Result<Packet>
+    /// Decode a [Packet] by reading bytes from `reader`.
+    ///
+    /// # Errors
+    /// Any IO errors that occur reading from `reader` are forwarded.
+    pub fn read<R>(reader: &mut R) -> Result<Packet>
     where
         R: Read + Send,
     {
         let mut buf = vec![0u8; Packet::MAX_LEN];
-        file.read_exact(&mut buf[..PrimaryHeader::LEN])?;
+        reader.read_exact(&mut buf[..PrimaryHeader::LEN])?;
 
         let ph = PrimaryHeader::decode(&buf[..PrimaryHeader::LEN])?;
 
-        if ph.version != Self::REQUIRED_VERSION {
-            return Err(Error::Packet(PacketError::Version));
-        }
-        if ph.type_flag != Self::TYPE_TELEMETRY {
-            return Err(Error::Packet(PacketError::Telemetry));
-        }
-
         let data_len = ph.len_minus1 as usize + 1;
         let total_len = PrimaryHeader::LEN + data_len;
-        if total_len > buf.len() {
-            return Err(Error::InvalidPacketLen(Packet::MAX_LEN, total_len));
-        }
-        file.read_exact(&mut buf[PrimaryHeader::LEN..total_len])?;
+        assert!(
+            total_len <= buf.len(),
+            "total packet len from header should never be larger than max packet len"
+        );
+        reader.read_exact(&mut buf[PrimaryHeader::LEN..total_len])?;
 
         Ok(Packet {
             header: ph,
@@ -335,6 +327,7 @@ impl PacketGroup {
         }
     }
 
+    /// Return true when one or more packets are missing before this packet.
     #[must_use]
     pub fn have_missing(&self) -> bool {
         for (a, b) in self.packets.iter().zip(self.packets[1..].iter()) {
@@ -365,6 +358,42 @@ pub fn missing_packets(cur: u16, last: u16) -> u16 {
     0
 }
 
+struct PacketDecoder<R: Read + Send> {
+    pub reader: R,
+    pub offset: usize,
+}
+
+impl<R: Read + Send> PacketDecoder<R> {
+    pub fn new(reader: R) -> Self {
+        PacketDecoder { reader, offset: 0 }
+    }
+}
+
+impl<R> Iterator for PacketDecoder<R>
+where
+    R: Read + Send,
+{
+    type Item = Result<Packet>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match Packet::read(&mut self.reader) {
+            Ok(mut p) => {
+                p.offset = self.offset;
+                self.offset += PrimaryHeader::LEN + p.header.len_minus1 as usize + 1;
+                Some(Ok(p))
+            }
+            Err(err) => {
+                if let Error::Io(ref ioerr) = err {
+                    if ioerr.kind() == std::io::ErrorKind::UnexpectedEof {
+                        return None;
+                    }
+                }
+                Some(Err(err))
+            }
+        }
+    }
+}
+
 /// Return an iterator providing [Packet] data read from a byte synchronized ungrouped
 /// packet stream.
 ///
@@ -385,31 +414,19 @@ pub fn missing_packets(cur: u16, last: u16) -> u16 {
 /// ];
 ///
 /// let r = std::io::BufReader::new(dat);
-/// decode_packets(r).for_each(|zult| {
-///     let packet = zult.unwrap();
+/// for packet in decode_packets(r).filter_map(Result::ok) {
 ///     assert_eq!(packet.header.apid, 1369);
-/// });
+/// }
 /// ```
+///
+/// # Errors
+/// Any IO errors reading from `reader` are forwarded, except
+/// [Error::UnexpectedEof](enum@std::io::ErrorKind) that terminates the iterator.
 pub fn decode_packets<R>(reader: R) -> impl Iterator<Item = Result<Packet>> + Send
 where
     R: Read + Send,
 {
-    PacketReaderIter::new(reader)
-}
-
-/// Same as [decode_packets] but provides additional packet length validation on the any APIDs that have a configured
-/// minimum and/or maximum packet size available in the spacecraft configuration.
-///
-/// # Errors
-/// The generated results will be [PacketError] for any packets that fail available spacecraft packet validations.
-pub fn decode_packets_with_validation<R>(
-    reader: R,
-    sc: Spacecraft,
-) -> impl Iterator<Item = Result<Packet>> + Send
-where
-    R: Read + Send,
-{
-    PacketReaderIter::new(reader).with_length_validation(sc)
+    PacketDecoder::new(reader)
 }
 
 /// Return an [Iterator] that groups read packets into [PacketGroup]s.
@@ -438,80 +455,17 @@ where
 ///     0xff
 /// ];
 ///
-/// let packets = vec![Packet::decode(dat).unwrap()];
-/// collect_groups(packets.into_iter()).for_each(|zult| {
-///     let packet = zult.unwrap();
-///     assert_eq!(packet.apid, 1369);
-/// });
+/// let packets = vec![Packet::decode(dat)?];
+/// for group in collect_groups(packets.into_iter()).filter_map(Result::ok) {
+///     assert_eq!(group.apid, 1369);
+/// }
+/// # Ok::<(), ccsds::prelude::Error>(())
 /// ```
 pub fn collect_groups<I>(packets: I) -> impl Iterator<Item = Result<PacketGroup>> + Send
 where
     I: Iterator<Item = Packet> + Send,
 {
     PacketGroupIter::with_packets(packets)
-}
-
-struct PacketReaderIter<R>
-where
-    R: Read + Send,
-{
-    pub reader: R,
-    pub offset: usize,
-    apid_sizes: HashMap<Apid, (usize, usize)>,
-}
-
-impl<R> PacketReaderIter<R>
-where
-    R: Read + Send,
-{
-    fn new(reader: R) -> Self {
-        PacketReaderIter {
-            reader,
-            offset: 0,
-            apid_sizes: HashMap::default(),
-        }
-    }
-
-    fn with_length_validation(mut self, sc: Spacecraft) -> Self {
-        self.apid_sizes.clear();
-        for vcid in sc.vcids {
-            for apid in vcid.apids {
-                let val = match (apid.min_size, apid.max_size) {
-                    (Some(min), Some(max)) => (min, max),
-                    (Some(min), None) => (min, Packet::MAX_LEN),
-                    (None, Some(max)) => (0, max),
-                    (None, None) => continue,
-                };
-                self.apid_sizes.insert(apid.apid, val);
-            }
-        }
-        self
-    }
-}
-
-impl<R> Iterator for PacketReaderIter<R>
-where
-    R: Read + Send,
-{
-    type Item = Result<Packet>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match Packet::read(&mut self.reader) {
-            Ok(mut p) => {
-                p.offset = self.offset;
-                self.offset += PrimaryHeader::LEN + p.header.len_minus1 as usize + 1;
-                Some(Ok(p))
-            }
-            Err(err) => {
-                if let Error::Io(ref ioerr) = err {
-                    if ioerr.kind() == std::io::ErrorKind::UnexpectedEof {
-                        return None;
-                    }
-                }
-                Some(Err(err))
-            }
-        }
-    }
 }
 
 struct PacketGroupIter<I>
