@@ -359,18 +359,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, path::PathBuf};
-
-    use crate::framing::{Synchronizer, ASM, MPDU};
+    use crate::framing::MPDU;
 
     use super::*;
-
-    fn fixture_path(name: &str) -> PathBuf {
-        let mut path = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-        dbg!(&path);
-        path.push(name);
-        path
-    }
 
     #[test]
     fn decode_frame() {
