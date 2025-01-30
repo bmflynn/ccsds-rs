@@ -38,6 +38,7 @@ md-5 = "0.10.6"
 rand = "0.8.5"
 tempfile = "3.9.0"
 criterion = { version = "0.5.1", features = ["html_reports"] }
+test-case = "3.3.1"
 
 [build-dependencies]
 spacecrafts.workspace = true

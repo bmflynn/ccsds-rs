@@ -1,26 +1,18 @@
-use ccsds::framing::{
-    decode_framed_packets, read_synchronized_blocks, DecodedFrame, DecodedPacket,
-    DefaultDerandomizer, DefaultReedSolomon, FrameDecoder, Synchronizer, ASM,
-};
+mod common;
+
 use ccsds::timecode;
-use md5::{Digest, Md5};
 use std::fs::{self, File};
-use std::path::PathBuf;
 use std::result::Result;
 
 use ccsds::spacepacket::{
     collect_groups, decode_packets, Error, Merger, Packet, PacketGroup, TimecodeDecoder,
 };
 
-fn fixture_path(name: &str) -> PathBuf {
-    let mut path = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-    path.push(name);
-    path
-}
+use common::fixture_path;
 
 #[test]
 fn packet_iter() {
-    let fpath = fixture_path("tests/fixtures/viirs_packets.dat");
+    let fpath = fixture_path("viirs_packets.dat");
     let reader = fs::File::open(fpath).unwrap();
     let iter = decode_packets(reader);
 
@@ -31,7 +23,7 @@ fn packet_iter() {
 
 #[test]
 fn group_iter() {
-    let fpath = fixture_path("tests/fixtures/viirs_packets.dat");
+    let fpath = fixture_path("viirs_packets.dat");
     let reader = fs::File::open(fpath).unwrap();
     let packets = decode_packets(reader).map(Result::unwrap);
     let iter = collect_groups(packets);
@@ -52,72 +44,14 @@ fn group_iter() {
 }
 
 #[test]
-fn block_iter() {
-    let fpath = fixture_path("tests/fixtures/snpp_7cadus_2vcids.dat");
-    let reader = fs::File::open(fpath).unwrap();
-
-    let iter = read_synchronized_blocks(reader, &ASM[..], 1020);
-
-    let mut count = 0;
-    for zult in iter {
-        zult.unwrap();
-        count += 1;
-    }
-    assert_eq!(count, 7, "expected 7 total cadus");
-}
-
-#[test]
-fn full_decode() {
-    let fpath = fixture_path("tests/fixtures/snpp_synchronized_cadus.dat");
-    let reader = fs::File::open(fpath).unwrap();
-    let blocks = Synchronizer::new(reader, &ASM, 1020)
-        .into_iter()
-        .map(Result::unwrap);
-
-    let rs = DefaultReedSolomon::new(4);
-    let frames: Vec<DecodedFrame> = FrameDecoder::new()
-        .with_integrity(Box::new(rs))
-        .with_derandomization(Box::new(DefaultDerandomizer))
-        .decode(blocks)
-        .map(Result::unwrap)
-        .collect();
-    assert_eq!(frames.len(), 65, "expected frame count doesn't match");
-
-    let packets: Vec<DecodedPacket> =
-        decode_framed_packets(frames.into_iter(), 0, 0, None).collect();
-    for p in &packets {
-        println!("{:?}", p.packet.header);
-    }
-    assert_eq!(packets.len(), 12, "expected packet count doesn't match");
-
-    let mut hasher = Md5::new();
-    packets.iter().for_each(|p| hasher.update(&p.packet.data));
-    let result = hasher.finalize();
-    assert_eq!(
-        result[..],
-        hex::decode("5e11051d86c46ddc3500904c99bbe978").expect("bad fixture checksum"),
-        "output checksum does not match fixture file checksum"
-    );
-
-    // The VIIRS sensor on Suomi-NPP uses packet grouping, so here we collect the packets
-    // into their associated groups.
-    let packets: Vec<Packet> = packets.iter().map(|p| p.packet.clone()).collect();
-    let groups: Vec<PacketGroup> = collect_groups(packets.into_iter())
-        .map(Result::unwrap)
-        .collect();
-
-    assert_eq!(groups.len(), 2, "expected group count doesn't match");
-}
-
-#[test]
 fn merge_test() {
     let tmpdir = tempfile::tempdir().unwrap();
     let out_path = tmpdir.path().join("output.dat");
     let out_file = File::create(&out_path).unwrap();
     Merger::new(
         vec![
-            fixture_path("tests/fixtures/viirs_merge1.dat"),
-            fixture_path("tests/fixtures/viirs_merge2.dat"),
+            fixture_path("viirs_merge1.dat"),
+            fixture_path("viirs_merge2.dat"),
         ],
         TimecodeDecoder::new(timecode::Format::Cds {
             num_day: 2,

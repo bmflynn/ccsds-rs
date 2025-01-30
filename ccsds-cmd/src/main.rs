@@ -77,6 +77,19 @@ enum FramingCommands {
         /// Input CADU file to synchronize
         input: PathBuf,
     },
+
+    /// Summarize contained frames
+    Info {
+        /// Output format
+        #[arg(short, long, default_value = "text")]
+        format: frame::Format,
+
+        /// Input raw CADU file.
+        input: PathBuf,
+
+        /// Spacecraft identifier used to lookup framing config.
+        scid: Scid,
+    },
 }
 
 #[derive(Subcommand)]
@@ -408,6 +421,16 @@ fn main() -> Result<()> {
                 info!("writing to {:?} using {:?}", &output, sc.framing_config);
 
                 frame::frame(input, &output, sc.framing_config, include, exclude)
+            }
+            FramingCommands::Info {
+                format,
+                input,
+                scid,
+            } => {
+                let Some(sc) = Spacecrafts::default().lookup(*scid) else {
+                    bail!("No spacecraft config found for {scid}");
+                };
+                frame::info(sc.framing_config, input, format)
             }
         },
     }

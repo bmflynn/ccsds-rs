@@ -410,28 +410,4 @@ mod tests {
         );
         assert!(!mpdu.has_header());
     }
-
-    #[test]
-    fn test_decode_frames() {
-        let fpath = fixture_path("tests/fixtures/snpp_7cadus_2vcids.dat");
-        let reader = fs::File::open(&fpath).unwrap_or_else(|_| panic!("{fpath:?} to exist"));
-        let blocks: Vec<Vec<u8>> = Synchronizer::new(reader, &ASM, 1020)
-            .into_iter()
-            .map(|a| a.unwrap())
-            .collect();
-        assert_eq!(blocks.len(), 7);
-
-        let frames: Vec<Result<DecodedFrame>> = decode_frames_rs(blocks.into_iter(), 4).collect();
-
-        assert_eq!(frames.len(), 7, "expected frame count doesn't match");
-        for (idx, df) in frames.into_iter().enumerate() {
-            let df = df.unwrap();
-            assert_eq!(df.frame.header.scid, 157);
-            if idx < 3 {
-                assert_eq!(df.frame.header.vcid, 16);
-            } else {
-                assert_eq!(df.frame.header.vcid, 6);
-            }
-        }
-    }
 }
