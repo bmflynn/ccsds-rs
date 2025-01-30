@@ -24,9 +24,6 @@ jobs:
     - name: Git LFS Checkout 
       run: |
         git lfs checkout 
-    - name: List test files 
-      run: |
-        find lib/tests 
     - name: Build
       run: cargo build
     - name: Run tests
