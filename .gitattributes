@@ -8,3 +8,4 @@ ccsds-lib/tests/fixtures/cadu/metopc.20241206T162917.dat filter=lfs diff=lfs mer
 ccsds-lib/tests/fixtures/cadu/noaa20.20241206T162710.dat filter=lfs diff=lfs merge=lfs -text
 ccsds-lib/tests/fixtures/cadu/noaa21.20241206T171609.dat filter=lfs diff=lfs merge=lfs -text
 ccsds-lib/tests/fixtures/cadu/npp.20241206T173815.dat filter=lfs diff=lfs merge=lfs -text
+ccsds-lib/benches/snpp_block.dat filter=lfs diff=lfs merge=lfs -text
