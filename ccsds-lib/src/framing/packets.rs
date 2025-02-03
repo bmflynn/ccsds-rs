@@ -4,7 +4,7 @@ use std::{
 };
 
 use spacecrafts::Spacecraft;
-use tracing::{debug, trace, warn};
+use tracing::{debug, trace};
 
 use crate::framing::{integrity::Integrity, DecodedFrame, Scid, Vcid};
 use crate::spacepacket::{Packet, PrimaryHeader};

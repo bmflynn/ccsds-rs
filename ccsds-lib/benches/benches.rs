@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use ccsds::framing::{
     DefaultDerandomizer, DefaultReedSolomon, Derandomizer, Integrity, IntegrityAlgorithm,
-    NdarrayDerandomizer, Synchronizer,
+    Synchronizer,
 };
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 
@@ -75,12 +75,6 @@ fn bench_derandomize(c: &mut Criterion) {
     group.bench_function("loop", |b| {
         b.iter(|| {
             let pn = DefaultDerandomizer;
-            let _ = pn.derandomize(&buf.clone());
-        });
-    });
-    group.bench_function("ndarray", |b| {
-        b.iter(|| {
-            let pn = NdarrayDerandomizer;
             let _ = pn.derandomize(&buf.clone());
         });
     });
