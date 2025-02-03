@@ -47,6 +47,7 @@ pub struct FrameDecoder {
     num_threads: Option<u32>,
     derandomization: Option<Box<dyn Derandomizer>>,
     integrity: Option<Box<dyn IntegrityAlgorithm>>,
+    integrity_noop: bool,
 }
 
 impl FrameDecoder {
@@ -67,6 +68,13 @@ impl FrameDecoder {
     /// checking is performed.
     pub fn with_integrity(mut self, integrity: Box<dyn IntegrityAlgorithm>) -> Self {
         self.integrity = Some(integrity);
+        self
+    }
+
+    /// Do not perform integrity check. Useful when there are parity bytes to remove but you do not
+    /// want to perform the algorithm.
+    pub fn with_integrity_noop(mut self) -> Self {
+        self.integrity_noop = true;
         self
     }
 
@@ -95,93 +103,90 @@ impl FrameDecoder {
     {
         let (jobs_tx, jobs_rx) = bounded(Self::DEFAULT_BUFFER_SIZE);
 
-        let handle = thread::Builder::new()
-            .name("frame_rs_decoder".into())
-            .spawn(move || {
-                let pool = {
-                    let mut pool = rayon::ThreadPoolBuilder::new();
-                    if let Some(num) = self.num_threads {
-                        pool = pool.num_threads(num as usize);
-                    }
-                    pool
+        let handle = thread::spawn(move || {
+            let pool = {
+                let mut pool = rayon::ThreadPoolBuilder::new();
+                if let Some(num) = self.num_threads {
+                    pool = pool.num_threads(num as usize);
                 }
-                .build()
-                .expect("failed to construct RS threadpool with requested number of threads");
+                pool
+            }
+            .build()
+            .expect("failed to construct RS threadpool with requested number of threads");
 
-                let jobs_tx = jobs_tx.clone();
-                let integrity_alg = Arc::new(self.integrity);
+            let jobs_tx = jobs_tx.clone();
+            let integrity_alg = Arc::new(self.integrity);
 
-                for (idx, mut block) in cadus.enumerate() {
-                    let (future_tx, future_rx) = unbounded();
+            for (idx, mut block) in cadus.enumerate() {
+                let (future_tx, future_rx) = unbounded();
 
-                    let integrity_alg = integrity_alg.clone();
+                let integrity_alg = integrity_alg.clone();
 
-                    // Have to do pn to get the correct header, even for fill
-                    if let Some(ref pn) = self.derandomization {
-                        block = pn.derandomize(&block);
-                    }
+                // Have to do pn to get the correct header, even for fill
+                if let Some(ref pn) = self.derandomization {
+                    block = pn.derandomize(&block);
+                }
 
-                    let Some(hdr) = VCDUHeader::decode(&block) else {
-                        debug!(block_idx = idx, "cannot decode header; skipping");
-                        continue;
+                let Some(hdr) = VCDUHeader::decode(&block) else {
+                    debug!(block_idx = idx, "cannot decode header; skipping");
+                    continue;
+                };
+
+                // No integrity checking on FILL, however, we still remove parity bytes
+                if hdr.vcid == VCDUHeader::FILL || self.integrity_noop {
+                    let data = match integrity_alg.clone().borrow() {
+                        Some(alg) => alg.remove_parity(&block),
+                        None => &block,
                     };
 
-                    // No integrity checking on FILL, however, we still remove parity bytes
-                    if hdr.vcid == VCDUHeader::FILL {
-                        let data = match integrity_alg.clone().borrow() {
-                            Some(alg) => alg.remove_parity(&block),
-                            None => &block,
-                        };
-
-                        if let Some(frame) = Frame::decode(data.to_vec()) {
-                            if future_tx
-                                .send(Ok(DecodedFrame {
-                                    frame,
+                    if let Some(frame) = Frame::decode(data.to_vec()) {
+                        if future_tx
+                            .send(Ok(DecodedFrame {
+                                frame,
+                                missing: 0,
+                                integrity: None,
+                            }))
+                            .is_err()
+                        {
+                            debug!(block_idx = idx, "failed to send fill frame");
+                        }
+                    }
+                } else {
+                    // Do integrity checking in the thread pool. Use spawn_fifo to make sure the frame
+                    // order is maintained.
+                    pool.spawn_fifo(move || {
+                        let decoded_frame =
+                            if let Some(integrity_alg) = integrity_alg.clone().borrow() {
+                                match integrity_alg.perform(&block) {
+                                    Ok((status, data)) => Ok(DecodedFrame {
+                                        frame: Frame { header: hdr, data },
+                                        missing: 0,
+                                        integrity: Some(status),
+                                    }),
+                                    Err(err) => Err(err),
+                                }
+                            } else {
+                                Ok(DecodedFrame {
+                                    frame: Frame {
+                                        header: hdr,
+                                        data: block,
+                                    },
                                     missing: 0,
                                     integrity: None,
-                                }))
-                                .is_err()
-                            {
-                                debug!(block_idx = idx, "failed to send fill frame");
-                            }
-                        }
-                    } else {
-                        // Do integrity checking in the thread pool. Use spawn_fifo to make sure the frame
-                        // order is maintained.
-                        pool.spawn_fifo(move || {
-                            let decoded_frame =
-                                if let Some(integrity_alg) = integrity_alg.clone().borrow() {
-                                    match integrity_alg.perform(&block) {
-                                        Ok((status, data)) => Ok(DecodedFrame {
-                                            frame: Frame { header: hdr, data },
-                                            missing: 0,
-                                            integrity: Some(status),
-                                        }),
-                                        Err(err) => Err(err),
-                                    }
-                                } else {
-                                    Ok(DecodedFrame {
-                                        frame: Frame {
-                                            header: hdr,
-                                            data: block,
-                                        },
-                                        missing: 0,
-                                        integrity: None,
-                                    })
-                                };
+                                })
+                            };
 
-                            if future_tx.send(decoded_frame).is_err() {
-                                debug!(block_idx = idx, "failed to send frame");
-                            }
-                        });
-                    }
-                    // All frames are forwarded, including fill
-                    if let Err(err) = jobs_tx.send(future_rx) {
-                        debug!("failed to send frame future: {err}");
-                    }
+                        if future_tx.send(decoded_frame).is_err() {
+                            debug!(block_idx = idx, "failed to send frame");
+                        }
+                    });
                 }
-            })
-            .unwrap();
+                // All frames are forwarded, including fill
+                if let Err(err) = jobs_tx.send(future_rx) {
+                    debug!("failed to send frame future: {err}");
+                }
+            }
+        });
 
         DecodedFrameIter {
             done: false,
