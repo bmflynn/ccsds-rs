@@ -20,7 +20,7 @@ pub fn sync(srcpath: &Path, dstpath: &Path, block_size: usize) -> Result<()> {
     let src = BufReader::new(File::open(srcpath).context("opening source")?);
     let mut dst = File::create(dstpath).context("creating dest")?;
 
-    let sync = Synchronizer::new(src, &ASM, block_size);
+    let sync = Synchronizer::new(src, block_size);
 
     for block in sync.into_iter().filter_map(Result::ok) {
         dst.write_all(&ASM)?;
@@ -40,7 +40,7 @@ pub fn frame(
     let src = BufReader::new(File::open(srcpath).context("opening source")?);
     let mut dst = File::create(dstpath).context("creating dest")?;
 
-    let sync = Synchronizer::new(src, &ASM, config.codeblock_len());
+    let sync = Synchronizer::new(src, config.codeblock_len());
 
     let mut framer = FrameDecoder::new();
     if config.pseudo_noise.is_some() {
@@ -138,7 +138,7 @@ struct Info {
 
 pub fn info(config: FramingConfig, fpath: &Path, format: &Format) -> Result<()> {
     let src = BufReader::new(File::open(fpath).context("opening source")?);
-    let sync = Synchronizer::new(src, &ASM, config.codeblock_len());
+    let sync = Synchronizer::new(src, config.codeblock_len());
     let mut framer = FrameDecoder::new();
     if config.pseudo_noise.is_some() {
         framer = framer.with_derandomization(Box::new(DefaultDerandomizer))

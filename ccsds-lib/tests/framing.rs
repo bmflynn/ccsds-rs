@@ -7,7 +7,7 @@ use common::fixture_path;
 
 fn do_framing_test(interleave: u8, block_len: usize, fixture: &str, expected: &[(Vcid, usize)]) {
     let file = File::open(fixture_path(fixture)).unwrap();
-    let blocks = Synchronizer::new(file, &ASM, block_len)
+    let blocks = Synchronizer::new(file, block_len)
         .into_iter()
         .filter_map(Result::ok);
     let frames = FrameDecoder::default()

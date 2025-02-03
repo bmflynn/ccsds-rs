@@ -38,7 +38,7 @@
 //!
 //! // 1. Synchronize stream and extract blocks
 //! let file = BufReader::new(File::open("snpp.dat").unwrap());
-//! let cadus = Synchronizer::new(file, &ASM.to_vec(), block_len)
+//! let cadus = Synchronizer::new(file, block_len)
 //!     .into_iter()
 //!     .filter_map(Result::ok);
 //!
@@ -70,7 +70,7 @@
 //!
 //! // 1. Synchronize stream and extract blocks
 //! let file = BufReader::new(File::open("frames.dat").unwrap());
-//! let cadus = Synchronizer::new(file, &ASM.to_vec(), block_len)
+//! let cadus = Synchronizer::new(file, block_len)
 //!     .into_iter()
 //!     .filter_map(Result::ok);
 //!

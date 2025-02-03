@@ -7,7 +7,7 @@ use std::io::{ErrorKind, Read};
 pub const ASM: [u8; 4] = [0x1a, 0xcf, 0xfc, 0x1d];
 
 /// Bit-shift each byte in dat by k bits to the left, without wrapping.
-pub(crate) fn left_shift(dat: &[u8], k: usize) -> Vec<u8> {
+fn left_shift(dat: &[u8], k: usize) -> Vec<u8> {
     let mut out: Vec<u8> = vec![0; dat.len()];
     // left shift each byte the correct nufdcmber of bits
     for i in 0..dat.len() {
@@ -89,8 +89,8 @@ where
     /// Creates a new ``Synchronizer``.
     ///
     /// `block_size` is the length of the CADU minus the length of the ASM.
-    pub fn new(reader: R, asm: &[u8], block_size: usize) -> Self {
-        let (patterns, masks) = create_patterns(asm);
+    pub fn new(reader: R, block_size: usize) -> Self {
+        let (patterns, masks) = create_patterns(&ASM);
         let bytes = Bytes::new(reader);
         Synchronizer {
             bytes,
@@ -100,6 +100,13 @@ where
             pattern_idx: 0,
             pattern_hits: HashMap::new(),
         }
+    }
+
+    pub fn with_asm(mut self, asm: &[u8]) -> Self {
+        let (patterns, masks) = create_patterns(asm);
+        self.patterns = patterns;
+        self.masks = masks;
+        self
     }
 
     /// Scan our stream until the next sync marker is found and return a option containing
@@ -259,13 +266,12 @@ where
 ///
 pub fn read_synchronized_blocks<'a, R>(
     reader: R,
-    asm: &[u8],
     block_size: usize,
 ) -> impl Iterator<Item = Result<Vec<u8>>> + 'a
 where
     R: Read + Send + 'a,
 {
-    Synchronizer::new(reader, asm, block_size).into_iter()
+    Synchronizer::new(reader, block_size).into_iter()
 }
 
 #[cfg(test)]
@@ -323,9 +329,8 @@ mod tests {
 
         #[test]
         fn ccsds_asm_with_no_bitshift_succeeds() {
-            let asm = ASM.to_vec();
             let r = &ASM[..];
-            let mut scanner = Synchronizer::new(r, &asm, 0);
+            let mut scanner = Synchronizer::new(r, 0);
             let loc = scanner.scan().expect("Expected scan to succeed");
 
             let expected = Loc { offset: 5, bit: 0 };
@@ -344,8 +349,7 @@ mod tests {
                 [0, 53, 159, 248, 58],
             ];
             for (i, pat) in patterns.iter().enumerate() {
-                let asm = ASM.to_vec();
-                let mut scanner = Synchronizer::new(&pat[..], &asm, 0);
+                let mut scanner = Synchronizer::new(&pat[..], 0);
                 let msg = format!("expected sync for {pat:?}");
                 let loc = scanner.scan().unwrap_or_else(|_| panic!("{msg}"));
 
@@ -359,9 +363,8 @@ mod tests {
 
         #[test]
         fn ccsds_asm_shifted_right_one_bit() {
-            let asm = ASM.to_vec();
             let r: &[u8] = &[13, 103, 254, 14, 128];
-            let mut scanner = Synchronizer::new(r, &asm, 0);
+            let mut scanner = Synchronizer::new(r, 0);
             let loc = scanner.scan().unwrap();
 
             let expected = Loc { offset: 5, bit: 7 };
@@ -372,7 +375,7 @@ mod tests {
         fn block_fcn_returns_correct_bytes_with_no_shift() {
             let asm = vec![0x55];
             let r: &[u8] = &[0x55, 0x01, 0x02, 0x00, 0x00, 0x55, 0x03, 0x04, 0x00, 0x00];
-            let mut scanner = Synchronizer::new(r, &asm, 2);
+            let mut scanner = Synchronizer::new(r, 2).with_asm(&asm);
 
             // First block
             let loc = scanner.scan().expect("Expected scan 1 to succeed");
@@ -405,7 +408,7 @@ mod tests {
                 0b0000_0000,
                 0b0000_0000,
             ];
-            let mut scanner = Synchronizer::new(r, &asm, 2);
+            let mut scanner = Synchronizer::new(r, 2).with_asm(&asm);
 
             // First block
             let loc = scanner.scan().expect("Expected scan 1 to succeed");
