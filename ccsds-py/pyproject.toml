@@ -9,7 +9,8 @@ classifiers = [
   "Development Status :: 4 - Beta",
   "Programming Language :: Python",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+  "License :: OSI Approved :: Apache Software License",
+  "License :: OSI Approved :: MIT License",
 ]
 
 [project.optional-dependencies]
