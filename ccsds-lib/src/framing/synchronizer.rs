@@ -102,6 +102,7 @@ where
         }
     }
 
+    /// Use the specified attached sync marker rather than the defualt ([ASM]).
     pub fn with_asm(mut self, asm: &[u8]) -> Self {
         let (patterns, masks) = create_patterns(asm);
         self.patterns = patterns;

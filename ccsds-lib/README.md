@@ -1,10 +1,8 @@
-# ccsds
+# CCSDS Spacecraft Data Stream Decoding
 
-## CCSDS Spacecraft Data Stream Decoding
-
-> [!WARNING]
+> **WARNING**: 
 > This project is very much in development, and the API is very likely to change in ways that will 
-> things. If you have comments or suggestions regarding the API feel free to file an issue.
+> break things. If you have comments or suggestions regarding the API feel free to file an issue.
 
 The project provides tools for decoding spacecraft downlink telemetry streams conforming
 to the [`CCSDS`] recommended specifications (Blue Books)
@@ -13,10 +11,12 @@ to the [`CCSDS`] recommended specifications (Blue Books)
 Supports:
 - Framing
     - Stream synchronization
-    - Pseudo-noise removal
-    - Reed-Solomon FEC
+    - Deransomization (pseudo-noise removal)
+    - Integrity checking/correcting
+        * Reed-Solomon FEC
+        * CRC
 - Spacepacket decoding
-    - Telemetry packets, i.e., packets with type 0
+    - Telemetry packets
     - Sequencing
     - Packet groups
 - Limited support for secondary header timecodes
@@ -24,31 +24,70 @@ Supports:
     - NASA EOS timecodes for Aqua and Terra spacecrafts
     - Provided but not directly used
 
-### Examples
-The following example shows how to decode an unsynchrozied byte stream of CADUs for
+Much of the functionality is wrapped around [Iterator]s, and as such most of the public API 
+returns an [Iterator] of some sort. 
+
+## Examples
+The following example shows how to decode an unsynchronized byte stream of CADUs for
 the Suomi-NPP spacecraft. This example code should work for any spacecraft data stream
 that conforms to CCSDS [`TM Synchronization and Channel Coding`] and [`Space Packet Protocol`]
-documents.
-```rust
+documents, where the input data is a stream containing pseudo-randomized CADUs with
+Reed-Solomon FEC (including parity bytes).
+
+```no_run
 use std::fs::File;
 use std::io::BufReader;
-use ccsds::{ASM, FrameDecoderBuilder, Synchronizer, decode_framed_packets, collect_packet_groups, PacketGroup};
+use ccsds::framing::*;
 
-// 1. Synchronize stream and extract blocks (CADUs w/o ASM)
-let file = BufReader::new(File::open("snpp.dat")
-    .expect("failed to open data file"));
-let blocks = Synchronizer::new(file, &ASM.to_vec(), 1020)
+// Framing configuration
+let block_len = 1020; // CADU length - ASM length
+let interleave: u8 = 4;
+let izone_len = 0;
+let trailer_len = 0;
+
+// 1. Synchronize stream and extract blocks
+let file = BufReader::new(File::open("snpp.dat").unwrap());
+let cadus = Synchronizer::new(file, block_len)
+     .into_iter()
+     .filter_map(Result::ok);
+
+// 2. Decode (PN & RS) those blocks into Frames, ignoring frames with errors
+let frames = decode_frames(
+    cadus,
+    Some(Box::new(DefaultReedSolomon::new(interleave))),
+    Some(Box::new(DefaultDerandomizer)),
+).filter_map(Result::ok);
+
+// 3. Extract packets from Frames
+let packets = decode_framed_packets(frames, izone_len, trailer_len, None);
+```
+
+It is also possible to have more control over the decode process for cases that do not
+conform to the standard CCSDS specifications.
+
+For example, this will decode a stream of frames that are not pseudo-randomized and does
+not use Reed-Solomon FEC.
+```no_run
+use std::fs::File;
+use std::io::BufReader;
+use ccsds::framing::*;
+
+let block_len = 892; // Frame length
+let interleave: u8 = 4;
+let izone_len = 0;
+let trailer_len = 0;
+
+// 1. Synchronize stream and extract blocks
+let file = BufReader::new(File::open("frames.dat").unwrap());
+let cadus = Synchronizer::new(file, block_len)
     .into_iter()
     .filter_map(Result::ok);
 
-// 2. Decode those blocks into Frames
-let frames = FrameDecoderBuilder::default()
-    .reed_solomon_interleave(4)
-    .build(blocks);
+// 2. Decode blocks into Frames
+let frames = decode_frames(cadus, None, None).filter_map(|z| z.ok());
 
 // 3. Extract packets from Frames
-// Suomi-NPP has 0 length izone and trailer
-let packets = decode_framed_packets(157, frames, 0, 0);
+let packets = decode_framed_packets(frames, izone_len, trailer_len, None);
 ```
 
 ## References:
@@ -57,18 +96,14 @@ let packets = decode_framed_packets(157, frames, 0, 0);
 * [`TM Synchronization and Channel Coding`]
 * [`TM Synchronization and Channel Coding - Summary of Concept and Rationale`]
 
-
-## Related
-* [spacecraftsdb](https://github.com/bmflynn/spacecraftsdb): JSON Spacecraft metadata database
-* [spacecrafts-rs](https://github.com/bmflynn/spacecrafts-rs): Rust create for `spacecraftsdb`
-* [ccsdspy](https://github.com/bmflynn/ccsdspy): Python bindings for `ccsds-rs`
-
-
 ## License
 
-GNU General Public License v3.0
+Licensed under either of
 
+ * Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
+ * MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
 
+at your option.
 
 [`CCSDS`]: https://public.ccsds.org
 [`Space Packet Protocol`]: https://public.ccsds.org/Pubs/133x0b1c2.pdf

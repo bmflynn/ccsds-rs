@@ -6,15 +6,13 @@ use hifitime::{Duration, Epoch};
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
-use crate::prelude::*;
+use crate::{error::TimecodeError, prelude::*};
 use serde::Serialize;
 
 /// Number of seconds between the 1958 and 1900
 const CCSDS_HIFIEPOCH_DELTA_SECS: u64 = 1830297600;
 /// Default number of bytes for the CDS milliseconds field
 const NUM_CDS_MILLIS_OF_DAY_BYTES: usize = 4;
-/// Max number of u64 nanoseconds that can be cast to f64 w/o precision loss
-const MAX_FINE_NANOS: f64 = 4_503_599_627_370_496.0;
 
 /// CCSDS timecode format configuration.
 #[cfg_attr(feature = "python", pyclass)]
@@ -48,8 +46,11 @@ pub enum Format {
     },
 }
 
-/// Decode `buf` into [hifitime::Epoch] with reference time 1900-01-01T00:00:00 in either TAI or
-/// UTC timescale as appropriate.
+/// Decode `buf` into [hifitime::Epoch] in either [TAI](enum@hifitime::TimeScale) or
+/// [UTC](enum@hifitime::TimeScale) timescale as appropriate.
+///
+/// Note, that for both TAI and UTC [TimeScale](hifitime::TimeScale)s the reference epoch will be
+/// Jan 1, 1900.
 ///
 /// # Errors
 /// [Error::NotEnoughData] if there is not enough data for the provided format, or
@@ -73,8 +74,8 @@ fn decode_cds(num_day: usize, num_submillis: usize, buf: &[u8]) -> Result<Epoch>
     let want = num_day + num_submillis + NUM_CDS_MILLIS_OF_DAY_BYTES;
     if buf.len() < want {
         return Err(Error::NotEnoughData {
-            actual: buf.len(),
-            minimum: want,
+            got: buf.len(),
+            wanted: want,
         });
     }
 
@@ -89,9 +90,9 @@ fn decode_cds(num_day: usize, num_submillis: usize, buf: &[u8]) -> Result<Epoch>
         2 => u32::from_be_bytes([0, 0, rest[4], rest[5]]) * 1_000,
         4 => u32::from_be_bytes([rest[4], rest[5], rest[6], rest[7]]) * 1_000_000,
         _ => {
-            return Err(Error::TimecodeConfig(format!(
+            return Err(Error::Timecode(TimecodeError::Config(format!(
                 "Number of CDS sub-millisecond must be 0, 2, or 4; got {num_submillis}"
-            )))
+            ))))
         }
     };
 
@@ -116,19 +117,19 @@ fn decode_cuc(
     buf: &[u8],
 ) -> Result<Epoch> {
     if !(1..=4).contains(&num_coarse) {
-        return Err(Error::TimecodeConfig(
+        return Err(Error::Timecode(TimecodeError::Config(
             "Number of CUC coarse bytes must be 1 to 4".to_string(),
-        ));
+        )));
     }
     if !(0..=3).contains(&num_fine) {
-        return Err(Error::TimecodeConfig(
+        return Err(Error::Timecode(TimecodeError::Config(
             "Number of CUC fine bytes must be 0 to 3".to_string(),
-        ));
+        )));
     }
     if buf.len() < num_coarse + num_fine {
         return Err(Error::NotEnoughData {
-            minimum: num_coarse + num_fine,
-            actual: buf.len(),
+            wanted: num_coarse + num_fine,
+            got: buf.len(),
         });
     }
     let (x, rest) = buf.split_at(num_coarse);
@@ -154,9 +155,7 @@ fn decode_cuc(
 
     let fine = fine as f64;
     let fine_nanos = (fine * fine_mult.unwrap_or(1.0) as f64).trunc();
-    if fine_nanos > MAX_FINE_NANOS {
-        return Err(Error::Overflow);
-    }
+    // TODO: Handle precision loss
     let dur = Duration::compose(0, 0, 0, 0, coarse, 0, 0, fine_nanos as u64);
     Ok(Epoch::from_tai_duration(dur))
 }

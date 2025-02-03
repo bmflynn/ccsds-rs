@@ -124,7 +124,7 @@ impl FrameDecoder {
 
                 // Have to do pn to get the correct header, even for fill
                 if let Some(ref pn) = self.derandomization {
-                    block = pn.derandomize(&block);
+                    block = pn.derandomize(&block).to_vec();
                 }
 
                 let Some(hdr) = VCDUHeader::decode(&block) else {

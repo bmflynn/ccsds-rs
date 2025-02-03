@@ -1,17 +1,21 @@
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
+pub enum TimecodeError {
+    #[error("Invalid timecode config: {0}")]
+    Config(String),
+}
+
+#[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
 pub enum Error {
-    #[error("Not enough bytes")]
-    NotEnoughData { actual: usize, minimum: usize },
+    #[error("Not enough bytes; wanted {wanted}, got {got}")]
+    NotEnoughData { got: usize, wanted: usize },
 
     #[error(transparent)]
     Io(#[from] std::io::Error),
 
-    #[error("Invalid timecode config: {0}")]
-    TimecodeConfig(String),
-
-    #[error("Overflow")]
-    Overflow,
+    #[error(transparent)]
+    Timecode(#[from] TimecodeError),
 
     /// Integrity check or correct error executing the algorithm.
     #[error("integrity algorithm error: {0}")]

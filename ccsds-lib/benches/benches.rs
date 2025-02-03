@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use ccsds::framing::{
     DefaultDerandomizer, DefaultReedSolomon, Derandomizer, Integrity, IntegrityAlgorithm,
-    Synchronizer, ASM,
+    NdarrayDerandomizer, Synchronizer,
 };
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 
@@ -25,7 +25,7 @@ fn bench_synchronization(c: &mut Criterion) {
     group.throughput(Throughput::Bytes(1024));
     group.bench_function("random_data", |b| {
         b.iter(|| {
-            let sync = Synchronizer::new(&data[..], &ASM, 1024);
+            let sync = Synchronizer::new(&data[..], 1024);
             let _: Vec<Vec<u8>> = sync.into_iter().filter_map(Result::ok).collect();
         });
     });
@@ -62,7 +62,7 @@ fn bench_rs_correct_codeblock(c: &mut Criterion) {
 }
 
 // Pn decode a random slice of data.
-fn bench_pndecode(c: &mut Criterion) {
+fn bench_derandomize(c: &mut Criterion) {
     let mut rng = rand::thread_rng();
     let mut buf = [0u8; 1020];
     for b in buf.iter_mut() {
@@ -70,11 +70,17 @@ fn bench_pndecode(c: &mut Criterion) {
         *b = f;
     }
 
-    let mut group = c.benchmark_group("pn");
+    let mut group = c.benchmark_group("derandomize");
     group.throughput(Throughput::Bytes(buf.len() as u64));
-    group.bench_function("decode", |b| {
+    group.bench_function("loop", |b| {
         b.iter(|| {
             let pn = DefaultDerandomizer;
+            let _ = pn.derandomize(&buf.clone());
+        });
+    });
+    group.bench_function("ndarray", |b| {
+        b.iter(|| {
+            let pn = NdarrayDerandomizer;
             let _ = pn.derandomize(&buf.clone());
         });
     });
@@ -83,7 +89,7 @@ fn bench_pndecode(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    bench_pndecode,
+    bench_derandomize,
     bench_rs_correct_codeblock,
     bench_synchronization
 );

@@ -229,10 +229,10 @@ where
 /// and the APID is in `valid_apids`.
 fn valid_packet_header(header: &PrimaryHeader, valid_apids: &HashSet<Apid>) -> bool {
     if header.version != 0 || header.type_flag != 0 {
-        warn!("bad packet version or type, dropping {header:?}");
+        debug!("bad packet version or type, dropping {header:?}");
         false
     } else if !valid_apids.is_empty() && !valid_apids.contains(&header.apid) {
-        warn!("invalid apid for spacecraft, dropping {header:?}");
+        debug!("invalid apid for spacecraft, dropping {header:?}");
         false
     } else {
         true

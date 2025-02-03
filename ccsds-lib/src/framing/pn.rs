@@ -143,17 +143,28 @@ fn generate_pn_sequence(poly: u8, gen: u8) -> [u8; 255] {
     table
 }
 
-fn _decode(buf: &mut [u8]) {
+fn _derandomize_loop(buf: &[u8]) -> Vec<u8> {
+    let mut out = vec![0u8; buf.len()];
     let mut k = 0;
-    // for n in 0..buf.len() {
-    //    buf[n] ^= SEQUENCE[k];
-    for b in buf {
-        *b ^= SEQUENCE[k];
-        k += 1;
-        if k == SEQUENCE.len() {
-            k = 0;
-        }
+    for (idx, b) in buf.iter().enumerate() {
+        out[idx] = b ^ SEQUENCE[k];
+        k = (k + 1) % SEQUENCE.len();
     }
+    out
+}
+
+fn _derandomize_ndarray(buf: &[u8]) -> Vec<u8> {
+    assert!(
+        buf.len() <= SEQUENCE.len(),
+        "data longer than the PN sequence: got {}, wanted < {}",
+        buf.len(),
+        SEQUENCE.len()
+    );
+    let arr = arr1(buf);
+    let seq = arr1(&SEQUENCE[..buf.len()]);
+
+    let zult = arr ^ seq;
+    zult.as_slice().unwrap().to_vec()
 }
 
 /// An implementation of Pseudo-noise removal.
@@ -168,17 +179,7 @@ pub trait Derandomizer: Send + Sync {
 ///
 // FIXME: Support data longer than [SEQUENCE]
 fn derandomize(buf: &[u8]) -> Vec<u8> {
-    assert!(
-        buf.len() <= SEQUENCE.len(),
-        "data longer than the PN sequence: got {}, wanted < {}",
-        buf.len(),
-        SEQUENCE.len()
-    );
-    let arr = arr1(buf);
-    let seq = arr1(&SEQUENCE[..buf.len()]);
-
-    let zult = arr ^ seq;
-    zult.as_slice().unwrap().to_vec()
+    _derandomize_loop(buf)
 }
 
 /// ``PNDecoder`` implementing standard CCSDS pseudo-noise derandomizon
@@ -188,7 +189,15 @@ pub struct DefaultDerandomizer;
 
 impl Derandomizer for DefaultDerandomizer {
     fn derandomize(&self, dat: &[u8]) -> Vec<u8> {
-        derandomize(dat)
+        _derandomize_loop(dat)
+    }
+}
+
+pub struct NdarrayDerandomizer;
+
+impl Derandomizer for NdarrayDerandomizer {
+    fn derandomize(&self, dat: &[u8]) -> Vec<u8> {
+        _derandomize_ndarray(dat)
     }
 }
 

@@ -129,8 +129,8 @@ impl Packet {
     pub fn decode(buf: &[u8]) -> Result<Packet> {
         if buf.len() < PrimaryHeader::LEN {
             return Err(Error::NotEnoughData {
-                actual: buf.len(),
-                minimum: PrimaryHeader::LEN,
+                got: buf.len(),
+                wanted: PrimaryHeader::LEN,
             });
         }
         let ph = PrimaryHeader::decode(&buf[..PrimaryHeader::LEN])?;
@@ -138,8 +138,8 @@ impl Packet {
         let total_len = PrimaryHeader::LEN + data_len;
         if buf.len() < total_len {
             return Err(Error::NotEnoughData {
-                actual: buf.len(),
-                minimum: total_len,
+                got: buf.len(),
+                wanted: total_len,
             });
         }
         Ok(Packet {
@@ -258,8 +258,8 @@ impl PrimaryHeader {
     pub fn decode(buf: &[u8]) -> Result<Self> {
         if buf.len() < Self::LEN {
             return Err(Error::NotEnoughData {
-                actual: buf.len(),
-                minimum: Self::LEN,
+                got: buf.len(),
+                wanted: Self::LEN,
             });
         }
         let d1 = u16::from_be_bytes([buf[0], buf[1]]);
