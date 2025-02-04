@@ -1,3 +1,4 @@
+mod diff;
 mod filter;
 mod frame;
 mod info;
@@ -222,11 +223,21 @@ enum Commands {
         db: Option<PathBuf>,
     },
 
-    /// Framing commands
+    /// Framing commands (experimental)
     #[clap(hide = true)]
     Framing {
         #[command(subcommand)]
         command: FramingCommands,
+    },
+
+    /// Difference 2 packet files (experimental)
+    #[clap(hide = true)]
+    Diff {
+        left: PathBuf,
+        right: PathBuf,
+        /// Show details on specific missing packets
+        #[arg(short, long)]
+        verbose: bool,
     },
 }
 
@@ -433,5 +444,10 @@ fn main() -> Result<()> {
                 frame::info(sc.framing_config, input, format)
             }
         },
+        Commands::Diff {
+            left,
+            right,
+            verbose,
+        } => crate::diff::diff(left, right, *verbose),
     }
 }
