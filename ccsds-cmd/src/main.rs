@@ -28,8 +28,6 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum FramingCommands {
-    //Info,
-    //CheckRs,
     /// Byte-align and remove fill
     ///
     /// Leaves ASM in place. Performs no PN or integrity checking

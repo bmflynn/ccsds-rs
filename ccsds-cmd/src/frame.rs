@@ -182,6 +182,10 @@ pub fn info(config: FramingConfig, fpath: &Path, format: &Format) -> Result<()> 
                     sum.uncorrectable += 1;
                     info.summary.uncorrectable += 1;
                 }
+                Integrity::Skipped => {
+                    sum.not_performed += 1;
+                    info.summary.not_performed += 1;
+                }
             },
             None => {
                 sum.not_performed += 1;

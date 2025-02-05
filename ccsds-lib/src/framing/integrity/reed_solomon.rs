@@ -1,7 +1,7 @@
 use rs2::{correct_message, RSState, N, PARITY_LEN};
 
 use super::{Error, Integrity, IntegrityAlgorithm};
-use crate::prelude::*;
+use crate::{framing::VCDUHeader, prelude::*};
 
 /// Deinterleave an interleaved RS block (code block + check symbols).
 ///
@@ -29,6 +29,7 @@ fn deinterleave(data: &[u8], interleave: u8) -> Vec<[u8; 255]> {
 pub struct DefaultReedSolomon {
     pub interleave: u8,
     pub parity_len: usize,
+    noop: bool,
 }
 
 impl DefaultReedSolomon {
@@ -36,27 +37,41 @@ impl DefaultReedSolomon {
         Self {
             interleave,
             parity_len: PARITY_LEN,
+            noop: false,
         }
     }
+
+    pub fn noop(interleave: u8) -> Self {
+        Self {
+            interleave,
+            parity_len: PARITY_LEN,
+            noop: true,
+        }
+    }
+
     fn can_correct(block: &[u8], interleave: u8) -> bool {
         block.len() == N as usize * interleave as usize
+    }
+
+    fn remove_parity<'a>(&self, cadu_dat: &'a [u8]) -> &'a [u8] {
+        let parity_len = self.interleave as usize * self.parity_len;
+        &cadu_dat[..cadu_dat.len() - parity_len]
     }
 }
 
 //impl Corrector for DefaultReedSolomon {
 impl IntegrityAlgorithm for DefaultReedSolomon {
-    fn remove_parity<'a>(&self, cadu_dat: &'a [u8]) -> &'a [u8] {
-        let parity_len = self.interleave as usize * self.parity_len;
-        &cadu_dat[..cadu_dat.len() - parity_len]
-    }
-
-    fn perform(&self, cadu_dat: &[u8]) -> Result<(Integrity, Vec<u8>)> {
+    fn perform(&self, header: &VCDUHeader, cadu_dat: &[u8]) -> Result<(Integrity, Vec<u8>)> {
         if !DefaultReedSolomon::can_correct(cadu_dat, self.interleave) {
             return Err(Error::IntegrityAlgorithm(format!(
                 "codeblock len={} cannot be corrected by this algorithm with interleave={}",
                 cadu_dat.len(),
                 self.interleave,
             )));
+        }
+
+        if header.vcid == VCDUHeader::FILL || self.noop {
+            return Ok((Integrity::Skipped, self.remove_parity(cadu_dat).to_vec()));
         }
 
         let block: Vec<u8> = cadu_dat.to_vec();
@@ -139,9 +154,10 @@ mod tests {
 
         let rs = DefaultReedSolomon::new(interleave);
         let expected_block_len = if interleave == 4 { 892 } else { 1115 };
+        let hdr = VCDUHeader::decode(&cadu).unwrap();
 
         // Check original data tests out OK
-        let (status, block) = rs.perform(&cadu).unwrap();
+        let (status, block) = rs.perform(&hdr, &cadu).unwrap();
         assert_eq!(
             status,
             Integrity::Ok,
@@ -151,7 +167,7 @@ mod tests {
 
         // Introduce an error by just adding one with wrap to a byte and make sure it's corrected
         cadu[100] += 1;
-        let (status, block) = rs.perform(&cadu).unwrap();
+        let (status, block) = rs.perform(&hdr, &cadu).unwrap();
         assert_eq!(
             status,
             Integrity::Corrected,

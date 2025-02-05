@@ -5,6 +5,8 @@ pub use crate::prelude::*;
 pub use crc32::*;
 pub use reed_solomon::*;
 
+use super::VCDUHeader;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Integrity {
     NoErrors,
@@ -14,14 +16,17 @@ pub enum Integrity {
     /// Data was successfully corrected.
     Corrected,
     Uncorrectable,
+    /// The algorithm choose to skip performing integrity checks
+    Skipped,
 }
 
 pub trait IntegrityAlgorithm: Send + Sync {
-    /// Remove parity bytes from the CADU data.
+    /// Perform this integrity check.
     ///
-    /// This does not imply that this integrity check was performed.
-    fn remove_parity<'a>(&self, cadu_dat: &'a [u8]) -> &'a [u8];
-
-    /// Perform this integrity check. The returned data will have any parity bytes removed.
-    fn perform(&self, cadu_dat: &[u8]) -> Result<(Integrity, Vec<u8>)>;
+    /// `cadu_dat` must already be derandomized and be of expected lenght for this algorithm. This
+    /// algorithm may also choose to skip performance of the algorithm, e.g., for VCID fill frames.
+    ///
+    /// The algorithm will remove any parity bytes such that the returned data is just the frame
+    /// bytes.
+    fn perform(&self, header: &VCDUHeader, cadu_dat: &[u8]) -> Result<(Integrity, Vec<u8>)>;
 }
