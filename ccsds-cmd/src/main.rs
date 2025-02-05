@@ -223,15 +223,16 @@ enum Commands {
         db: Option<PathBuf>,
     },
 
-    /// Framing commands (experimental)
-    #[clap(hide = true)]
+    /// Framing commands.
     Framing {
         #[command(subcommand)]
         command: FramingCommands,
     },
 
-    /// Difference 2 packet files (experimental)
-    #[clap(hide = true)]
+    /// Difference 2 packet files.
+    ///
+    /// Packet differences are based on APID, sequence number, and CRC (not including the packet
+    /// header).
     Diff {
         left: PathBuf,
         right: PathBuf,
