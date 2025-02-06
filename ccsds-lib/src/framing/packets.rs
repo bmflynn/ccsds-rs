@@ -1,15 +1,12 @@
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, VecDeque},
     fmt::Display,
 };
 
-use spacecrafts::Spacecraft;
 use tracing::{debug, trace};
 
 use crate::framing::{integrity::Integrity, DecodedFrame, Scid, Vcid};
 use crate::spacepacket::{Packet, PrimaryHeader};
-
-use super::Apid;
 
 struct VcidTracker {
     vcid: Vcid,
@@ -67,7 +64,6 @@ where
     frames: I,
     izone_length: usize,
     trailer_length: usize,
-    valid_apids: HashSet<Apid>,
 
     // Cache of partial packet data from frames that has not yet been decoded into
     // packets. There should only be up to about 1 frame worth of data in the cache
@@ -168,7 +164,7 @@ where
             // The start of the cache should always contain a packet primary header
             let mut header =
                 PrimaryHeader::decode(&tracker.cache).expect("failed to decode primary header");
-            if !valid_packet_header(&header, &self.valid_apids) {
+            if !valid_packet_header(&header) {
                 tracker.reset();
                 continue;
             }
@@ -206,7 +202,7 @@ where
                 }
                 header =
                     PrimaryHeader::decode(&tracker.cache).expect("failed to decode primary header");
-                if !valid_packet_header(&header, &self.valid_apids) {
+                if !valid_packet_header(&header) {
                     tracker.reset();
                     break;
                 }
@@ -225,18 +221,12 @@ where
     }
 }
 
-/// Perform sanity checks on packet header and return true if the packet header appears to be valid
-/// and the APID is in `valid_apids`.
-fn valid_packet_header(header: &PrimaryHeader, valid_apids: &HashSet<Apid>) -> bool {
+fn valid_packet_header(header: &PrimaryHeader) -> bool {
     if header.version != 0 || header.type_flag != 0 {
         debug!("bad packet version or type, dropping {header:?}");
-        false
-    } else if !valid_apids.is_empty() && !valid_apids.contains(&header.apid) {
-        debug!("invalid apid for spacecraft, dropping {header:?}");
-        false
-    } else {
-        true
+        return false;
     }
+    true
 }
 
 /// Decodes the provided frames into a packets contained within the frames' MPDUs.
@@ -251,24 +241,14 @@ pub fn decode_framed_packets<I>(
     frames: I,
     izone_length: usize,
     trailer_length: usize,
-    spacecraft: Option<Spacecraft>,
 ) -> impl Iterator<Item = DecodedPacket> + Send
 where
     I: Iterator<Item = DecodedFrame> + Send,
 {
-    let mut valid_apids = HashSet::default();
-    if let Some(spacecraft) = spacecraft {
-        for vcid in spacecraft.vcids {
-            for apid in vcid.apids {
-                valid_apids.insert(apid.apid);
-            }
-        }
-    }
     FramedPacketIter {
         frames: frames.filter(|dc| !dc.frame.is_fill()),
         izone_length,
         trailer_length,
-        valid_apids,
         cache: HashMap::new(),
         ready: VecDeque::new(),
     }

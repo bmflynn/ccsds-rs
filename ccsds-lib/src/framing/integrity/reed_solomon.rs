@@ -41,6 +41,8 @@ impl DefaultReedSolomon {
         }
     }
 
+    /// Create a instance that removed parity but does not actually perform the algorithm on any
+    /// frames. All results will have [Integrity::Skipped].
     pub fn noop(interleave: u8) -> Self {
         Self {
             interleave,

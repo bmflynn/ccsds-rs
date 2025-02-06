@@ -59,7 +59,7 @@ let frames = decode_frames(
 ).filter_map(Result::ok);
 
 // 3. Extract packets from Frames
-let packets = decode_framed_packets(frames, izone_len, trailer_len, None);
+let packets = decode_framed_packets(frames, izone_len, trailer_len);
 ```
 
 It is also possible to have more control over the decode process for cases that do not
@@ -87,7 +87,7 @@ let cadus = Synchronizer::new(file, block_len)
 let frames = decode_frames(cadus, None, None).filter_map(|z| z.ok());
 
 // 3. Extract packets from Frames
-let packets = decode_framed_packets(frames, izone_len, trailer_len, None);
+let packets = decode_framed_packets(frames, izone_len, trailer_len);
 ```
 
 ## References:
