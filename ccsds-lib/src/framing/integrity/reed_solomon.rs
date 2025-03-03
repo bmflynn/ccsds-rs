@@ -28,6 +28,7 @@ fn deinterleave(data: &[u8], interleave: u8) -> Vec<[u8; 255]> {
 #[derive(Clone, Debug)]
 pub struct DefaultReedSolomon {
     pub interleave: u8,
+    pub virtual_fill: usize,
     pub parity_len: usize,
     noop: bool,
 }
@@ -36,9 +37,15 @@ impl DefaultReedSolomon {
     pub fn new(interleave: u8) -> Self {
         Self {
             interleave,
+            virtual_fill: 0,
             parity_len: PARITY_LEN,
             noop: false,
         }
+    }
+
+    pub fn with_virtual_fill(mut self, num: usize) -> Self {
+        self.virtual_fill = num;
+        self
     }
 
     /// Create a instance that removed parity but does not actually perform the algorithm on any
@@ -46,13 +53,14 @@ impl DefaultReedSolomon {
     pub fn noop(interleave: u8) -> Self {
         Self {
             interleave,
+            virtual_fill: 0,
             parity_len: PARITY_LEN,
             noop: true,
         }
     }
 
-    fn can_correct(block: &[u8], interleave: u8) -> bool {
-        block.len() == N as usize * interleave as usize
+    fn can_correct(block: &[u8], interleave: u8, virtual_fill: usize) -> bool {
+        block.len() + virtual_fill == N as usize * interleave as usize
     }
 
     fn remove_parity<'a>(&self, cadu_dat: &'a [u8]) -> &'a [u8] {
@@ -64,7 +72,7 @@ impl DefaultReedSolomon {
 //impl Corrector for DefaultReedSolomon {
 impl IntegrityAlgorithm for DefaultReedSolomon {
     fn perform(&self, header: &VCDUHeader, cadu_dat: &[u8]) -> Result<(Integrity, Vec<u8>)> {
-        if !DefaultReedSolomon::can_correct(cadu_dat, self.interleave) {
+        if !DefaultReedSolomon::can_correct(cadu_dat, self.interleave, self.virtual_fill) {
             return Err(Error::IntegrityAlgorithm(format!(
                 "codeblock len={} cannot be corrected by this algorithm with interleave={}",
                 cadu_dat.len(),
@@ -77,8 +85,14 @@ impl IntegrityAlgorithm for DefaultReedSolomon {
         }
 
         let block: Vec<u8> = cadu_dat.to_vec();
-        let mut corrected = vec![0u8; block.len()];
+        let mut corrected = vec![0u8; block.len() + self.virtual_fill];
         let mut num_corrected = 0;
+        let cadu_dat = if self.virtual_fill == 0 {
+            cadu_dat
+        } else {
+            let zeros = &vec![0u8; self.virtual_fill];
+            &[zeros, cadu_dat].concat()
+        };
         let messages = deinterleave(cadu_dat, self.interleave);
         for (idx, msg) in messages.iter().enumerate() {
             let zult = correct_message(msg);
@@ -101,6 +115,8 @@ impl IntegrityAlgorithm for DefaultReedSolomon {
 
         // The resulting buffer does not include the parity bytes
         let zult = self.remove_parity(&corrected);
+        // Remove any added virtual fill zeros
+        let zult = &zult[self.virtual_fill..];
         match num_corrected {
             0 => Ok((Integrity::Ok, zult.to_vec())),
             _ => Ok((Integrity::Corrected, zult.to_vec())),
