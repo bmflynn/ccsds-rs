@@ -63,13 +63,13 @@ fn generate_pn_sequence(poly: u8, gen: u8) -> [u8; 255] {
         for _ in 0..8 {
             let mut b: u8 = 0;
             for pbit in 0..8 {
-                if poly >> pbit & 1 == 1 {
+                if (poly >> pbit) & 1 == 1 {
                     // XOR with gen in the poly position
                     b ^= (gen >> pbit) & 1;
                 }
             }
             // b goes on the front, then the high bits of gen
-            gen = b << 7 | gen >> 1;
+            gen = (b << 7) | (gen >> 1);
         }
         table[num] = flip_bits(gen);
     }

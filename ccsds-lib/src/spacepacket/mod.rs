@@ -267,11 +267,11 @@ impl PrimaryHeader {
         let d3 = u16::from_be_bytes([buf[4], buf[5]]);
 
         Ok(PrimaryHeader {
-            version: (d1 >> 13 & 0x7) as u8,
-            type_flag: (d1 >> 12 & 0x1) as u8,
-            has_secondary_header: (d1 >> 11 & 0x1) == 1,
+            version: ((d1 >> 13) & 0x7) as u8,
+            type_flag: ((d1 >> 12) & 0x1) as u8,
+            has_secondary_header: ((d1 >> 11) & 0x1) == 1,
             apid: (d1 & 0x7ff),
-            sequence_flags: (d2 >> 14 & 0x3) as u8,
+            sequence_flags: ((d2 >> 14) & 0x3) as u8,
             sequence_id: (d2 & 0x3fff),
             len_minus1: d3,
         })
