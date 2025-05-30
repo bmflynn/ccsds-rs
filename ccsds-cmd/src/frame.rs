@@ -30,10 +30,10 @@ pub fn frame(
     include: Vec<Vcid>,
     exclude: Vec<Vcid>,
 ) -> Result<()> {
-    let mut pipeline = Pipeline::default();
+    let mut pipeline = Pipeline::new();
 
-    if config.pseudo_noise.is_some() {
-        pipeline = pipeline.with_default_pn();
+    if config.pseudo_noise.is_none() {
+        pipeline = pipeline.without_pn();
     }
 
     if let Some(rs_config) = config.reed_solomon {
@@ -122,10 +122,10 @@ struct Info {
 }
 
 pub fn info(config: FramingConfig, fpath: &Path, format: &Format) -> Result<()> {
-    let mut pipeline = Pipeline::default();
+    let mut pipeline = Pipeline::new();
 
-    if config.pseudo_noise.is_some() {
-        pipeline = pipeline.with_default_pn();
+    if config.pseudo_noise.is_none() {
+        pipeline = pipeline.without_pn();
     }
 
     if let Some(rs_config) = config.reed_solomon {

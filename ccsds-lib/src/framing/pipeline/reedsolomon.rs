@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use tracing::debug;
+
 use crate::framing::{DefaultReedSolomon, Frame, Integrity, ReedSolomon};
 
 struct ReedSolomonIter {
@@ -18,6 +20,7 @@ impl ReedSolomonIter {
             let rs = Arc::new(DefaultReedSolomon::new(interleave).with_virtual_fill(virtual_fill));
 
             for mut frame in frames {
+                debug!("rs: {:?}", frame.header);
                 let output_tx = output_tx.clone();
                 let rs = rs.clone();
                 pool.spawn_fifo(move || {

@@ -19,9 +19,7 @@ where
     type Item = Frame;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let Some(cadu) = self.cadus.next() else {
-            return None;
-        };
+        let cadu = self.cadus.next()?;
         match VCDUHeader::decode(&cadu.data) {
             Some(header) => {
                 let last = self

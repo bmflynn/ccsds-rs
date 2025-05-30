@@ -11,7 +11,7 @@ use crate::framing::{
 
 use super::{derandomize, frame_decoder, reed_solomon, synchronize};
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Pipeline {
     sync: bool,
     pn: bool,
@@ -19,11 +19,18 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-    pub fn with_sync(mut self) -> Self {
-        self.sync = true;
+    pub fn new() -> Self {
+        Pipeline {
+            sync: true,
+            pn: true,
+            rs: None,
+        }
+    }
+    pub fn without_sync(mut self) -> Self {
+        self.sync = false;
         self
     }
-    pub fn with_default_pn(mut self) -> Self {
+    pub fn without_pn(mut self) -> Self {
         self.pn = true;
         self
     }
