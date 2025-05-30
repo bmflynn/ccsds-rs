@@ -5,8 +5,10 @@ use std::{
 
 use tracing::{debug, trace};
 
-use crate::framing::{integrity::Integrity, DecodedFrame, Scid, Vcid};
+use crate::framing::{Integrity, Vcid};
 use crate::spacepacket::{Packet, PrimaryHeader};
+
+use super::Frame;
 
 struct VcidTracker {
     vcid: Vcid,
@@ -49,17 +51,9 @@ impl Display for VcidTracker {
     }
 }
 
-/// A [Packet] with additional framing metadata.
-#[derive(Debug, Clone)]
-pub struct DecodedPacket {
-    pub scid: Scid,
-    pub vcid: Vcid,
-    pub packet: Packet,
-}
-
-struct FramedPacketIter<I>
+pub struct FramedPacketIter<I>
 where
-    I: Iterator<Item = DecodedFrame> + Send,
+    I: Iterator<Item = Frame> + Send,
 {
     frames: I,
     izone_length: usize,
@@ -69,14 +63,29 @@ where
     // packets. There should only be up to about 1 frame worth of data in the cache
     cache: HashMap<Vcid, VcidTracker>,
     // Packets that have already been decoded and are waiting to be provided.
-    ready: VecDeque<DecodedPacket>,
+    ready: VecDeque<Packet>,
+}
+
+impl<I> FramedPacketIter<I>
+where
+    I: Iterator<Item = Frame> + Send,
+{
+    pub fn new(frames: I, izone_length: usize, trailer_length: usize) -> Self {
+        FramedPacketIter {
+            frames,
+            izone_length,
+            trailer_length,
+            cache: HashMap::default(),
+            ready: VecDeque::default(),
+        }
+    }
 }
 
 impl<I> Iterator for FramedPacketIter<I>
 where
-    I: Iterator<Item = DecodedFrame> + Send,
+    I: Iterator<Item = Frame> + Send,
 {
-    type Item = DecodedPacket;
+    type Item = Packet;
 
     fn next(&mut self) -> Option<Self::Item> {
         // If there are packets ready to go provide the oldest one
@@ -87,28 +96,23 @@ where
         // No packet ready, we have to find one
         'next_frame: loop {
             let frame = self.frames.next();
-            if frame.is_none() {
+            let Some(frame) = frame else {
                 trace!("no more frames");
                 break;
-            }
+            };
 
-            let DecodedFrame {
-                frame,
-                missing,
-                integrity,
-            } = frame.unwrap();
             let mpdu = frame.mpdu(self.izone_length, self.trailer_length).unwrap();
             let tracker = self
                 .cache
                 .entry(frame.header.vcid)
                 .or_insert(VcidTracker::new(frame.header.vcid));
 
-            match integrity {
+            match frame.integrity {
                 Some(Integrity::Corrected) => {
                     debug!(vcid = %frame.header.vcid, "corrected frame");
                     tracker.rs_corrected = true;
                 }
-                Some(Integrity::Uncorrectable) | Some(Integrity::HasErrors) => {
+                Some(Integrity::Uncorrectable) => {
                     debug!(vcid = %frame.header.vcid, tracker = %tracker, "uncorrectable or errored frame, dropping tracker");
                     tracker.reset();
                     continue;
@@ -117,8 +121,8 @@ where
             }
             // Frame error indicates there are frames missing _before_ this one -- this one is
             // still useable, so clear the existing cache and continue to process this frame.
-            if missing > 0 {
-                trace!(vcid = frame.header.vcid, tracker=%tracker, missing=missing, "missing frames, dropping tracker");
+            if frame.missing > 0 {
+                trace!(vcid = frame.header.vcid, tracker=%tracker, missing=frame.missing, "missing frames, dropping tracker");
                 tracker.reset();
             }
 
@@ -184,15 +188,10 @@ where
             loop {
                 // data is for the current packet, tail is what's left of the cache
                 let (data, tail) = tracker.cache.split_at(need);
-                let packet = DecodedPacket {
-                    scid: frame.header.scid,
-                    vcid: frame.header.vcid,
-                    packet: Packet {
-                        header: PrimaryHeader::decode(data)
-                            .expect("failed to decode primary header"),
-                        data: data.to_vec(),
-                        offset: 0,
-                    },
+                let packet = Packet {
+                    header: PrimaryHeader::decode(data).expect("failed to decode primary header"),
+                    data: data.to_vec(),
+                    offset: 0,
                 };
                 tracker.cache = tail.to_vec();
                 self.ready.push_back(packet);
@@ -227,29 +226,4 @@ fn valid_packet_header(header: &PrimaryHeader) -> bool {
         return false;
     }
     true
-}
-
-/// Decodes the provided frames into a packets contained within the frames' MPDUs.
-///
-/// While not strictly enforced, frames should all be from the same spacecraft, i.e., have
-/// the same spacecraft id.
-///
-/// If `spacecraft` is provided its configuration is used to perform additional checks to make sure
-/// any decoded packets have APID present in the spacecraft config. Packets with APIDs not present
-/// are dropped.
-pub fn decode_framed_packets<I>(
-    frames: I,
-    izone_length: usize,
-    trailer_length: usize,
-) -> impl Iterator<Item = DecodedPacket> + Send
-where
-    I: Iterator<Item = DecodedFrame> + Send,
-{
-    FramedPacketIter {
-        frames: frames.filter(|dc| !dc.frame.is_fill()),
-        izone_length,
-        trailer_length,
-        cache: HashMap::new(),
-        ready: VecDeque::new(),
-    }
 }

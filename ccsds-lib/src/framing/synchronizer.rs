@@ -1,7 +1,8 @@
-use super::bytes::Bytes;
-use crate::prelude::*;
 use std::collections::HashMap;
 use std::io::{ErrorKind, Read};
+
+use super::bytes::Bytes;
+use crate::{Error, Result};
 
 /// Default CCSDS attached sync marker.
 pub const ASM: [u8; 4] = [0x1a, 0xcf, 0xfc, 0x1d];
@@ -53,7 +54,7 @@ fn create_patterns(dat: &[u8]) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
 }
 
 /// A sychronized block location.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Loc {
     /// Offset (1-based) to the first byte after a found sync marker
     pub offset: usize,
@@ -65,7 +66,7 @@ pub struct Loc {
 ///
 /// The sync marker may be bit-shifted, in which case the bytes returned will also
 /// be bit shifted.
-pub struct Synchronizer<R>
+pub(crate) struct Synchronizer<R>
 where
     R: Read + Send,
 {
@@ -207,12 +208,22 @@ impl<R> IntoIterator for Synchronizer<R>
 where
     R: Read + Send,
 {
-    type Item = Result<Vec<u8>>;
+    type Item = Result<Block>;
     type IntoIter = BlockIter<R>;
 
     fn into_iter(self) -> Self::IntoIter {
-        BlockIter { scanner: self }
+        BlockIter {
+            scanner: self,
+            last: 0,
+        }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct Block {
+    pub last: usize,
+    pub loc: Loc,
+    pub data: Vec<u8>,
 }
 
 /// Iterates over synchronized data in block size defined by the source [Synchronizer].
@@ -226,53 +237,37 @@ where
     R: Read + Send,
 {
     scanner: Synchronizer<R>,
+    last: usize,
 }
 
 impl<R> Iterator for BlockIter<R>
 where
     R: Read + Send,
 {
-    type Item = Result<Vec<u8>>;
+    type Item = Result<Block>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.scanner.scan() {
-            Ok(Some(_)) => (),       // got a valid Loc
+        let loc = match self.scanner.scan() {
+            Ok(Some(loc)) => loc,    // got a valid Loc
             Ok(None) => return None, // no loc, must be done
             // Scan resulted in a non-EOF error, let the consumer figure out what to do
             Err(err) => return Some(Err(err)),
-        }
+        };
+        let last = if self.last == 0 {
+            0
+        } else {
+            loc.offset - self.last
+        };
+        self.last = loc.offset;
         match self.scanner.block() {
-            Ok(block) => Some(Ok(block)),
+            Ok(block) => Some(Ok(Block {
+                loc,
+                last,
+                data: block,
+            })),
             Err(err) => Some(Err(err)),
         }
     }
-}
-
-/// Creates an iterator that produces byte-aligned data blocks.
-///
-/// `reader` is a ``std::io::Read`` implementation providing the byte stream. `asm` is the
-/// attached synchronization marker used to locate blocks in the data stream, and `block_size`
-/// is size of each block w/o the ASM.
-///
-/// The ASM need not be byte-aligned in the stream but it is expected that block data will
-/// follow immediately after the ASM. Blocks returned will be byte-aligned.
-///
-/// Data blocks are only produced if there are `block_size` bytes available, i.e.,
-/// any partial block at the end of the file is dropped.
-///
-/// For more control over the iteration process see [Synchronizer].
-///
-/// # Errors
-/// Any errors reading from the stream will cause the iterator to exit.
-///
-pub fn read_synchronized_blocks<'a, R>(
-    reader: R,
-    block_size: usize,
-) -> impl Iterator<Item = Result<Vec<u8>>> + 'a
-where
-    R: Read + Send + 'a,
-{
-    Synchronizer::new(reader, block_size).into_iter()
 }
 
 #[cfg(test)]

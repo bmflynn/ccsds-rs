@@ -6,7 +6,8 @@ use hifitime::{Duration, Epoch};
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
-use crate::{error::TimecodeError, prelude::*};
+use crate::error::TimecodeError;
+use crate::{Error, Result};
 use serde::Serialize;
 
 /// Number of seconds between the 1958 and 1900

@@ -5,7 +5,7 @@ use std::fs::{self, File};
 use std::result::Result;
 
 use ccsds::spacepacket::{
-    collect_groups, decode_packets, Error, Merger, Packet, PacketGroup, TimecodeDecoder,
+    collect_groups, decode_packets, Merger, Packet, PacketGroup, TimecodeDecoder,
 };
 
 use common::fixture_path;
@@ -16,7 +16,7 @@ fn packet_iter() {
     let reader = fs::File::open(fpath).unwrap();
     let iter = decode_packets(reader);
 
-    let packets: Vec<Result<Packet, Error>> = iter.collect();
+    let packets: Vec<Result<Packet, ccsds::Error>> = iter.collect();
 
     assert_eq!(packets.len(), 100);
 }
@@ -27,7 +27,7 @@ fn group_iter() {
     let reader = fs::File::open(fpath).unwrap();
     let packets = decode_packets(reader).map(Result::unwrap);
     let iter = collect_groups(packets);
-    let groups: Vec<Result<PacketGroup, Error>> = iter.collect();
+    let groups: Vec<Result<PacketGroup, ccsds::Error>> = iter.collect();
 
     assert_eq!(groups.len(), 7);
 

@@ -10,10 +10,9 @@ use std::str::FromStr;
 use std::{fs::File, io::stderr};
 
 use anyhow::{anyhow, bail, Context, Result};
-use ccsds::prelude::Vcid;
 use ccsds::spacecrafts::Spacecrafts;
 use ccsds::spacepacket::TimecodeDecoder;
-use ccsds::{framing::Scid, spacepacket::Apid};
+use ccsds::{framing::Scid, framing::Vcid, spacepacket::Apid};
 use clap::{Parser, Subcommand};
 use hifitime::Epoch;
 use tracing::{debug, info};
@@ -83,11 +82,11 @@ enum FramingCommands {
         #[arg(short, long, default_value = "text")]
         format: frame::Format,
 
-        /// Input raw CADU file.
-        input: PathBuf,
-
         /// Spacecraft identifier used to lookup framing config.
         scid: Scid,
+
+        /// Input raw CADU file.
+        input: PathBuf,
     },
 }
 

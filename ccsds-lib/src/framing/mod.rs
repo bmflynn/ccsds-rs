@@ -2,22 +2,67 @@
 //!
 //!
 mod bytes;
-mod decoder;
-mod integrity;
+mod ocf;
 mod packets;
+mod pipeline;
 mod pn;
+mod reed_solomon;
 mod synchronizer;
-
-pub use decoder::*;
-pub use integrity::*;
-pub use packets::*;
-pub use pn::*;
-pub use synchronizer::*;
 
 use serde::{Deserialize, Serialize};
 
+use synchronizer::Block;
+
+pub use pipeline::*;
+pub use pn::{DefaultDerandomizer, Derandomizer};
+pub use reed_solomon::{DefaultReedSolomon, Integrity, ReedSolomon};
+pub use synchronizer::ASM;
+
 pub type Scid = u16;
 pub type Vcid = u16;
+
+pub type Cadu = Block;
+
+pub struct Frame {
+    pub header: VCDUHeader,
+    /// Count of missing frame counts between this frame and the last received for this VCID.
+    pub missing: u32,
+    /// Integrity checking disposition, if peformed, [Option::None] otherwise.
+    pub integrity: Option<Integrity>,
+    /// Frame bytes. If integrity checking was performed and failed, e.g., not [Integrity::Ok] or
+    /// [Integrity::Corrected], this will also include any check symbols and therefore potentially
+    /// be longer than the expected frame length.
+    pub data: Vec<u8>,
+}
+
+impl Frame {
+    /// Decode ``dat`` into a ``Frame``, or `None` if not enough bytes.
+    #[must_use]
+    pub fn decode(dat: Vec<u8>) -> Option<Self> {
+        let header = VCDUHeader::decode(&dat)?;
+        Some(Frame {
+            header,
+            missing: 0,
+            integrity: None,
+            data: dat,
+        })
+    }
+
+    #[must_use]
+    pub fn is_fill(&self) -> bool {
+        self.header.vcid == VCDUHeader::FILL
+    }
+
+    /// Extract the MPDU bytes from this frame, or `None` if not enough bytes.
+    #[must_use]
+    pub fn mpdu(&self, izone_length: usize, trailer_length: usize) -> Option<MPDU> {
+        let start: usize = VCDUHeader::LEN + izone_length;
+        let end: usize = self.data.len() - trailer_length;
+        let data = self.data[start..end].to_vec();
+
+        MPDU::decode(&data)
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct VCDUHeader {
@@ -120,37 +165,6 @@ impl MPDU {
     #[must_use]
     pub fn header_offset(&self) -> usize {
         self.first_header as usize
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Frame {
-    pub header: VCDUHeader,
-    /// All frame data bytes, including header
-    pub data: Vec<u8>,
-}
-
-impl Frame {
-    /// Decode ``dat`` into a ``Frame``, or `None` if not enough bytes.
-    #[must_use]
-    pub fn decode(dat: Vec<u8>) -> Option<Self> {
-        let header = VCDUHeader::decode(&dat)?;
-        Some(Frame { header, data: dat })
-    }
-
-    #[must_use]
-    pub fn is_fill(&self) -> bool {
-        self.header.vcid == VCDUHeader::FILL
-    }
-
-    /// Extract the MPDU bytes from this frame, or `None` if not enough bytes.
-    #[must_use]
-    pub fn mpdu(&self, izone_length: usize, trailer_length: usize) -> Option<MPDU> {
-        let start: usize = VCDUHeader::LEN + izone_length;
-        let end: usize = self.data.len() - trailer_length;
-        let data = self.data[start..end].to_vec();
-
-        MPDU::decode(&data)
     }
 }
 

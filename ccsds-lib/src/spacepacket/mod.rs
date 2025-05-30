@@ -10,7 +10,7 @@ use std::io::Read;
 
 use serde::{Deserialize, Serialize};
 
-pub use crate::prelude::*;
+use crate::{Error, Result};
 pub use merge::*;
 pub use summary::*;
 pub use timecode::*;
@@ -38,7 +38,7 @@ pub type Apid = u16;
 /// ];
 /// let packet = Packet::decode(dat)?;
 /// assert_eq!(packet.header.apid, 1369);
-/// # Ok::<(), ccsds::prelude::Error>(())
+/// # Ok::<(), ccsds::Error>(())
 /// ```
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "python", pyclass(frozen))]
@@ -459,7 +459,7 @@ where
 /// for group in collect_groups(packets.into_iter()).filter_map(Result::ok) {
 ///     assert_eq!(group.apid, 1369);
 /// }
-/// # Ok::<(), ccsds::prelude::Error>(())
+/// # Ok::<(), ccsds::Error>(())
 /// ```
 pub fn collect_groups<I>(packets: I) -> impl Iterator<Item = Result<PacketGroup>> + Send
 where

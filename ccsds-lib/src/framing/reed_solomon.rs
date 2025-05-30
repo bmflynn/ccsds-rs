@@ -1,7 +1,29 @@
 use rs2::{correct_message, RSState, N, PARITY_LEN};
 
-use super::{Error, Integrity, IntegrityAlgorithm};
-use crate::{framing::VCDUHeader, prelude::*};
+use crate::{framing::VCDUHeader, Error, Result};
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Integrity {
+    /// Data did not require correction.
+    Ok,
+    /// Data was successfully corrected.
+    Corrected,
+    /// Not correctable due to alg failure or too many errors
+    Uncorrectable,
+    /// The algorithm choose to skip performing integrity checks
+    Skipped,
+}
+
+pub trait ReedSolomon: Send + Sync {
+    /// Perform this integrity check.
+    ///
+    /// `cadu_dat` must already be derandomized and be of expected lenght for this algorithm. This
+    /// algorithm may also choose to skip performance of the algorithm, e.g., for VCID fill frames.
+    ///
+    /// The algorithm will remove any parity bytes such that the returned data is just the frame
+    /// bytes.
+    fn perform(&self, header: &VCDUHeader, cadu_dat: &[u8]) -> Result<(Integrity, Vec<u8>)>;
+}
 
 /// Deinterleave an interleaved RS block (code block + check symbols).
 ///
@@ -70,7 +92,7 @@ impl DefaultReedSolomon {
 }
 
 //impl Corrector for DefaultReedSolomon {
-impl IntegrityAlgorithm for DefaultReedSolomon {
+impl ReedSolomon for DefaultReedSolomon {
     fn perform(&self, header: &VCDUHeader, cadu_dat: &[u8]) -> Result<(Integrity, Vec<u8>)> {
         if !DefaultReedSolomon::can_correct(cadu_dat, self.interleave, self.virtual_fill) {
             return Err(Error::IntegrityAlgorithm(format!(

@@ -1,10 +1,5 @@
-use anyhow::{bail, Context, Result};
-use ccsds::{
-    framing::{
-        DefaultDerandomizer, DefaultReedSolomon, FrameDecoder, Integrity, Synchronizer, ASM,
-    },
-    prelude::Vcid,
-};
+use anyhow::{Context, Result};
+use ccsds::framing::{synchronize, Integrity, Pipeline, Vcid, ASM};
 use handlebars::handlebars_helper;
 use serde::Serialize;
 use spacecrafts::FramingConfig;
@@ -20,11 +15,9 @@ pub fn sync(srcpath: &Path, dstpath: &Path, block_size: usize) -> Result<()> {
     let src = BufReader::new(File::open(srcpath).context("opening source")?);
     let mut dst = File::create(dstpath).context("creating dest")?;
 
-    let sync = Synchronizer::new(src, block_size);
-
-    for block in sync.into_iter().filter_map(Result::ok) {
+    for cadu in synchronize(src, block_size) {
         dst.write_all(&ASM)?;
-        dst.write_all(&block)?;
+        dst.write_all(&cadu.data)?;
     }
 
     Ok(())
@@ -37,45 +30,37 @@ pub fn frame(
     include: Vec<Vcid>,
     exclude: Vec<Vcid>,
 ) -> Result<()> {
-    let src = BufReader::new(File::open(srcpath).context("opening source")?);
-    let mut dst = File::create(dstpath).context("creating dest")?;
+    let mut pipeline = Pipeline::default();
 
-    let sync = Synchronizer::new(src, config.codeblock_len());
-
-    let mut framer = FrameDecoder::new();
     if config.pseudo_noise.is_some() {
-        framer = framer.with_derandomization(Box::new(DefaultDerandomizer))
+        pipeline = pipeline.with_default_pn();
     }
+
     if let Some(rs_config) = config.reed_solomon {
-        let rs = DefaultReedSolomon::new(rs_config.interleave);
-        framer = framer.with_integrity(Box::new(rs));
+        pipeline = pipeline.with_default_rs(rs_config.interleave, rs_config.virtual_fill_length);
     }
 
     let frame_len = config.length;
+    let src = BufReader::new(File::open(srcpath).context("opening source")?);
+    let frames = pipeline.start(src, frame_len);
 
-    for (idx, frame) in framer
-        .decode(sync.into_iter().filter_map(Result::ok))
-        .enumerate()
-    {
-        let frame = match frame {
-            Ok(f) => f,
-            Err(err) => bail!("frame decode failed: {err}"),
-        };
-        if !include.is_empty() && !include.contains(&frame.frame.header.vcid) {
+    let mut dst = File::create(dstpath).context("creating dest")?;
+
+    for (idx, frame) in frames.enumerate() {
+        if !include.is_empty() && !include.contains(&frame.header.vcid) {
             continue;
         }
-        if !exclude.is_empty() && exclude.contains(&frame.frame.header.vcid) {
+        if !exclude.is_empty() && exclude.contains(&frame.header.vcid) {
             continue;
         }
 
         let mpdu = frame
-            .frame
             .mpdu(config.insert_zone_length, config.trailer_length)
             .unwrap();
 
         debug!(
             "{:?} {:?} missing={} integrity={}",
-            frame.frame.header,
+            frame.header,
             mpdu,
             frame.missing,
             frame
@@ -83,15 +68,15 @@ pub fn frame(
                 .map_or_else(|| "None".to_string(), |i| format!("{i:?}"))
         );
 
-        if frame.frame.data.len() != frame_len {
+        if frame.data.len() != frame_len {
             warn!(
                 "expected frame length={frame_len} at frame idx {idx}, got {}; dropping",
-                frame.frame.data.len()
+                frame.data.len()
             );
             continue;
         }
 
-        dst.write_all(&frame.frame.data)?;
+        dst.write_all(&frame.data)?;
     }
 
     Ok(())
@@ -137,19 +122,19 @@ struct Info {
 }
 
 pub fn info(config: FramingConfig, fpath: &Path, format: &Format) -> Result<()> {
-    let src = BufReader::new(File::open(fpath).context("opening source")?);
-    let sync = Synchronizer::new(src, config.codeblock_len());
-    let mut framer = FrameDecoder::new();
+    let mut pipeline = Pipeline::default();
+
     if config.pseudo_noise.is_some() {
-        framer = framer.with_derandomization(Box::new(DefaultDerandomizer))
+        pipeline = pipeline.with_default_pn();
     }
+
     if let Some(rs_config) = config.reed_solomon {
-        let rs = DefaultReedSolomon::new(rs_config.interleave);
-        framer = framer.with_integrity(Box::new(rs));
+        pipeline = pipeline.with_default_rs(rs_config.interleave, rs_config.virtual_fill_length);
     }
-    let frames = framer
-        .decode(sync.into_iter().filter_map(Result::ok))
-        .filter_map(Result::ok);
+
+    let frame_len = config.length;
+    let src = BufReader::new(File::open(fpath).context("opening source")?);
+    let frames = pipeline.start(src, frame_len);
 
     let mut info = Info {
         filename: fpath.file_name().unwrap().to_string_lossy().to_string(),
@@ -158,25 +143,22 @@ pub fn info(config: FramingConfig, fpath: &Path, format: &Format) -> Result<()> 
     };
     let mut vcids: HashMap<Vcid, Summary> = HashMap::default();
     for frame in frames {
+        debug!("{:?}", frame.header);
         info.summary.total_frames += 1;
-        info.summary.total_bytes += frame.frame.data.len();
+        info.summary.total_bytes += frame.data.len();
 
-        let sum = vcids.entry(frame.frame.header.vcid).or_default();
+        let sum = vcids.entry(frame.header.vcid).or_default();
         sum.total_frames += 1;
-        sum.total_bytes += frame.frame.data.len();
+        sum.total_bytes += frame.data.len();
         match frame.integrity {
             Some(integrity) => match integrity {
-                Integrity::Ok | Integrity::NoErrors => {
+                Integrity::Ok => {
                     sum.ok += 1;
                     info.summary.ok += 1;
                 }
                 Integrity::Corrected => {
                     sum.corrected += 1;
                     info.summary.corrected += 1;
-                }
-                Integrity::HasErrors => {
-                    sum.error += 1;
-                    info.summary.error += 1;
                 }
                 Integrity::Uncorrectable => {
                     sum.uncorrectable += 1;

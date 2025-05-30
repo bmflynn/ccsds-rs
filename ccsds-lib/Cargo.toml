@@ -24,6 +24,7 @@ thiserror = "^2.0.0"
 threadpool = "^1.8.1"
 tracing.workspace = true
 typed-builder = "0.20.0"
+derive_more = { version = "2.0.1", features = ["from"] }
 
 [lib]
 name = "ccsds"

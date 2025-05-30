@@ -37,57 +37,21 @@ Reed-Solomon FEC (including parity bytes).
 ```no_run
 use std::fs::File;
 use std::io::BufReader;
-use ccsds::framing::*;
+use ccsds::framing::{Pipeline, packet_decoder};
 
 // Framing configuration
 let block_len = 1020; // CADU length - ASM length
 let interleave: u8 = 4;
+let virtual_fill: usize = 0;
 let izone_len = 0;
 let trailer_len = 0;
 
-// 1. Synchronize stream and extract blocks
 let file = BufReader::new(File::open("snpp.dat").unwrap());
-let cadus = Synchronizer::new(file, block_len)
-     .into_iter()
-     .filter_map(Result::ok);
-
-// 2. Decode (PN & RS) those blocks into Frames, ignoring frames with errors
-let frames = decode_frames(
-    cadus,
-    Some(Box::new(DefaultReedSolomon::new(interleave))),
-    Some(Box::new(DefaultDerandomizer)),
-).filter_map(Result::ok);
-
-// 3. Extract packets from Frames
-let packets = decode_framed_packets(frames, izone_len, trailer_len);
-```
-
-It is also possible to have more control over the decode process for cases that do not
-conform to the standard CCSDS specifications.
-
-For example, this will decode a stream of frames that are not pseudo-randomized and does
-not use Reed-Solomon FEC.
-```no_run
-use std::fs::File;
-use std::io::BufReader;
-use ccsds::framing::*;
-
-let block_len = 892; // Frame length
-let interleave: u8 = 4;
-let izone_len = 0;
-let trailer_len = 0;
-
-// 1. Synchronize stream and extract blocks
-let file = BufReader::new(File::open("frames.dat").unwrap());
-let cadus = Synchronizer::new(file, block_len)
-    .into_iter()
-    .filter_map(Result::ok);
-
-// 2. Decode blocks into Frames
-let frames = decode_frames(cadus, None, None).filter_map(|z| z.ok());
-
-// 3. Extract packets from Frames
-let packets = decode_framed_packets(frames, izone_len, trailer_len);
+let frames = Pipeline::default()
+    .with_default_pn()
+    .with_default_rs(interleave, virtual_fill)
+    .start(file, block_len);
+let packets = packet_decoder(frames, izone_len, trailer_len);
 ```
 
 ## References:

@@ -3,7 +3,6 @@
 mod error;
 
 pub mod framing;
-pub mod prelude;
 pub mod spacecrafts;
 pub mod spacepacket;
 pub mod timecode;

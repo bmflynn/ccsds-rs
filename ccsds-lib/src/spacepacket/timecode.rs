@@ -1,10 +1,10 @@
 use hifitime::Epoch;
 
-use super::{Apid, Packet, PrimaryHeader};
-use crate::prelude::*;
 use std::collections::HashMap;
 
+use super::{Apid, Packet, PrimaryHeader};
 use crate::timecode::{decode as decode_timecode, Format};
+use crate::Result;
 
 /// Helper class to decode [hifitime::Epoch]s from [Packet]s.
 ///

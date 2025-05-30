@@ -7,18 +7,14 @@ use common::fixture_path;
 
 fn do_framing_test(interleave: u8, block_len: usize, fixture: &str, expected: &[(Vcid, usize)]) {
     let file = File::open(fixture_path(fixture)).unwrap();
-    let blocks = Synchronizer::new(file, block_len)
-        .into_iter()
-        .filter_map(Result::ok);
-    let frames = FrameDecoder::default()
-        .with_integrity(Box::new(DefaultReedSolomon::new(interleave)))
-        .with_derandomization(Box::new(DefaultDerandomizer))
-        .decode(blocks)
-        .filter_map(Result::ok);
+    let cadus = synchronize(file, block_len);
+    let cadus = derandomize(cadus);
+    let frames = frame_decoder(cadus);
+    let frames = reed_solomon(frames, interleave, 0);
 
     let mut got_counts: HashMap<Vcid, usize> = HashMap::default();
     for frame in frames {
-        let cur = got_counts.entry(frame.frame.header.vcid).or_default();
+        let cur = got_counts.entry(frame.header.vcid).or_default();
         *cur += 1;
     }
 
