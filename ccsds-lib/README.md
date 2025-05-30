@@ -47,8 +47,7 @@ let izone_len = 0;
 let trailer_len = 0;
 
 let file = BufReader::new(File::open("snpp.dat").unwrap());
-let frames = Pipeline::default()
-    .with_default_pn()
+let frames = Pipeline::new()
     .with_default_rs(interleave, virtual_fill)
     .start(file, block_len);
 let packets = packet_decoder(frames, izone_len, trailer_len);
