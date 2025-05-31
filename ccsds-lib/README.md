@@ -37,7 +37,7 @@ Reed-Solomon FEC (including parity bytes).
 ```no_run
 use std::fs::File;
 use std::io::BufReader;
-use ccsds::framing::{Pipeline, packet_decoder};
+use ccsds::framing::{Pipeline, packet_decoder, RsOpts};
 
 // Framing configuration
 let block_len = 1020; // CADU length - ASM length
@@ -48,7 +48,7 @@ let trailer_len = 0;
 
 let file = BufReader::new(File::open("snpp.dat").unwrap());
 let frames = Pipeline::new()
-    .with_default_rs(interleave, virtual_fill)
+    .with_rs(RsOpts::new(interleave).virtual_fill(virtual_fill))
     .start(file, block_len);
 let packets = packet_decoder(frames, izone_len, trailer_len);
 ```

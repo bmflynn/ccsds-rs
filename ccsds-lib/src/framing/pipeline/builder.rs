@@ -1,7 +1,5 @@
 use std::io::Read;
 
-use tracing::debug;
-
 use crate::framing::{
     synchronizer::{Block, Loc},
     Frame,
@@ -14,7 +12,6 @@ pub struct Pipeline {
     sync: bool,
     pn: bool,
     rs: Option<RsOpts>,
-    handles: Vec<std::thread::JoinHandle<()>>,
 }
 
 impl Pipeline {
@@ -23,7 +20,6 @@ impl Pipeline {
             sync: true,
             pn: true,
             rs: None,
-            handles: Vec::default(),
         }
     }
     pub fn without_sync(mut self) -> Self {
@@ -55,21 +51,11 @@ impl Pipeline {
             Box::new(frame_decoder(blocks));
 
         if let Some(opts) = self.rs {
-            let (handle, rs_frames) = reed_solomon(frames, opts);
-            self.handles.push(handle);
+            let rs_frames = reed_solomon(frames, opts);
             frames = Box::new(rs_frames);
         }
 
         frames
-    }
-
-    pub fn shutdown(self) {
-        for handle in self.handles {
-            debug!("waiting for thread");
-            handle
-                .join()
-                .unwrap_or_else(|err| panic!("reed_solomon thread paniced: {err:?}"));
-        }
     }
 }
 

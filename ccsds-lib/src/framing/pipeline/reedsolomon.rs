@@ -66,19 +66,16 @@ where
     }
 }
 
-pub fn reed_solomon<I>(
-    frames: I,
-    opts: RsOpts,
-) -> (std::thread::JoinHandle<()>, impl Iterator<Item = Frame>)
+pub fn reed_solomon<I>(frames: I, opts: RsOpts) -> impl Iterator<Item = Frame>
 where
     I: Iterator<Item = Frame> + Send + 'static,
 {
     let (output_tx, output_rx) = crossbeam::channel::bounded(100);
 
-    let handle = std::thread::Builder::new()
+    std::thread::Builder::new()
         .name("reed_solomon::dispatch".into())
         .spawn(move || do_reed_solomon(frames, opts, output_tx))
         .unwrap();
 
-    (handle, output_rx.into_iter())
+    output_rx.into_iter()
 }

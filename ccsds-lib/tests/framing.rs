@@ -10,7 +10,7 @@ fn do_framing_test(interleave: u8, block_len: usize, fixture: &str, expected: &[
     let cadus = synchronize(file, block_len);
     let cadus = derandomize(cadus);
     let frames = frame_decoder(cadus);
-    let frames = reed_solomon(frames, interleave, 0);
+    let frames = reed_solomon(frames, RsOpts::new(interleave));
 
     let mut got_counts: HashMap<Vcid, usize> = HashMap::default();
     for frame in frames {

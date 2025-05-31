@@ -182,8 +182,6 @@ pub fn info(config: FramingConfig, fpath: &Path, format: &Format) -> Result<()> 
         }
     }
 
-    pipeline.shutdown();
-
     info.vcids = vcids.into_iter().collect();
     info.vcids.sort_by_key(|(k, _)| *k);
 
