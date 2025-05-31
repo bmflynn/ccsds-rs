@@ -1,21 +1,20 @@
-//
-// Transition:
-//    Init ->
-
 use std::io::Read;
+
+use tracing::debug;
 
 use crate::framing::{
     synchronizer::{Block, Loc},
     Frame,
 };
 
-use super::{derandomize, frame_decoder, reed_solomon, synchronize};
+use super::{derandomize, frame_decoder, reed_solomon, synchronize, RsOpts};
 
 #[derive(Debug)]
 pub struct Pipeline {
     sync: bool,
     pn: bool,
-    rs: Option<(u8, usize)>,
+    rs: Option<RsOpts>,
+    handles: Vec<std::thread::JoinHandle<()>>,
 }
 
 impl Pipeline {
@@ -24,6 +23,7 @@ impl Pipeline {
             sync: true,
             pn: true,
             rs: None,
+            handles: Vec::default(),
         }
     }
     pub fn without_sync(mut self) -> Self {
@@ -35,13 +35,13 @@ impl Pipeline {
         self
     }
 
-    pub fn with_default_rs(mut self, interleave: u8, virtual_fill: usize) -> Self {
-        self.rs = Some((interleave, virtual_fill));
+    pub fn with_rs(mut self, opts: RsOpts) -> Self {
+        self.rs = Some(opts);
         self
     }
 
     pub fn start<R: Read + Send + 'static>(
-        self,
+        &mut self,
         reader: R,
         block_length: usize,
     ) -> impl Iterator<Item = Frame> {
@@ -54,11 +54,22 @@ impl Pipeline {
         let mut frames: Box<dyn Iterator<Item = Frame> + Send + 'static> =
             Box::new(frame_decoder(blocks));
 
-        if let Some((interleave, virtual_fill)) = self.rs {
-            frames = Box::new(reed_solomon(frames, interleave, virtual_fill));
+        if let Some(opts) = self.rs {
+            let (handle, rs_frames) = reed_solomon(frames, opts);
+            self.handles.push(handle);
+            frames = Box::new(rs_frames);
         }
 
         frames
+    }
+
+    pub fn shutdown(self) {
+        for handle in self.handles {
+            debug!("waiting for thread");
+            handle
+                .join()
+                .unwrap_or_else(|err| panic!("reed_solomon thread paniced: {err:?}"));
+        }
     }
 }
 

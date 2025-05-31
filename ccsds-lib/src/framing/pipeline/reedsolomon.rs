@@ -1,67 +1,84 @@
 use std::sync::Arc;
 
-use tracing::debug;
+use crossbeam::channel::Sender;
 
 use crate::framing::{DefaultReedSolomon, Frame, Integrity, ReedSolomon};
 
-struct ReedSolomonIter {
-    frames: crossbeam::channel::Receiver<Frame>,
+#[derive(Debug, Clone, Copy)]
+pub struct RsOpts {
+    interleave: u8,
+    virtual_fill: usize,
+    num_threads: usize,
 }
 
-impl ReedSolomonIter {
-    pub fn new<I>(frames: I, interleave: u8, virtual_fill: usize) -> Self
-    where
-        I: Iterator<Item = Frame> + Send + 'static,
-    {
-        let (output_tx, output_rx) = crossbeam::channel::bounded(1024);
+impl RsOpts {
+    pub fn new(interleave: u8) -> Self {
+        RsOpts {
+            interleave,
+            virtual_fill: 0,
+            num_threads: 0,
+        }
+    }
 
-        std::thread::spawn(move || {
-            let pool = rayon::ThreadPoolBuilder::new().build().unwrap();
-            let rs = Arc::new(DefaultReedSolomon::new(interleave).with_virtual_fill(virtual_fill));
+    pub fn virtual_fill(mut self, virtual_fill: usize) -> Self {
+        self.virtual_fill = virtual_fill;
+        self
+    }
 
-            for mut frame in frames {
-                debug!("rs: {:?}", frame.header);
-                let output_tx = output_tx.clone();
-                let rs = rs.clone();
-                pool.spawn_fifo(move || {
-                    let Ok((integrity, data)) = rs.perform(&frame.header, &frame.data) else {
-                        return;
-                    };
-                    frame.integrity = Some(integrity.into());
-
-                    // data does not include the check symbols
-                    match frame.integrity {
-                        Some(Integrity::Ok | Integrity::Corrected) => frame.data = data,
-                        _ => (),
-                    }
-
-                    let _ = output_tx.send(frame);
-                })
-            }
-        });
-
-        Self { frames: output_rx }
+    pub fn num_threads(mut self, num_threads: usize) -> Self {
+        self.num_threads = num_threads;
+        self
     }
 }
 
-impl Iterator for ReedSolomonIter {
-    type Item = Frame;
+fn do_reed_solomon<I>(frames: I, opts: RsOpts, tx: Sender<Frame>)
+where
+    I: Iterator<Item = Frame> + Send + 'static,
+{
+    let pool = rayon::ThreadPoolBuilder::new()
+        .thread_name(|i| format!("reed_solomon::compute{i}"))
+        .num_threads(opts.num_threads)
+        .build()
+        .unwrap();
+    let rs =
+        Arc::new(DefaultReedSolomon::new(opts.interleave).with_virtual_fill(opts.virtual_fill));
 
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.frames.recv() {
-            Ok(frame) => Some(frame),
-            Err(_) => None,
-        }
+    for mut frame in frames {
+        let tx = tx.clone();
+        let rs = rs.clone();
+        pool.spawn_fifo(move || {
+            let (integrity, data) = match rs.perform(&frame.header, &frame.data) {
+                Ok(v) => v,
+                Err(err) => panic!("rs failed: {err:?}"),
+            };
+            frame.integrity = Some(integrity);
+
+            // data does not include the check symbols
+            match frame.integrity {
+                Some(Integrity::Ok | Integrity::Corrected) => frame.data = data,
+                _ => (),
+            }
+
+            if let Err(err) = tx.send(frame) {
+                panic!("failed to send: {err:?}");
+            }
+        })
     }
 }
 
 pub fn reed_solomon<I>(
     frames: I,
-    interleave: u8,
-    virtual_fill: usize,
-) -> impl Iterator<Item = Frame>
+    opts: RsOpts,
+) -> (std::thread::JoinHandle<()>, impl Iterator<Item = Frame>)
 where
     I: Iterator<Item = Frame> + Send + 'static,
 {
-    ReedSolomonIter::new(frames, interleave, virtual_fill)
+    let (output_tx, output_rx) = crossbeam::channel::bounded(100);
+
+    let handle = std::thread::Builder::new()
+        .name("reed_solomon::dispatch".into())
+        .spawn(move || do_reed_solomon(frames, opts, output_tx))
+        .unwrap();
+
+    (handle, output_rx.into_iter())
 }

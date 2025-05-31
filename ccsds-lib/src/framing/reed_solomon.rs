@@ -12,6 +12,8 @@ pub enum Integrity {
     Uncorrectable,
     /// The algorithm choose to skip performing integrity checks
     Skipped,
+    /// Algorithm failed to run due to precondition, e.g., bad frame size
+    Failed,
 }
 
 pub trait ReedSolomon: Send + Sync {

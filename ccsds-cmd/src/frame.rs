@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use ccsds::framing::{synchronize, Integrity, Pipeline, Vcid, ASM};
+use ccsds::framing::{synchronize, Integrity, Pipeline, RsOpts, Vcid, ASM};
 use handlebars::handlebars_helper;
 use serde::Serialize;
 use spacecrafts::FramingConfig;
@@ -36,13 +36,15 @@ pub fn frame(
         pipeline = pipeline.without_pn();
     }
 
-    if let Some(rs_config) = config.reed_solomon {
-        pipeline = pipeline.with_default_rs(rs_config.interleave, rs_config.virtual_fill_length);
+    if let Some(rs_config) = &config.reed_solomon {
+        pipeline = pipeline
+            .with_rs(RsOpts::new(rs_config.interleave).virtual_fill(rs_config.virtual_fill_length));
     }
 
     let frame_len = config.length;
+    let block_len = config.codeblock_len();
     let src = BufReader::new(File::open(srcpath).context("opening source")?);
-    let frames = pipeline.start(src, frame_len);
+    let frames = pipeline.start(src, block_len);
 
     let mut dst = File::create(dstpath).context("creating dest")?;
 
@@ -128,13 +130,14 @@ pub fn info(config: FramingConfig, fpath: &Path, format: &Format) -> Result<()> 
         pipeline = pipeline.without_pn();
     }
 
-    if let Some(rs_config) = config.reed_solomon {
-        pipeline = pipeline.with_default_rs(rs_config.interleave, rs_config.virtual_fill_length);
+    if let Some(rs_config) = &config.reed_solomon {
+        pipeline = pipeline
+            .with_rs(RsOpts::new(rs_config.interleave).virtual_fill(rs_config.virtual_fill_length));
     }
 
-    let frame_len = config.length;
+    let block_len = config.codeblock_len();
     let src = BufReader::new(File::open(fpath).context("opening source")?);
-    let frames = pipeline.start(src, frame_len);
+    let frames = pipeline.start(src, block_len);
 
     let mut info = Info {
         filename: fpath.file_name().unwrap().to_string_lossy().to_string(),
@@ -143,7 +146,6 @@ pub fn info(config: FramingConfig, fpath: &Path, format: &Format) -> Result<()> 
     };
     let mut vcids: HashMap<Vcid, Summary> = HashMap::default();
     for frame in frames {
-        debug!("{:?}", frame.header);
         info.summary.total_frames += 1;
         info.summary.total_bytes += frame.data.len();
 
@@ -164,6 +166,10 @@ pub fn info(config: FramingConfig, fpath: &Path, format: &Format) -> Result<()> 
                     sum.uncorrectable += 1;
                     info.summary.uncorrectable += 1;
                 }
+                Integrity::Failed => {
+                    sum.error += 1;
+                    info.summary.error += 1;
+                }
                 Integrity::Skipped => {
                     sum.not_performed += 1;
                     info.summary.not_performed += 1;
@@ -175,6 +181,8 @@ pub fn info(config: FramingConfig, fpath: &Path, format: &Format) -> Result<()> 
             }
         }
     }
+
+    pipeline.shutdown();
 
     info.vcids = vcids.into_iter().collect();
     info.vcids.sort_by_key(|(k, _)| *k);
