@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use super::{missing_packets, Apid, Packet, PrimaryHeader};
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ApidSummary {
     pub count: usize,
     pub bytes: usize,
@@ -27,7 +29,8 @@ pub struct ApidSummary {
 ///     })
 ///     .collect();
 /// ```
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Summary {
     pub count: usize,
     pub bytes: usize,

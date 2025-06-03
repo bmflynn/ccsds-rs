@@ -8,7 +8,9 @@ use pyo3::prelude::*;
 
 use crate::error::TimecodeError;
 use crate::{Error, Result};
-use serde::Serialize;
+
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 /// Number of seconds between the 1958 and 1900
 const CCSDS_HIFIEPOCH_DELTA_SECS: u64 = 1830297600;
@@ -17,7 +19,8 @@ const NUM_CDS_MILLIS_OF_DAY_BYTES: usize = 4;
 
 /// CCSDS timecode format configuration.
 #[cfg_attr(feature = "python", pyclass)]
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[non_exhaustive]
 pub enum Format {
     /// Day segmented timecode parameters.

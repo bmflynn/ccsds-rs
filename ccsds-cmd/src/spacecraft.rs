@@ -1,6 +1,6 @@
+use super::spacecrafts::Spacecrafts;
 use anyhow::{bail, Context, Result};
 use ccsds::framing::Scid;
-use ccsds::spacecrafts::Spacecrafts;
 use handlebars::handlebars_helper;
 use serde::Serialize;
 use std::{

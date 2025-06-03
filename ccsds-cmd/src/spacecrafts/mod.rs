@@ -1,11 +1,11 @@
 //! Spacecraft metadata
 use std::{collections::HashSet, fs::File, path::Path};
 
-use crate::framing::Scid;
+use ccsds::framing::Scid;
 
 const SPACECRAFTSDB: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/src/spacecraftsdb.json"
+    "/src/spacecrafts/spacecraftsdb.json"
 ));
 
 /// Spacecraft metadata database.

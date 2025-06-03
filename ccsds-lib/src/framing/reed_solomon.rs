@@ -1,9 +1,13 @@
 use rs2::{correct_message, has_errors, RSState, N, PARITY_LEN};
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
 use crate::{framing::VCDUHeader, Error, Result};
 
 /// The possible integrity dispositions
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Integrity {
     /// Data did not require correction.
     Ok,
@@ -17,6 +21,16 @@ pub enum Integrity {
     Skipped,
     /// Algorithm failed to run due to precondition, e.g., bad frame size
     Failed,
+}
+
+impl Integrity {
+    /// Return `true` if [Self::Ok] or [Self::Corrected]. Any other value will return `false`.
+    pub fn ok(&self) -> bool {
+        match self {
+            Self::Ok | Self::Corrected => true,
+            _ => false,
+        }
+    }
 }
 
 pub trait ReedSolomon: Send + Sync {

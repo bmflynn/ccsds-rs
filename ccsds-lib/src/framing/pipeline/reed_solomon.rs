@@ -24,7 +24,7 @@ impl RsOpts {
             num_threads: 0,
             detect: true,
             correct: true,
-            buffer_size: 1024,
+            buffer_size: 50,
         }
     }
 

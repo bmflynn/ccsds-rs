@@ -1,6 +1,33 @@
 //! CCSDS Frame Decoding.
 //!
+//! # Example
+//! ```no_run
+//! use std::fs::File;
+//! use std::io::BufReader;
+//! use ccsds::framing::*;
 //!
+//! let block_len = 1020; // CADU length - ASM length
+//! let interleave = 4;
+//! let virtual_fill = 0;
+//! let izone_len = 0;
+//! let trailer_len = 0;
+//!
+//! let file = BufReader::new(File::open("snpp.dat").unwrap());
+//! let cadus = synchronize(file, SyncOpts::new(block_len));
+//! let cadus = derandomize(cadus);
+//! let frames = frame_decoder(cadus);
+//! let rs_opts = RsOpts::new(interleave)
+//!     .with_virtual_fill(virtual_fill)
+//!     .with_correction(true)
+//!     .with_detection(true)
+//!     .with_num_threads(0); // use all CPUs
+//! let frames = reed_solomon(frames, rs_opts)
+//!     .filter(|frame| match frame.integrity {
+//!         Some(ref val) => val.ok(),
+//!         None => false,
+//!     });
+//! ```
+
 mod bytes;
 mod ocf;
 mod packets;
@@ -9,6 +36,7 @@ mod pn;
 mod reed_solomon;
 mod synchronizer;
 
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 pub use pipeline::*;
@@ -22,6 +50,8 @@ pub type Vcid = u16;
 pub type Cadu = Block;
 
 /// Loose representation of a single frame of data extracted from a Cadu.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Frame {
     /// This frames header data
     pub header: VCDUHeader,
@@ -32,6 +62,7 @@ pub struct Frame {
     /// Frame bytes. If integrity checking was performed and failed, e.g., not [Integrity::Ok] or
     /// [Integrity::Corrected], this will also include any check symbols and therefore potentially
     /// be longer than the expected frame length.
+    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
     pub data: Vec<u8>,
 }
 
@@ -65,7 +96,8 @@ impl Frame {
 }
 
 /// Contents of a valid VCDU header
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct VCDUHeader {
     pub version: u8,
     pub scid: Scid,

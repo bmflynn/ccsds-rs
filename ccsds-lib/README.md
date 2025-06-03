@@ -59,6 +59,15 @@ let frames = Pipeline::new(block_len)
 let packets = packet_decoder(frames, izone_len, trailer_len);
 ```
 
+## Crate Features
+
+* **default** - The default features currently includes just `merge`
+* **timecode** - Include support for CCSDS timecode parsing utilizing 
+  [hifitime](https://docs.rs/hifitime/latest/hifitime/). This is required for feature `merge`. 
+* **python** - Include Python [PyO3](https://pyo3.rs/) support.
+* **serde** - Include [serde](https://serde.rs/) serialize and deserialize support for core structs. Any 
+  structs that contain byte arrays make use of [serde_bytes](https://docs.rs/serde_bytes/latest/serde_bytes/). 
+
 ## References
 * [`CCSDS`]
 * [`Space Packet Protocol`]

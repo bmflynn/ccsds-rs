@@ -4,17 +4,18 @@ mod frame;
 mod info;
 mod merge;
 mod spacecraft;
+mod spacecrafts;
 
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::{fs::File, io::stderr};
 
 use anyhow::{anyhow, bail, Context, Result};
-use ccsds::spacecrafts::Spacecrafts;
 use ccsds::spacepacket::TimecodeDecoder;
 use ccsds::{framing::Scid, framing::Vcid, spacepacket::Apid};
 use clap::{Parser, Subcommand};
 use hifitime::Epoch;
+use spacecrafts::Spacecrafts;
 use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
 
