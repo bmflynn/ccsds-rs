@@ -1,3 +1,4 @@
+//! Spacecraft metadata
 use std::{collections::HashSet, fs::File, path::Path};
 
 use crate::framing::Scid;

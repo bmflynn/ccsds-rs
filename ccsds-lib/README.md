@@ -39,21 +39,27 @@ use std::fs::File;
 use std::io::BufReader;
 use ccsds::framing::{Pipeline, packet_decoder, RsOpts};
 
-// Framing configuration
 let block_len = 1020; // CADU length - ASM length
 let interleave: u8 = 4;
 let virtual_fill: usize = 0;
 let izone_len = 0;
 let trailer_len = 0;
 
+let rs_opts = RsOpts::new(interleave)
+    .with_virtual_fill(virtual_fill)
+    .with_correction(true)
+    .with_detection(true)
+    .with_num_threads(0); // use all CPUs
+
 let file = BufReader::new(File::open("snpp.dat").unwrap());
-let frames = Pipeline::new()
-    .with_rs(RsOpts::new(interleave).virtual_fill(virtual_fill))
-    .start(file, block_len);
+let frames = Pipeline::new(block_len)
+    .with_rs(rs_opts)
+    .start(file);
+
 let packets = packet_decoder(frames, izone_len, trailer_len);
 ```
 
-## References:
+## References
 * [`CCSDS`]
 * [`Space Packet Protocol`]
 * [`TM Synchronization and Channel Coding`]

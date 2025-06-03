@@ -1,7 +1,8 @@
-use rs2::{correct_message, RSState, N, PARITY_LEN};
+use rs2::{correct_message, has_errors, RSState, N, PARITY_LEN};
 
 use crate::{framing::VCDUHeader, Error, Result};
 
+/// The possible integrity dispositions
 #[derive(Clone, Debug, PartialEq)]
 pub enum Integrity {
     /// Data did not require correction.
@@ -10,6 +11,8 @@ pub enum Integrity {
     Corrected,
     /// Not correctable due to alg failure or too many errors
     Uncorrectable,
+    /// Errors are present, but no correction was attempted.
+    NotCorrected,
     /// The algorithm choose to skip performing integrity checks
     Skipped,
     /// Algorithm failed to run due to precondition, e.g., bad frame size
@@ -19,7 +22,7 @@ pub enum Integrity {
 pub trait ReedSolomon: Send + Sync {
     /// Perform this integrity check.
     ///
-    /// `cadu_dat` must already be derandomized and be of expected lenght for this algorithm. This
+    /// `cadu_dat` must already be derandomized and be of expected length for this algorithm. This
     /// algorithm may also choose to skip performance of the algorithm, e.g., for VCID fill frames.
     ///
     /// The algorithm will remove any parity bytes such that the returned data is just the frame
@@ -49,38 +52,66 @@ fn deinterleave(data: &[u8], interleave: u8) -> Vec<[u8; 255]> {
 }
 
 /// CCSDS documented Reed-Solomon (223/255) Forward Error Correction.
+///
+/// # References
+/// * [TM Synchronization and Channel Coding](https://ccsds.org/Pubs/131x0b5.pdf), Section 4
 #[derive(Clone, Debug)]
 pub struct DefaultReedSolomon {
-    pub interleave: u8,
-    pub virtual_fill: usize,
-    pub parity_len: usize,
-    noop: bool,
+    interleave: u8,
+    virtual_fill: usize,
+    parity_len: usize,
+    detect: bool,
+    correct: bool,
 }
 
 impl DefaultReedSolomon {
+    /// Create a new instance with the given interleave that will by default use no virtual fill
+    /// bytes and both detect and correct messages.
+    ///
+    /// # Arguments
+    ///
+    /// * `interleave` Interleaving depth. Each frame data to detect/correct must have a length
+    /// such that `length = interleave * 255 + vritual_fill`.
     pub fn new(interleave: u8) -> Self {
         Self {
             interleave,
             virtual_fill: 0,
             parity_len: PARITY_LEN,
-            noop: false,
+            detect: true,
+            correct: true,
         }
     }
 
+    /// Set the number of virtual fill bytes that should be added before performing the RS
+    /// algorithm on each codeblock.
+    ///
+    /// Virtual fill are zero-bytes added to the start of the algorithm input data to pad it out to
+    /// be the correct length for the interleave and algorithm requirement, e.g., `I=4: I * 255 =
+    /// 1020`.
     pub fn with_virtual_fill(mut self, num: usize) -> Self {
         self.virtual_fill = num;
         self
     }
 
-    /// Create a instance that removed parity but does not actually perform the algorithm on any
-    /// frames. All results will have [Integrity::Skipped].
-    pub fn noop(interleave: u8) -> Self {
-        Self {
-            interleave,
-            virtual_fill: 0,
-            parity_len: PARITY_LEN,
-            noop: true,
-        }
+    /// If `false` no data correction will be performed. Any data that has detected errors will get
+    /// the integrity value [Integrity::NotCorrected] and check symbols will _NOT_ be removed.
+    ///
+    /// If `true` (default), correction will be attempted and check symbols will be removed if the
+    /// integrity is one of [Integrity::Ok], [Integrity::Corrected], or [Integrity::Skipped].
+    pub fn with_correction(mut self, enabled: bool) -> Self {
+        self.correct = enabled;
+        self
+    }
+
+    /// When `false` no RS algorithm will be performed.
+    ///
+    /// Check symbols will be removed.
+    ///
+    /// This may be used when the data is known to be good to avoid the computation penalty of
+    /// running the algorithm.
+    pub fn with_detection(mut self, enabled: bool) -> Self {
+        self.detect = enabled;
+        self
     }
 
     fn can_correct(block: &[u8], interleave: u8, virtual_fill: usize) -> bool {
@@ -93,8 +124,19 @@ impl DefaultReedSolomon {
     }
 }
 
-//impl Corrector for DefaultReedSolomon {
 impl ReedSolomon for DefaultReedSolomon {
+    /// Performs the algorithm.
+    ///
+    /// Check symbols are removed if the integrity is [Integrity::Ok], [Integrity::Corrected],
+    /// [Integrity::Skipped]. They are not removed for [Integrity::NotCorrected], [Integrity::Failed],
+    /// or [Integrity::Uncorrectable].
+    ///
+    /// If correction is disabled by passing `false` to [Self::with_correction] then the algorithm
+    /// detects errors but does not perform the correction. If errors are detected the integrity
+    /// will be [Integrity::NotCorrected]. This can save a significant amount of CPU.
+    ///
+    /// In the case detection is disabled by passing `false` to [Self::with_detection] then neither
+    /// the detection or correction are performed, however, check symbols are still removed.
     fn perform(&self, header: &VCDUHeader, cadu_dat: &[u8]) -> Result<(Integrity, Vec<u8>)> {
         if !DefaultReedSolomon::can_correct(cadu_dat, self.interleave, self.virtual_fill) {
             return Err(Error::IntegrityAlgorithm(format!(
@@ -104,21 +146,27 @@ impl ReedSolomon for DefaultReedSolomon {
             )));
         }
 
-        if header.vcid == VCDUHeader::FILL || self.noop {
+        if header.vcid == VCDUHeader::FILL || !self.detect {
             return Ok((Integrity::Skipped, self.remove_parity(cadu_dat).to_vec()));
         }
 
         let block: Vec<u8> = cadu_dat.to_vec();
         let mut corrected = vec![0u8; block.len() + self.virtual_fill];
         let mut num_corrected = 0;
+
+        // If using virtual fill, it gets added to the start of our CADU data
         let cadu_dat = if self.virtual_fill == 0 {
             cadu_dat
         } else {
             let zeros = &vec![0u8; self.virtual_fill];
             &[zeros, cadu_dat].concat()
         };
+
         let messages = deinterleave(cadu_dat, self.interleave);
         for (idx, msg) in messages.iter().enumerate() {
+            if !self.correct && has_errors(msg) {
+                return Ok((Integrity::NotCorrected, cadu_dat.to_vec()));
+            }
             let zult = correct_message(msg);
             match zult.state {
                 RSState::Uncorrectable(_) => {

@@ -219,10 +219,14 @@ where
     }
 }
 
+/// A block of data identified by the synchronization process.
 #[derive(Debug, Clone)]
 pub struct Block {
+    /// Number of bytes since the start of the ASM for the last block
     pub last: usize,
+    /// Where this block was found in the input stream
     pub loc: Loc,
+    /// Data from the stream for this block
     pub data: Vec<u8>,
 }
 

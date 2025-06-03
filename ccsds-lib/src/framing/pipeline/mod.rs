@@ -1,19 +1,18 @@
 mod builder;
 mod framing;
 mod packets;
-mod reedsolomon;
+mod reed_solomon;
 mod synchronize;
 
 pub use builder::*;
 pub use framing::*;
 pub use packets::*;
-pub use reedsolomon::*;
+pub use reed_solomon::*;
 pub use synchronize::*;
 
-use super::{synchronizer::Block, DefaultDerandomizer, Derandomizer};
+use super::{Cadu, DefaultDerandomizer, Derandomizer};
 
-pub type Cadu = Block;
-
+/// Perform derandomization on each input [Cadu] using [DefaultDerandomizer].
 pub fn derandomize<I>(cadus: I) -> impl Iterator<Item = Cadu>
 where
     I: Iterator<Item = Cadu>,

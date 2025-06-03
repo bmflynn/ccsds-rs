@@ -37,6 +37,12 @@ pub struct Merger {
 }
 
 impl Merger {
+    /// Create a new instance.
+    ///
+    /// # Arguments
+    /// * `paths` Paths to input files to be opened in read mode when [Self::merge] is called.
+    /// * `decoder` [TimecodeDecoder] that is able to decode timecodes from input packets. An
+    /// packets for which a timecode cannot be decoded will be silently dropped.
     pub fn new<S: AsRef<Path>>(paths: Vec<S>, decoder: TimecodeDecoder) -> Self {
         Self {
             paths: paths.iter().map(|s| s.as_ref().to_path_buf()).collect(),
@@ -60,13 +66,13 @@ impl Merger {
         self
     }
 
-    /// Merged output will contain only data from and including `from` in microseconds.
+    /// Merged output will contain only data from and including the time `from` in microseconds.
     pub fn with_from(mut self, from: u64) -> Self {
         self.from = Some(from);
         self
     }
 
-    /// Merged output will contain only data up to, but not including `to` in microseconds.
+    /// Merged output will contain only data up to, but not including the time `to` in microseconds.
     pub fn with_to(mut self, to: u64) -> Self {
         self.to = Some(to);
         self

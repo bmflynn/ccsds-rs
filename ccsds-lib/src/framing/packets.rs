@@ -51,7 +51,7 @@ impl Display for VcidTracker {
     }
 }
 
-pub struct FramedPacketIter<I>
+pub(crate) struct FramedPacketIter<I>
 where
     I: Iterator<Item = Frame> + Send,
 {
@@ -112,7 +112,7 @@ where
                     debug!(vcid = %frame.header.vcid, "corrected frame");
                     tracker.rs_corrected = true;
                 }
-                Some(Integrity::Uncorrectable) => {
+                Some(Integrity::Uncorrectable | Integrity::NotCorrected) => {
                     debug!(vcid = %frame.header.vcid, tracker = %tracker, "uncorrectable or errored frame, dropping tracker");
                     tracker.reset();
                     continue;

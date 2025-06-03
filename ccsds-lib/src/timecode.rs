@@ -53,9 +53,26 @@ pub enum Format {
 /// Note, that for both TAI and UTC [TimeScale](hifitime::TimeScale)s the reference epoch will be
 /// Jan 1, 1900.
 ///
+/// # Arguments
+/// * `format` Details on the format of the timecode in `buf`
+/// * `buf` Data containing a timecode described by `format`
+///
+/// # Example
+/// ```
+/// use std::str::FromStr;
+/// use hifitime::Epoch;
+/// use ccsds::timecode::{Format, decode};
+///
+/// let format = Format::Cds{num_day: 2, num_submillis: 2};
+/// let epoch = decode(&format, &vec![0x5f, 0x5b, 0x00, 0x00, 0x06, 0x94, 0x02, 0x07]).unwrap();
+/// let expected = Epoch::from_str("2024-11-01T00:00:01.684519Z").unwrap();
+///
+/// assert_eq!(epoch, expected);
+/// ```
+///
 /// # Errors
 /// [Error::NotEnoughData] if there is not enough data for the provided format, or
-/// [Error::TimecodeConfig] if a timecode cannot be constructected for the provided format. This
+/// [Error::Timecode] if a timecode cannot be constructected for the provided format. This
 /// will usually be due to providing unsupported timecode values in a format field.
 pub fn decode(format: &Format, buf: &[u8]) -> Result<Epoch> {
     match format {

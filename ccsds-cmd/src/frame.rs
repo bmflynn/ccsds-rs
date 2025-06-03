@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use ccsds::framing::{synchronize, Integrity, Pipeline, RsOpts, Vcid, ASM};
+use ccsds::framing::{synchronize, Integrity, Pipeline, RsOpts, SyncOpts, Vcid, ASM};
 use handlebars::handlebars_helper;
 use serde::Serialize;
 use spacecrafts::FramingConfig;
@@ -15,7 +15,7 @@ pub fn sync(srcpath: &Path, dstpath: &Path, block_size: usize) -> Result<()> {
     let src = BufReader::new(File::open(srcpath).context("opening source")?);
     let mut dst = File::create(dstpath).context("creating dest")?;
 
-    for cadu in synchronize(src, block_size) {
+    for cadu in synchronize(src, SyncOpts::new(block_size)) {
         dst.write_all(&ASM)?;
         dst.write_all(&cadu.data)?;
     }
@@ -30,21 +30,25 @@ pub fn frame(
     include: Vec<Vcid>,
     exclude: Vec<Vcid>,
 ) -> Result<()> {
-    let mut pipeline = Pipeline::new();
+    let block_len = config.codeblock_len();
+    let mut pipeline = Pipeline::new(block_len);
 
     if config.pseudo_noise.is_none() {
-        pipeline = pipeline.without_pn();
+        pipeline = pipeline.without_derandomization();
     }
 
     if let Some(rs_config) = &config.reed_solomon {
-        pipeline = pipeline
-            .with_rs(RsOpts::new(rs_config.interleave).virtual_fill(rs_config.virtual_fill_length));
+        let opts = RsOpts::new(rs_config.interleave)
+            .with_virtual_fill(rs_config.virtual_fill_length)
+            .with_correction(true)
+            .with_detection(true)
+            .with_num_threads(0);
+        pipeline = pipeline.with_rs(opts);
     }
 
     let frame_len = config.length;
-    let block_len = config.codeblock_len();
     let src = BufReader::new(File::open(srcpath).context("opening source")?);
-    let frames = pipeline.start(src, block_len);
+    let frames = pipeline.start(src);
 
     let mut dst = File::create(dstpath).context("creating dest")?;
 
@@ -124,20 +128,24 @@ struct Info {
 }
 
 pub fn info(config: FramingConfig, fpath: &Path, format: &Format) -> Result<()> {
-    let mut pipeline = Pipeline::new();
+    let block_len = config.codeblock_len();
+    let mut pipeline = Pipeline::new(block_len);
 
     if config.pseudo_noise.is_none() {
-        pipeline = pipeline.without_pn();
+        pipeline = pipeline.without_derandomization();
     }
 
     if let Some(rs_config) = &config.reed_solomon {
-        pipeline = pipeline
-            .with_rs(RsOpts::new(rs_config.interleave).virtual_fill(rs_config.virtual_fill_length));
+        let opts = RsOpts::new(rs_config.interleave)
+            .with_virtual_fill(rs_config.virtual_fill_length)
+            .with_correction(true)
+            .with_detection(true)
+            .with_num_threads(0);
+        pipeline = pipeline.with_rs(opts);
     }
 
-    let block_len = config.codeblock_len();
     let src = BufReader::new(File::open(fpath).context("opening source")?);
-    let frames = pipeline.start(src, block_len);
+    let frames = pipeline.start(src);
 
     let mut info = Info {
         filename: fpath.file_name().unwrap().to_string_lossy().to_string(),
@@ -162,7 +170,7 @@ pub fn info(config: FramingConfig, fpath: &Path, format: &Format) -> Result<()> 
                     sum.corrected += 1;
                     info.summary.corrected += 1;
                 }
-                Integrity::Uncorrectable => {
+                Integrity::Uncorrectable | Integrity::NotCorrected => {
                     sum.uncorrectable += 1;
                     info.summary.uncorrectable += 1;
                 }

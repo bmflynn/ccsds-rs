@@ -7,7 +7,7 @@ use common::fixture_path;
 
 fn do_framing_test(interleave: u8, block_len: usize, fixture: &str, expected: &[(Vcid, usize)]) {
     let file = File::open(fixture_path(fixture)).unwrap();
-    let cadus = synchronize(file, block_len);
+    let cadus = synchronize(file, SyncOpts::new(block_len));
     let cadus = derandomize(cadus);
     let frames = frame_decoder(cadus);
     let frames = reed_solomon(frames, RsOpts::new(interleave));

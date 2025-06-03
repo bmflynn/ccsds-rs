@@ -11,19 +11,19 @@ mod synchronizer;
 
 use serde::{Deserialize, Serialize};
 
-use synchronizer::Block;
-
 pub use pipeline::*;
 pub use pn::{DefaultDerandomizer, Derandomizer};
 pub use reed_solomon::{DefaultReedSolomon, Integrity, ReedSolomon};
-pub use synchronizer::ASM;
+pub use synchronizer::{Block, ASM};
 
 pub type Scid = u16;
 pub type Vcid = u16;
 
 pub type Cadu = Block;
 
+/// Loose representation of a single frame of data extracted from a Cadu.
 pub struct Frame {
+    /// This frames header data
     pub header: VCDUHeader,
     /// Count of missing frame counts between this frame and the last received for this VCID.
     pub missing: u32,
@@ -36,7 +36,7 @@ pub struct Frame {
 }
 
 impl Frame {
-    /// Decode ``dat`` into a ``Frame``, or `None` if not enough bytes.
+    /// Decode `dat` into a `Frame`, or `None` if not enough bytes.
     #[must_use]
     pub fn decode(dat: Vec<u8>) -> Option<Self> {
         let header = VCDUHeader::decode(&dat)?;
@@ -64,6 +64,7 @@ impl Frame {
     }
 }
 
+/// Contents of a valid VCDU header
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct VCDUHeader {
     pub version: u8,
@@ -103,6 +104,7 @@ impl VCDUHeader {
     }
 }
 
+/// MPDU contained within a [Frame].
 #[derive(Clone)]
 pub struct MPDU {
     // the offset of the header minus 1

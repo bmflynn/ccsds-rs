@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 
-use crate::framing::{missing_frames, Frame, VCDUHeader};
-
-use super::Cadu;
+use crate::framing::{missing_frames, Cadu, Frame, VCDUHeader};
 
 struct CaduDecoderIter<I>
 where
@@ -39,7 +37,10 @@ where
     }
 }
 
-/// Decode [Cadu]s into [Frame]s.
+/// Decode input [Cadu] data into [Frame] data.
+///
+/// There is not much real work here other than keeping track of frame sequence couters to
+/// facilitate [Frame::missing] count.
 pub fn frame_decoder<I>(cadus: I) -> impl Iterator<Item = Frame> + Send + 'static
 where
     I: Iterator<Item = Cadu> + Send + 'static,

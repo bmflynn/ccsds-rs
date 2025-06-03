@@ -1,3 +1,4 @@
+//! Space packet decoding
 mod merge;
 mod summary;
 mod timecode;
