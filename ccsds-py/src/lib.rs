@@ -23,6 +23,13 @@ macro_rules! create_iter {
                 slf.iter.next()
             }
         }
+        impl Iterator for $name {
+            type Item = $type;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                self.iter.next()
+            }
+        }
     };
 }
 
@@ -279,14 +286,19 @@ fn ccsdspy(root: &Bound<'_, PyModule>) -> PyResult<()> {
     root.add_function(wrap_pyfunction!(decode_framed_packets, root)?)?;
 
     root.add_class::<Packet>()?;
+    root.add_class::<PacketIter>()?;
     root.add_class::<PrimaryHeader>()?;
     root.add_class::<PacketGroup>()?;
+    root.add_class::<PacketGroupIter>()?;
+    root.add_class::<PacketGroupIter>()?;
     root.add_class::<Timecode>()?;
     root.add_class::<TimecodeFormat>()?;
     root.add_class::<Frame>()?;
+    root.add_class::<FrameIter>()?;
     root.add_class::<MPDU>()?;
     root.add_class::<VCDUHeader>()?;
     root.add_class::<Block>()?;
+    root.add_class::<BlockIter>()?;
     root.add_class::<Loc>()?;
     root.add_class::<SyncOpts>()?;
     root.add_class::<RsOpts>()?;
