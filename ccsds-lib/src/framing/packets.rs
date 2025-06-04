@@ -53,7 +53,7 @@ impl Display for VcidTracker {
 
 pub(crate) struct FramedPacketIter<I>
 where
-    I: Iterator<Item = Frame> + Send,
+    I: Iterator<Item = Frame>,
 {
     frames: I,
     izone_length: usize,
@@ -68,7 +68,7 @@ where
 
 impl<I> FramedPacketIter<I>
 where
-    I: Iterator<Item = Frame> + Send,
+    I: Iterator<Item = Frame>,
 {
     pub fn new(frames: I, izone_length: usize, trailer_length: usize) -> Self {
         FramedPacketIter {
@@ -83,7 +83,7 @@ where
 
 impl<I> Iterator for FramedPacketIter<I>
 where
-    I: Iterator<Item = Frame> + Send,
+    I: Iterator<Item = Frame>,
 {
     type Item = Packet;
 

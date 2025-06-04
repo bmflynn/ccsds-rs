@@ -33,7 +33,7 @@ path = "src/lib.rs"
 
 [features]
 default = ["merge"]
-python = ["dep:pyo3"]
+python = ["dep:pyo3", "timecode", "merge"]
 serde = ["dep:serde", "dep:serde_bytes"]
 merge = ["timecode"]
 timecode = ["dep:hifitime"]

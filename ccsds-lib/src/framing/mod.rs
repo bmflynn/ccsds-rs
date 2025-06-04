@@ -39,10 +39,13 @@ mod synchronizer;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "python")]
+use pyo3::prelude::{pyclass, pymethods};
+
 pub use pipeline::*;
 pub use pn::{DefaultDerandomizer, Derandomizer};
 pub use reed_solomon::{DefaultReedSolomon, Integrity, ReedSolomon};
-pub use synchronizer::{Block, ASM};
+pub use synchronizer::{Block, Loc, ASM};
 
 pub type Scid = u16;
 pub type Vcid = u16;
@@ -51,6 +54,7 @@ pub type Cadu = Block;
 
 /// Loose representation of a single frame of data extracted from a Cadu.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "python", pyclass(frozen, get_all))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Frame {
     /// This frames header data
@@ -78,7 +82,10 @@ impl Frame {
             data: dat,
         })
     }
+}
 
+#[cfg_attr(feature = "python", pymethods)]
+impl Frame {
     #[must_use]
     pub fn is_fill(&self) -> bool {
         self.header.vcid == VCDUHeader::FILL
@@ -98,6 +105,7 @@ impl Frame {
 /// Contents of a valid VCDU header
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "python", pyclass(frozen))]
 pub struct VCDUHeader {
     pub version: u8,
     pub scid: Scid,
@@ -138,6 +146,7 @@ impl VCDUHeader {
 
 /// MPDU contained within a [Frame].
 #[derive(Clone)]
+#[cfg_attr(feature = "python", pyclass(frozen))]
 pub struct MPDU {
     // the offset of the header minus 1
     first_header: u16,

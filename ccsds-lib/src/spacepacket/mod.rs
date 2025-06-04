@@ -6,7 +6,7 @@ mod summary;
 mod timecode;
 
 #[cfg(feature = "python")]
-use pyo3::{prelude::*, types::PyBytes};
+use pyo3::prelude::*;
 
 use std::fmt::Display;
 use std::io::Read;
@@ -48,7 +48,7 @@ pub type Apid = u16;
 /// # Ok::<(), ccsds::Error>(())
 /// ```
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "python", pyclass(frozen))]
+#[cfg_attr(feature = "python", pyclass(frozen, get_all))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Packet {
     /// All packets have a primary header
@@ -77,30 +77,10 @@ impl Packet {
     const MAX_LEN: usize = 65536;
 
     #[cfg(feature = "python")]
-    #[getter]
-    fn header(&self) -> PrimaryHeader {
-        self.header
-    }
-
-    #[cfg(feature = "python")]
     #[new]
     fn py_new(buf: &[u8]) -> PyResult<Self> {
         //let buf = buf.as_bytes(py);
         Ok(Packet::decode(buf)?)
-    }
-
-    /// All packet data
-    #[cfg(feature = "python")]
-    #[getter]
-    fn data<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new_bound(py, &self.data)
-    }
-
-    /// User data, i.e., no primary header data
-    #[cfg(feature = "python")]
-    #[getter]
-    fn user_data<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new_bound(py, &self.data[PrimaryHeader::LEN..])
     }
 
     #[cfg(feature = "python")]
@@ -192,7 +172,7 @@ impl Packet {
 /// The primary header format is common to all CCSDS space packets.
 ///
 #[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature = "python", pyclass(frozen))]
+#[cfg_attr(feature = "python", pyclass(frozen, get_all))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct PrimaryHeader {
     pub version: u8,
@@ -207,42 +187,6 @@ pub struct PrimaryHeader {
 
 #[cfg_attr(feature = "python", pymethods)]
 impl PrimaryHeader {
-    #[cfg(feature = "python")]
-    #[getter]
-    fn version(&self) -> u8 {
-        self.version
-    }
-    #[cfg(feature = "python")]
-    #[getter]
-    fn type_flag(&self) -> u8 {
-        self.type_flag
-    }
-    #[cfg(feature = "python")]
-    #[getter]
-    fn has_secondary_header(&self) -> bool {
-        self.has_secondary_header
-    }
-    #[cfg(feature = "python")]
-    #[getter]
-    fn apid(&self) -> Apid {
-        self.apid
-    }
-    #[cfg(feature = "python")]
-    #[getter]
-    fn sequence_flags(&self) -> u8 {
-        self.sequence_flags
-    }
-    #[cfg(feature = "python")]
-    #[getter]
-    fn sequence_id(&self) -> u16 {
-        self.sequence_id
-    }
-    #[cfg(feature = "python")]
-    #[getter]
-    fn len_minus1(&self) -> u16 {
-        self.len_minus1
-    }
-
     #[cfg(feature = "python")]
     fn __str__(&self) -> String {
         format!("{self:?}")

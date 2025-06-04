@@ -1,5 +1,8 @@
 use std::sync::Arc;
 
+#[cfg(feature = "python")]
+use pyo3::{prelude::*, pyclass};
+
 use crossbeam::channel::Sender;
 use tracing::debug;
 
@@ -7,13 +10,14 @@ use crate::framing::{DefaultReedSolomon, Frame, Integrity, ReedSolomon};
 
 /// Configuration options for the ReedSolomon supported by [super::Pipeline].
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "python", pyclass(get_all, set_all))]
 pub struct RsOpts {
-    interleave: u8,
-    virtual_fill: usize,
-    num_threads: usize,
-    buffer_size: usize,
-    detect: bool,
-    correct: bool,
+    pub interleave: u8,
+    pub virtual_fill: usize,
+    pub num_threads: usize,
+    pub buffer_size: usize,
+    pub detect: bool,
+    pub correct: bool,
 }
 
 impl RsOpts {
@@ -27,36 +31,50 @@ impl RsOpts {
             buffer_size: 50,
         }
     }
+}
+
+#[cfg_attr(feature = "python", pymethods)]
+impl RsOpts {
+    #[cfg(feature = "python")]
+    #[new]
+    fn py_new(interleave: u8) -> Self {
+        Self::new(interleave)
+    }
 
     /// See [DefaultReedSolomon::with_virtual_fill]
-    pub fn with_virtual_fill(mut self, virtual_fill: usize) -> Self {
-        self.virtual_fill = virtual_fill;
-        self
+    pub fn with_virtual_fill(&self, virtual_fill: usize) -> Self {
+        let mut slf = self.clone();
+        slf.virtual_fill = virtual_fill;
+        slf
     }
 
     /// Size of the thread pool used to perform the RS compuataion. By default the value will be
     /// chosen automatically.
-    pub fn with_num_threads(mut self, num_threads: usize) -> Self {
-        self.num_threads = num_threads;
-        self
+    pub fn with_num_threads(&self, num_threads: usize) -> Self {
+        let mut slf = self.clone();
+        slf.num_threads = num_threads;
+        slf
     }
 
     /// See [DefaultReedSolomon::with_correction]
-    pub fn with_correction(mut self, enabled: bool) -> Self {
-        self.correct = enabled;
-        self
+    pub fn with_correction(&self, enabled: bool) -> Self {
+        let mut slf = self.clone();
+        slf.correct = enabled;
+        slf
     }
 
     /// See [DefaultReedSolomon::with_detection]
-    pub fn with_detection(mut self, enabled: bool) -> Self {
-        self.detect = enabled;
-        self
+    pub fn with_detection(&self, enabled: bool) -> Self {
+        let mut slf = self.clone();
+        slf.detect = enabled;
+        slf
     }
 
     /// Set the allowable number of in-flight frames waiting to enter the thread pool.
-    pub fn with_buffer_size(mut self, size: usize) -> Self {
-        self.buffer_size = size;
-        self
+    pub fn with_buffer_size(&self, size: usize) -> Self {
+        let mut slf = self.clone();
+        slf.buffer_size = size;
+        slf
     }
 }
 
@@ -122,7 +140,7 @@ where
 /// assert!(matches!(frames_out[0].integrity, Some(Integrity::Ok)), "got {:?}",
 /// frames_out[0].integrity);
 /// ```
-pub fn reed_solomon<I>(frames: I, opts: RsOpts) -> impl Iterator<Item = Frame>
+pub fn reed_solomon<I>(frames: I, opts: RsOpts) -> impl Iterator<Item = Frame> + Send + 'static
 where
     I: Iterator<Item = Frame> + Send + 'static,
 {

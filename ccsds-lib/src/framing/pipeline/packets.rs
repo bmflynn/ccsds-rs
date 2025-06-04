@@ -40,9 +40,9 @@ pub fn packet_decoder<I>(
     frames: I,
     izone_length: usize,
     trailer_length: usize,
-) -> impl Iterator<Item = Packet> + Send + 'static
+) -> impl Iterator<Item = Packet>
 where
-    I: Iterator<Item = Frame> + Send + 'static,
+    I: Iterator<Item = Frame>,
 {
     let iter = FramedPacketIter::new(frames, izone_length, trailer_length);
 

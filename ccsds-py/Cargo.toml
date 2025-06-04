@@ -1,7 +1,6 @@
 [package]
 name = "ccsds-py"
 edition.workspace = true
-version.workspace = true
 authors.workspace = true
 keywords.workspace = true 
 categories.workspace = true
@@ -15,7 +14,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 hifitime = {workspace = true, features=["python"]}
-pyo3.workspace = true
-ccsds = { path = "../ccsds-lib", features=["python"]}
+pyo3 = {workspace = true }
+ccsds = { path = "../ccsds-lib", features=["python", "merge", "timecode"]}
 spacecrafts = "^0.1.0-beta.3"
 url = "2.5.4"

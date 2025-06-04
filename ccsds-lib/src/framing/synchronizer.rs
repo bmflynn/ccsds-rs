@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 use std::io::{ErrorKind, Read};
 
+#[cfg(feature = "python")]
+use pyo3::prelude::pyclass;
+
 use super::bytes::Bytes;
 use crate::{Error, Result};
 
@@ -55,6 +58,7 @@ fn create_patterns(dat: &[u8]) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
 
 /// A sychronized block location.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "python", pyclass(frozen, get_all))]
 pub struct Loc {
     /// Offset (1-based) to the first byte after a found sync marker
     pub offset: usize,
@@ -221,6 +225,7 @@ where
 
 /// A block of data identified by the synchronization process.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "python", pyclass(frozen, get_all))]
 pub struct Block {
     /// Number of bytes since the start of the ASM for the last block
     pub last: usize,

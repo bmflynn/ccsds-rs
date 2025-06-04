@@ -1,5 +1,7 @@
 use rs2::{correct_message, has_errors, RSState, N, PARITY_LEN};
 
+#[cfg(feature = "python")]
+use pyo3::pyclass;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -8,6 +10,7 @@ use crate::{framing::VCDUHeader, Error, Result};
 /// The possible integrity dispositions
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "python", pyclass)]
 pub enum Integrity {
     /// Data did not require correction.
     Ok,

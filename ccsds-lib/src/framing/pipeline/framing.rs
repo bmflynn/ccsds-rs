@@ -4,7 +4,7 @@ use crate::framing::{missing_frames, Cadu, Frame, VCDUHeader};
 
 struct CaduDecoderIter<I>
 where
-    I: Iterator<Item = Cadu> + Send + 'static,
+    I: Iterator<Item = Cadu>,
 {
     vcid_counters: HashMap<u16, u32>,
     cadus: I,
@@ -12,7 +12,7 @@ where
 
 impl<I> Iterator for CaduDecoderIter<I>
 where
-    I: Iterator<Item = Cadu> + Send + 'static,
+    I: Iterator<Item = Cadu>,
 {
     type Item = Frame;
 
@@ -41,9 +41,9 @@ where
 ///
 /// There is not much real work here other than keeping track of frame sequence couters to
 /// facilitate [Frame::missing] count.
-pub fn frame_decoder<I>(cadus: I) -> impl Iterator<Item = Frame> + Send + 'static
+pub fn frame_decoder<I>(cadus: I) -> impl Iterator<Item = Frame>
 where
-    I: Iterator<Item = Cadu> + Send + 'static,
+    I: Iterator<Item = Cadu>,
 {
     let iter = CaduDecoderIter {
         vcid_counters: HashMap::default(),
