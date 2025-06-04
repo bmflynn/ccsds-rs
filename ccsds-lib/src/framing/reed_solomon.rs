@@ -10,7 +10,7 @@ use crate::{framing::VCDUHeader, Error, Result};
 /// The possible integrity dispositions
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "python", pyclass)]
+#[cfg_attr(feature = "python", pyclass(eq, eq_int))]
 pub enum Integrity {
     /// Data did not require correction.
     Ok,

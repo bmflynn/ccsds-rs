@@ -236,7 +236,7 @@ impl PrimaryHeader {
 /// sequencing value in primary header.
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "python", pyclass(frozen))]
+#[cfg_attr(feature = "python", pyclass(frozen, get_all))]
 pub struct PacketGroup {
     pub apid: Apid,
     pub packets: Vec<Packet>,
@@ -244,18 +244,6 @@ pub struct PacketGroup {
 
 #[cfg_attr(feature = "python", pymethods)]
 impl PacketGroup {
-    #[cfg(feature = "python")]
-    #[getter]
-    fn apid(&self) -> Apid {
-        self.apid
-    }
-
-    #[cfg(feature = "python")]
-    #[getter]
-    fn packets(&self) -> Vec<Packet> {
-        self.packets.clone()
-    }
-
     #[cfg(feature = "python")]
     fn __str__(&self) -> String {
         format!(

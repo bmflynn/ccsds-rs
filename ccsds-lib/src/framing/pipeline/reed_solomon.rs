@@ -110,9 +110,7 @@ where
                 _ => (),
             }
 
-            if let Err(err) = tx.send(frame) {
-                panic!("failed to send: {err:?}");
-            }
+            let _ = tx.send(frame);
         })
     }
 }

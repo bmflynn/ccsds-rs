@@ -31,7 +31,7 @@ create_iter!(PacketGroupIter, PacketGroup);
 create_iter!(BlockIter, Block);
 create_iter!(FrameIter, Frame);
 
-/// Decode packets from a local file.
+/// Decode packets from a local file containing synchronized packets.
 ///
 /// Args:
 ///     path: Path to a local file on disk
