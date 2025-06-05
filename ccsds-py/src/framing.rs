@@ -159,14 +159,14 @@ fn decode_frames(uri: &str, sync: SyncOpts, pn: bool, rs: Option<RsOpts>) -> PyR
 ///
 /// Returns:
 ///     An iterable of Packets
-#[pyfunction(signature=(uri, sync, pn=false, rs=None, izone_length=None, trailer_length=None))]
+#[pyfunction(signature=(uri, sync, pn=false, rs=None, izone_length=0, trailer_length=0))]
 fn decode_framed_packets(
     uri: &str,
     sync: SyncOpts,
     pn: bool,
     rs: Option<RsOpts>,
-    izone_length: Option<usize>,
-    trailer_length: Option<usize>,
+    izone_length: usize,
+    trailer_length: usize,
 ) -> PyResult<PacketIter> {
     let mut pipeline = Pipeline::new(sync.length);
 
@@ -181,8 +181,8 @@ fn decode_framed_packets(
 
     let packets = ccsds::framing::packet_decoder(
         pipeline.start(file),
-        izone_length.unwrap_or_default(),
-        trailer_length.unwrap_or_default(),
+        izone_length,
+        trailer_length,
     );
     Ok(PacketIter {
         iter: Box::new(packets),

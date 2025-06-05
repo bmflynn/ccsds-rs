@@ -23,6 +23,9 @@ frames = decode_frames(input, SyncOpts(1020))
 for frame in frames:
     zult = extractor.handle(frame)
     if not zult:
+        continue  # no packets could be produced
+    if zult.drop:
+        print(f"frame dropped reason={zult.reason}")
         continue
     for packet in zult.packets:
         print(packet)
