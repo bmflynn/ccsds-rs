@@ -9,6 +9,25 @@
 `ccsds` provides Python bindnigs for the [ccsds](https://github.com/bmflynn/ccsds-rs/lib)
 Rust bindings using [pyo3](https://pyo3.rs).
 
+## Extracting Frames and Packets
+
+```python
+from ccsds import PacketExtractor, SyncOpts, decode_frames
+
+extractor = PacketExtractor()
+
+# Path to raw unsynchronized CADU file
+input = "..."
+frames = decode_frames(input, SyncOpts(1020))
+
+for frame in frames:
+    zult = extractor.handle(frame)
+    if not zult:
+        continue
+    for packet in zult.packets:
+        print(packet)
+```
+
 
 ## Related
 

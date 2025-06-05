@@ -40,12 +40,13 @@ mod synchronizer;
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "python")]
-use pyo3::prelude::{pyclass, pymethods};
+use pyo3::prelude::*;
 
 pub use pipeline::*;
 pub use pn::{DefaultDerandomizer, Derandomizer};
 pub use reed_solomon::{DefaultReedSolomon, Integrity, ReedSolomon};
 pub use synchronizer::{Block, Loc, ASM};
+pub use packets::{PacketExtractor, ExtractResult};
 
 pub type Scid = u16;
 pub type Vcid = u16;
@@ -53,7 +54,7 @@ pub type Vcid = u16;
 pub type Cadu = Block;
 
 /// Loose representation of a single frame of data extracted from a Cadu.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 #[cfg_attr(feature = "python", pyclass(frozen, get_all))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Frame {
@@ -84,6 +85,69 @@ impl Frame {
     }
 }
 
+#[cfg(feature = "python")]
+#[cfg_attr(feature="python", pymethods)]
+impl Frame {
+
+    #[new]
+    #[pyo3(signature=(header, missing=None, integrity=None, data=None))]
+    pub fn new(
+        header: VCDUHeader,
+        missing: Option<u32>,
+        integrity: Option<Integrity>,
+        data: Option<Vec<u8>>,
+    ) -> Self {
+        Self {
+            header,
+            missing: missing.unwrap_or_default(),
+            integrity,
+            data: data.unwrap_or_default(),
+        }
+    }
+
+    /// Decode bytes into a `Frame`.
+    /// 
+    /// Args:
+    ///     dat: The bytes to decode.
+    /// 
+    /// Returns:
+    ///     The created `Frame` object.
+    /// 
+    /// Raises:
+    ///     `ValueError` if there are not enough bytes to decode a `VCDUHeader`.
+    #[staticmethod]
+    #[pyo3(name = "decode")]
+    pub fn py_decode<'py>(dat: &[u8]) -> PyResult<Self> {
+        match VCDUHeader::decode(&dat) {
+            Some(header) => Ok(Self{
+                header,
+                missing: 0,
+                integrity: None,
+                data: dat.to_vec(),
+            }),
+            None => Err(pyo3::exceptions::PyValueError::new_err(
+                "Not enough bytes to decode VCDUHeader",
+            )),
+        }
+    }
+
+    #[cfg(feature = "python")]
+    fn __str__(&self) -> String {
+        format!("{self:?}")
+    }
+}
+
+impl std::fmt::Debug for Frame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Frame{{header: {:?}, missing: {}, integrity: {:?}, data:[len={}]}}",
+            self.header, self.missing, self.integrity, self.data.len()
+        )
+    }
+}
+
+
 #[cfg_attr(feature = "python", pymethods)]
 impl Frame {
     #[must_use]
@@ -103,7 +167,7 @@ impl Frame {
 }
 
 /// Contents of a valid VCDU header
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "python", pyclass(frozen, get_all))]
 pub struct VCDUHeader {
@@ -112,8 +176,43 @@ pub struct VCDUHeader {
     pub vcid: Vcid,
     pub counter: u32,
     pub replay: bool,
-    pub cycle: bool,
-    pub counter_cycle: u8,
+}
+
+#[cfg(feature = "python")]
+#[cfg_attr( feature = "python", pymethods)]
+impl VCDUHeader {
+    #[new]
+    #[pyo3(signature=(scid, vcid, version=0, counter=0, replay=false))]
+    pub fn new(
+        scid: Scid,
+        vcid: Vcid,
+        version: Option<u8>,
+        counter: Option<u32>,
+        replay: Option<bool>,
+    ) -> Self {
+        VCDUHeader {
+            version: version.unwrap_or(0),
+            scid,
+            vcid,
+            counter: counter.unwrap_or(0),
+            replay: replay.unwrap_or(false),
+        }
+    }
+
+    #[cfg(feature = "python")]
+    fn __str__(&self) -> String {
+        format!("{self:?}")
+    }
+}
+
+impl std::fmt::Debug for VCDUHeader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "VCDUHeader{{version: {}, scid: {}, vcid: {}, counter: {}, replay: {}}}",
+            self.version, self.scid, self.vcid, self.counter, self.replay
+        )
+    }
 }
 
 impl VCDUHeader {
@@ -138,8 +237,6 @@ impl VCDUHeader {
             vcid: (x & 0x3f),
             counter: u32::from_be_bytes([0, dat[2], dat[3], dat[4]]),
             replay: (dat[5] >> 7) & 0x1 == 1,
-            cycle: (dat[5] >> 6) & 0x1 == 1,
-            counter_cycle: dat[5] & 0xf,
         })
     }
 }
@@ -258,8 +355,6 @@ mod test {
         assert_eq!(header.vcid, 33);
         assert_eq!(header.counter, 123_456);
         assert!(!header.replay);
-        assert!(!header.cycle);
-        assert_eq!(header.counter_cycle, 5);
     }
 
     #[test]

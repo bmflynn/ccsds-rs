@@ -8,7 +8,6 @@ mod timecode;
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
-use std::fmt::Display;
 use std::io::Read;
 
 #[cfg(feature = "serde")]
@@ -47,7 +46,7 @@ pub type Apid = u16;
 /// assert_eq!(packet.header.apid, 1369);
 /// # Ok::<(), ccsds::Error>(())
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 #[cfg_attr(feature = "python", pyclass(frozen, get_all))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Packet {
@@ -60,7 +59,7 @@ pub struct Packet {
     pub(crate) offset: usize,
 }
 
-impl Display for Packet {
+impl std::fmt::Debug for Packet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -85,7 +84,7 @@ impl Packet {
 
     #[cfg(feature = "python")]
     fn __str__(&self) -> String {
-        format!("{self}")
+        format!("{self:?}")
     }
 
     #[must_use]
