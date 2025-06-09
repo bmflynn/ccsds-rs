@@ -2,7 +2,7 @@ use std::io::Read;
 
 use tracing::debug;
 
-use crate::framing::{synchronizer::Synchronizer, Block, ASM};
+use crate::framing::{synchronizer::Synchronizer, ASM};
 
 use super::Cadu;
 

@@ -20,11 +20,12 @@ where
         let cadu = self.cadus.next()?;
         match VCDUHeader::decode(&cadu.data) {
             Some(header) => {
-                let last = self
-                    .vcid_counters
-                    .entry(header.vcid)
-                    .or_insert(header.counter);
-                let missing = missing_frames(header.counter, *last);
+                let mut missing = 0;
+                if !header.vcid == VCDUHeader::FILL && self.vcid_counters.contains_key(&header.vcid) {
+                    let last = self.vcid_counters.get(&header.vcid).unwrap();
+                    missing = missing_frames(header.counter, *last);
+                } 
+                self.vcid_counters.insert(header.vcid, header.counter);
                 Some(Frame {
                     header,
                     missing,

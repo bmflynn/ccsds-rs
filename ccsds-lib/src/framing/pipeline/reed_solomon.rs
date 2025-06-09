@@ -60,15 +60,22 @@ impl RsOpts {
     }
 }
 
-fn do_reed_solomon<I>(frames: I, opts: RsOpts, tx: Sender<Frame>)
+fn do_reed_solomon<I>(frames: I, opts: RsOpts, result_tx: Sender<Frame>)
 where
     I: Iterator<Item = Frame> + Send + 'static,
 {
+    // Thread pool to hose the  RS computation tasks. 1 job per frame, which results in 
+    // `interleave` computations per frame as a single job. 
     let pool = rayon::ThreadPoolBuilder::new()
         .thread_name(|i| format!("reed_solomon::compute{i}"))
         .num_threads(opts.num_threads)
         .build()
         .unwrap();
+
+    // Channel used to maintain the order of the frames as they are processed. Jobs are waited
+    // for in the order they were submitted
+    let (jobs_tx, jobs_rx) = crossbeam::channel::unbounded();
+
     let rs = Arc::new(
         DefaultReedSolomon::new(opts.interleave)
             .with_detection(opts.detect)
@@ -76,26 +83,47 @@ where
             .with_virtual_fill(opts.virtual_fill),
     );
 
-    for mut frame in frames {
-        let tx = tx.clone();
-        let rs = rs.clone();
-        pool.spawn_fifo(move || {
-            let (integrity, data) = match rs.perform(&frame.header, &frame.data) {
-                Ok(v) => v,
-                Err(err) => panic!("rs failed: {err:?}"),
-            };
-            frame.integrity = Some(integrity);
+    // Frame jobs are submitted in a background thread to the compute thread pool. For each job
+    // a new "future" channel is created to receive the result of the RS computation. Results are
+    // send to `jobs_tx` in the order they were submitted, and then recieved on `jobs_rx` in that
+    // same order, thereby preserving the original frame order.
+    std::thread::Builder::new().name("reed_solomon::submit".into()).spawn(move || {
+        for mut frame in frames {
+            let rs = rs.clone();
+            let (job_tx, job_rx) = crossbeam::channel::bounded(1);
+            pool.spawn(move || {
+                let (integrity, data) = match rs.perform(&frame.header, &frame.data) {
+                    Ok(v) => v,
+                    Err(err) => panic!("rs failed: {err:?}"),
+                };
+                frame.integrity = Some(integrity);
 
-            // data does not include the check symbols
-            match frame.integrity {
-                Some(Integrity::Ok | Integrity::Corrected) => frame.data = data,
-                _ => (),
-            }
+                // data does not include the check symbols
+                match frame.integrity {
+                    Some(Integrity::Ok | Integrity::Corrected) => frame.data = data,
+                    _ => (),
+                }
 
-            if let Err(err) = tx.send(frame) {
-                panic!("failed to send: {err:?}");
+                if let Err(err) = job_tx.send(frame) {
+                    panic!("failed to send: {err:?}");
+                }
+            });
+
+            if jobs_tx.send(job_rx).is_err() {
+                debug!("failed to send job to output channel, exiting");
+                break;
             }
-        })
+        }
+    }).expect("expected to be able to create a thread");
+
+    // Wait for job results in submit order, sending resulting frames to the output channel.
+    for job in jobs_rx {
+        if let Ok(frame) = job.recv() {
+            let _ = result_tx.send(frame);
+            continue;
+        }
+        debug!("failed to receive frame from job, exiting");
+        break;
     }
 }
 
@@ -103,8 +131,8 @@ where
 ///
 /// RS is the most computationally expensive operation in the decoding process. A pool of
 /// background threads is used to perform the algorithm in parallel. Each individual frame of data
-/// is a job in the background pool. The number of threads in the pool can be set using the
-/// [RsOpts::with_num_threads].
+/// is a job in the background pool. The number of threads used for the RS computation can be set
+/// using [RsOpts::with_num_threads].
 ///
 /// # Arguments
 /// * `frames` [Iterator] of frames as returned by [framing_decoder](crate::framing).

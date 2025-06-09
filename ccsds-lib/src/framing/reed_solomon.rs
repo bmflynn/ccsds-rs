@@ -185,8 +185,8 @@ impl ReedSolomon for DefaultReedSolomon {
             match zult.state {
                 RSState::Uncorrectable(_) => {
                     // Bail if there is any single uncorrectable message in this block
-                    let zult = self.remove_parity(cadu_dat);
-                    return Ok((Integrity::Uncorrectable, zult.to_vec()));
+                    let cadu_data = self.remove_parity(cadu_dat);
+                    return Ok((Integrity::Uncorrectable, cadu_data.to_vec()));
                 }
                 RSState::Corrected(num) => {
                     num_corrected += num;
