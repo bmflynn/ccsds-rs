@@ -42,10 +42,12 @@ enum FramingCommands {
         /// Input CADU file to synchronize
         input: PathBuf,
     },
-    /// Frame the input raw data (CADU) file.
+    /// Decode raw data (CADU) file into frames.
     ///
     /// The input need not be synchronized. PN and integrity aglorithms will be applied as
-    /// configured for the specified spacecraft.
+    /// configured for the specified spacecraft. The output frame data will not include any
+    /// integrity check symbols and all frames will be byte-aligned data using a frame length
+    /// of defined by the spacecraft framing configuration.
     Frame {
         /// Include these vcids or vcid ranges.
         ///
@@ -66,9 +68,18 @@ enum FramingCommands {
         #[arg(short, long, value_name = "csv", value_delimiter = ',')]
         exclude: Vec<String>,
 
-        /// Output file path. Defaults to input name with .sync suffix.
+        /// Output file path to save frame data to. Defaults to input name with .frames suffix.
         #[arg(short, long)]
         output: Option<PathBuf>,
+
+        /// Perform configured integrity checks, dropping uncorrectable frames.
+        /// 
+        /// By default, integrity checks are not performed and all check symbols are dropped before
+        /// writing the output frame data.
+        /// 
+        /// If there is no integrity configured in the framing config, this option is ignored.
+        #[arg(short, long)]
+        correct: bool,
 
         /// Spacecraft identifier used to lookup framing config.
         scid: Scid,
@@ -89,6 +100,39 @@ enum FramingCommands {
         /// Input raw CADU file.
         input: PathBuf,
     },
+
+    /// Decode space packet data from frames.
+    Packetize {
+        /// Include these apid or apid ranges.
+        ///
+        /// This accepts a CSV of APIDs as well as ranges of the format `<start>-<end>`
+        /// where start and end are inclusive. For example, you can specify
+        /// --include 0,1,2,3,4,5,10,20,30 or --include 0-5,10,20,30
+        ///
+        /// If used with --exclude, values are first included, then excluded.
+        #[arg(short, long, value_name = "csv", value_delimiter = ',')]
+        include: Vec<String>,
+
+        /// Exclude these apids or apid ranges.
+        ///
+        /// This accepts a CSV of apids as well as ranges of the format `<start>-<end>`
+        /// where start is inclusive and end is exclusive.
+        ///
+        /// If used with --include, values are first included, then excluded.
+        #[arg(short, long, value_name = "csv", value_delimiter = ',')]
+        exclude: Vec<String>,
+
+        /// Output file path to save packet data to. Defaults to input name with .packets suffix.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Spacecraft identifier used to lookup framing config.
+        scid: Scid,
+
+        /// Input frame file
+        input: PathBuf,
+    },
+
 }
 
 #[derive(Subcommand)]
@@ -409,6 +453,7 @@ fn main() -> Result<()> {
                 input,
                 output,
                 scid,
+                correct,
             } => {
                 let Some(sc) = Spacecrafts::default().lookup(*scid) else {
                     bail!("No spacecraft config found for {scid}");
@@ -430,7 +475,7 @@ fn main() -> Result<()> {
                 };
                 info!("writing to {:?} using {:?}", &output, sc.framing_config);
 
-                frame::frame(input, &output, sc.framing_config, include, exclude)
+                frame::frame(input, &output, sc.framing_config, include, exclude, *correct)
             }
             FramingCommands::Info {
                 format,
@@ -441,6 +486,36 @@ fn main() -> Result<()> {
                     bail!("No spacecraft config found for {scid}");
                 };
                 frame::info(sc.framing_config, input, format)
+            },
+            FramingCommands::Packetize {
+                include,
+                exclude,
+                input,
+                output,
+                scid,
+            } => {
+                let Some(sc) = Spacecrafts::default().lookup(*scid) else {
+                    bail!("No spacecraft config found for {scid}");
+                };
+                let include = parse_number_ranges(include.clone())?
+                    .iter()
+                    .filter_map(|v| Apid::try_from(*v).ok())
+                    .collect::<Vec<Vcid>>();
+                let exclude = parse_number_ranges(exclude.clone())?
+                    .iter()
+                    .filter_map(|v| Apid::try_from(*v).ok())
+                    .collect::<Vec<Vcid>>();
+
+                let output = match output {
+                    Some(p) => p.clone(),
+                    None => PathBuf::from(format!(
+                        "{}.packets",
+                        input.file_name().unwrap().to_string_lossy()
+                    )),
+                };
+                info!("writing to {:?} using {:?}", &output, sc.framing_config);
+
+                frame::packetize(input, &output, sc.framing_config, include, exclude)
             }
         },
         Commands::Diff {

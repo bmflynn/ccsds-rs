@@ -1,12 +1,15 @@
 use anyhow::{Context, Result};
-use ccsds::framing::{synchronize, Integrity, Pipeline, RsOpts, SyncOpts, Vcid, ASM};
+use ccsds::{
+    framing::{synchronize, Frame, Integrity, Pipeline, RsOpts, SyncOpts, Vcid, ASM},
+    spacepacket::Apid,
+};
 use handlebars::handlebars_helper;
 use serde::Serialize;
 use spacecrafts::FramingConfig;
 use std::{
     collections::HashMap,
     fs::File,
-    io::{stdout, BufReader, Write},
+    io::{stdout, BufReader, Read, Write},
     path::Path,
 };
 use tracing::{debug, warn};
@@ -29,6 +32,7 @@ pub fn frame(
     config: FramingConfig,
     include: Vec<Vcid>,
     exclude: Vec<Vcid>,
+    correct: bool,
 ) -> Result<()> {
     let block_len = config.codeblock_len();
     let mut pipeline = Pipeline::new(block_len);
@@ -40,8 +44,8 @@ pub fn frame(
     if let Some(rs_config) = &config.reed_solomon {
         let opts = RsOpts::new(rs_config.interleave)
             .with_virtual_fill(rs_config.virtual_fill_length)
-            .with_correction(true)
-            .with_detection(true)
+            .with_correction(correct)
+            .with_detection(correct)
             .with_num_threads(0);
         pipeline = pipeline.with_rs(opts);
     }
@@ -52,7 +56,10 @@ pub fn frame(
 
     let mut dst = File::create(dstpath).context("creating dest")?;
 
-    for (idx, frame) in frames.enumerate() {
+    for frame in frames {
+        if frame.is_fill() {
+            continue;
+        }
         if !include.is_empty() && !include.contains(&frame.header.vcid) {
             continue;
         }
@@ -60,29 +67,84 @@ pub fn frame(
             continue;
         }
 
-        let mpdu = frame
+        let mpdu = &frame
             .mpdu(config.insert_zone_length, config.trailer_length)
             .unwrap();
 
         debug!(
             "{:?} {:?} missing={} integrity={}",
-            frame.header,
+            &frame.header,
             mpdu,
-            frame.missing,
-            frame
-                .integrity
+            &frame.missing,
+            &frame
+                .integrity.clone()
                 .map_or_else(|| "None".to_string(), |i| format!("{i:?}"))
         );
 
-        if frame.data.len() != frame_len {
-            warn!(
-                "expected frame length={frame_len} at frame idx {idx}, got {}; dropping",
-                frame.data.len()
-            );
+        match &frame.integrity {
+            Some(Integrity::Uncorrectable | Integrity::NotCorrected | Integrity::Failed) => {
+                warn!(vcid = %frame.header.vcid, "frame integrity failed, dropping");
+                continue;
+            },
+            _ => {},
+        }
+        // if frame.data.len() != frame_len {
+        //     warn!(
+        //         "expected frame length={frame_len} at frame idx {idx}, got {}; dropping",
+        //         frame.data.len()
+        //     );
+        //     continue;
+        // }
+
+        dst.write_all(&frame.data[..frame_len])?;
+    }
+
+    Ok(())
+}
+
+pub fn packetize(
+    srcpath: &Path,
+    dstpath: &Path,
+    config: FramingConfig,
+    include: Vec<Apid>,
+    exclude: Vec<Apid>,
+) -> Result<()> {
+    let mut src = BufReader::new(File::open(srcpath).context("opening source")?);
+
+    let (frames_tx, frames_rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut buf = vec![0u8; config.length];
+        loop {
+            if let Err(err) = src.read_exact(&mut buf) {
+                debug!("failed to read frame: {err}; bailing!");
+                break;
+            }
+            let Some(frame) = Frame::decode(buf.clone()) else {
+                warn!("failed to decode frame, skipping");
+                continue;
+            };
+            if frames_tx.send(frame).is_err() {
+                warn!("failed to send frame; bailing!");
+                break;
+            }
+        }
+    });
+
+    let mut dst = File::create(dstpath).context("creating dest")?;
+    let frames = frames_rx.into_iter();
+    let packets =
+        ccsds::framing::packet_decoder(frames, config.insert_zone_length, config.trailer_length);
+    for packet in packets {
+        if !include.is_empty() && !include.contains(&packet.header.apid) {
             continue;
         }
-
-        dst.write_all(&frame.data)?;
+        if !exclude.is_empty() && exclude.contains(&packet.header.apid) {
+            continue;
+        }
+        if let Err(err) = dst.write_all(&packet.data) {
+            warn!("failed to write packet: {err}");
+            break;
+        }
     }
 
     Ok(())
