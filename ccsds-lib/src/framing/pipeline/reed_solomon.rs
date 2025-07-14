@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crossbeam::channel::Sender;
 use tracing::debug;
 
-use crate::framing::{DefaultReedSolomon, Frame, Integrity, ReedSolomon};
+use crate::framing::{DefaultReedSolomon, Frame, Integrity, ReedSolomon, VCDUHeader};
 
 /// Configuration options for the ReedSolomon supported by [super::Pipeline].
 #[derive(Debug, Clone, Copy)]
@@ -64,8 +64,8 @@ fn do_reed_solomon<I>(frames: I, opts: RsOpts, result_tx: Sender<Frame>)
 where
     I: Iterator<Item = Frame> + Send + 'static,
 {
-    // Thread pool to hose the  RS computation tasks. 1 job per frame, which results in 
-    // `interleave` computations per frame as a single job. 
+    // Thread pool to hose the  RS computation tasks. 1 job per frame, which results in
+    // `interleave` computations per frame as a single job.
     let pool = rayon::ThreadPoolBuilder::new()
         .thread_name(|i| format!("reed_solomon::compute{i}"))
         .num_threads(opts.num_threads)
@@ -87,34 +87,39 @@ where
     // a new "future" channel is created to receive the result of the RS computation. Results are
     // send to `jobs_tx` in the order they were submitted, and then recieved on `jobs_rx` in that
     // same order, thereby preserving the original frame order.
-    std::thread::Builder::new().name("reed_solomon::submit".into()).spawn(move || {
-        for mut frame in frames {
-            let rs = rs.clone();
-            let (job_tx, job_rx) = crossbeam::channel::bounded(1);
-            pool.spawn(move || {
-                let (integrity, data) = match rs.perform(&frame.header, &frame.data) {
-                    Ok(v) => v,
-                    Err(err) => panic!("rs failed: {err:?}"),
-                };
-                frame.integrity = Some(integrity);
+    std::thread::Builder::new()
+        .name("reed_solomon::submit".into())
+        .spawn(move || {
+            for mut frame in frames {
+                let rs = rs.clone();
+                let (job_tx, job_rx) = crossbeam::channel::bounded(1);
+                pool.spawn(move || {
+                    if frame.header.vcid != VCDUHeader::FILL {
+                        let (integrity, data) = match rs.perform(&frame.data) {
+                            Ok(v) => v,
+                            Err(err) => panic!("rs failed: {err:?}"),
+                        };
+                        frame.integrity = Some(integrity);
 
-                // data does not include the check symbols
-                match frame.integrity {
-                    Some(Integrity::Ok | Integrity::Corrected) => frame.data = data,
-                    _ => (),
+                        // data does not include the check symbols
+                        match frame.integrity {
+                            Some(Integrity::Ok | Integrity::Corrected) => frame.data = data,
+                            _ => (),
+                        }
+                    }
+
+                    job_tx.send(frame).expect("failed to send frame");
+                });
+
+                // NOTE: Every job_rx channel must have a corresponding job_tx channel to which a
+                // job was sent, otherwise the receive in the loop below will block forever.
+                if jobs_tx.send(job_rx).is_err() {
+                    debug!("failed to send job to output channel, exiting");
+                    break;
                 }
-
-                if let Err(err) = job_tx.send(frame) {
-                    panic!("failed to send: {err:?}");
-                }
-            });
-
-            if jobs_tx.send(job_rx).is_err() {
-                debug!("failed to send job to output channel, exiting");
-                break;
             }
-        }
-    }).expect("expected to be able to create a thread");
+        })
+        .expect("expected to be able to create a thread");
 
     // Wait for job results in submit order, sending resulting frames to the output channel.
     for job in jobs_rx {

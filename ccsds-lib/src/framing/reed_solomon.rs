@@ -3,7 +3,7 @@ use rs2::{correct_message, has_errors, RSState, N, PARITY_LEN};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::{framing::VCDUHeader, Error, Result};
+use crate::{Error, Result};
 
 /// The possible integrity dispositions
 #[derive(Clone, Debug, PartialEq)]
@@ -17,8 +17,6 @@ pub enum Integrity {
     Uncorrectable,
     /// Errors are present, but no correction was attempted.
     NotCorrected,
-    /// The algorithm choose to skip performing integrity checks
-    Skipped,
     /// Algorithm failed to run due to precondition, e.g., bad frame size
     Failed,
 }
@@ -41,7 +39,7 @@ pub trait ReedSolomon: Send + Sync {
     ///
     /// The algorithm will remove any parity bytes such that the returned data is just the frame
     /// bytes.
-    fn perform(&self, header: &VCDUHeader, cadu_dat: &[u8]) -> Result<(Integrity, Vec<u8>)>;
+    fn perform(&self, cadu_dat: &[u8]) -> Result<(Integrity, Vec<u8>)>;
 }
 
 /// Deinterleave an interleaved RS block (code block + check symbols).
@@ -151,17 +149,13 @@ impl ReedSolomon for DefaultReedSolomon {
     ///
     /// In the case detection is disabled by passing `false` to [Self::with_detection] then neither
     /// the detection or correction are performed, however, check symbols are still removed.
-    fn perform(&self, header: &VCDUHeader, cadu_dat: &[u8]) -> Result<(Integrity, Vec<u8>)> {
+    fn perform(&self, cadu_dat: &[u8]) -> Result<(Integrity, Vec<u8>)> {
         if !DefaultReedSolomon::can_correct(cadu_dat, self.interleave, self.virtual_fill) {
             return Err(Error::IntegrityAlgorithm(format!(
                 "codeblock len={} cannot be corrected by this algorithm with interleave={}",
                 cadu_dat.len(),
                 self.interleave,
             )));
-        }
-
-        if header.vcid == VCDUHeader::FILL || !self.detect {
-            return Ok((Integrity::Skipped, self.remove_parity(cadu_dat).to_vec()));
         }
 
         let block: Vec<u8> = cadu_dat.to_vec();
@@ -258,10 +252,9 @@ mod tests {
 
         let rs = DefaultReedSolomon::new(interleave);
         let expected_block_len = if interleave == 4 { 892 } else { 1115 };
-        let hdr = VCDUHeader::decode(&cadu).unwrap();
 
         // Check original data tests out OK
-        let (status, block) = rs.perform(&hdr, &cadu).unwrap();
+        let (status, block) = rs.perform(&cadu).unwrap();
         assert_eq!(
             status,
             Integrity::Ok,
@@ -271,7 +264,7 @@ mod tests {
 
         // Introduce an error by just adding one with wrap to a byte and make sure it's corrected
         cadu[100] += 1;
-        let (status, block) = rs.perform(&hdr, &cadu).unwrap();
+        let (status, block) = rs.perform(&cadu).unwrap();
         assert_eq!(
             status,
             Integrity::Corrected,

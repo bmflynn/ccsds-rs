@@ -77,7 +77,8 @@ pub fn frame(
             mpdu,
             &frame.missing,
             &frame
-                .integrity.clone()
+                .integrity
+                .clone()
                 .map_or_else(|| "None".to_string(), |i| format!("{i:?}"))
         );
 
@@ -85,8 +86,8 @@ pub fn frame(
             Some(Integrity::Uncorrectable | Integrity::NotCorrected | Integrity::Failed) => {
                 warn!(vcid = %frame.header.vcid, "frame integrity failed, dropping");
                 continue;
-            },
-            _ => {},
+            }
+            _ => {}
         }
         // if frame.data.len() != frame_len {
         //     warn!(
@@ -239,10 +240,6 @@ pub fn info(config: FramingConfig, fpath: &Path, format: &Format) -> Result<()> 
                 Integrity::Failed => {
                     sum.error += 1;
                     info.summary.error += 1;
-                }
-                Integrity::Skipped => {
-                    sum.not_performed += 1;
-                    info.summary.not_performed += 1;
                 }
             },
             None => {

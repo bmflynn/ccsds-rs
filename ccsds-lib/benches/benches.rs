@@ -1,9 +1,8 @@
-use rand::{Rng, RngCore};
+use rand::Rng;
 use std::path::PathBuf;
 
 use ccsds::framing::{
-    Block, DefaultDerandomizer, DefaultReedSolomon, Derandomizer, Integrity, ReedSolomon, SyncOpts,
-    VCDUHeader,
+    DefaultDerandomizer, DefaultReedSolomon, Derandomizer, Integrity, ReedSolomon, VCDUHeader,
 };
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 

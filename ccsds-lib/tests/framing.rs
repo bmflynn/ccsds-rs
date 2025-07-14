@@ -6,7 +6,7 @@ use ccsds::framing::*;
 use common::fixture_path;
 
 fn do_framing_test(interleave: u8, block_len: usize, fixture: &str, expected: &[(Vcid, usize)]) {
-    let file = File::open(fixture_path(fixture)).unwrap();
+    let file = File::open(fixture_path(fixture)).expect("Failed to open fixture file");
     let cadus = synchronize(file, SyncOpts::new(block_len));
     let cadus = derandomize(cadus);
     let frames = frame_decoder(cadus);
@@ -18,16 +18,12 @@ fn do_framing_test(interleave: u8, block_len: usize, fixture: &str, expected: &[
         *cur += 1;
     }
 
-    dbg!(&got_counts);
-
-    for (vcid, expected) in expected {
-        match got_counts.get(vcid) {
-            Some(got) => assert_eq!(
-                got, expected,
-                "Expected {expected} for vcid {vcid}, got {got} input {fixture}",
-            ),
-            None => panic!("Expected {expected} for vcid {vcid}, got 0"),
-        }
+    for (vcid, expected) in expected.iter().cloned() {
+        let got = got_counts.get(&vcid).unwrap_or(&0);
+        assert_eq!(
+            *got, expected,
+            "Expected {expected} for vcid {vcid}, got {got} input {fixture}",
+        );
     }
 }
 
