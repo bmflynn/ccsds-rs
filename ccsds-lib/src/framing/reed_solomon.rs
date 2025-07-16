@@ -69,11 +69,12 @@ fn deinterleave(data: &[u8], interleave: u8) -> Vec<[u8; 255]> {
 /// * [TM Synchronization and Channel Coding](https://ccsds.org/Pubs/131x0b5.pdf), Section 4
 #[derive(Clone, Debug)]
 pub struct DefaultReedSolomon {
-    interleave: u8,
-    virtual_fill: usize,
-    parity_len: usize,
-    detect: bool,
     correct: bool,
+    detect: bool,
+    interleave: u8,
+    parity_len: usize,
+    remove_parity: bool,
+    virtual_fill: usize,
 }
 
 impl DefaultReedSolomon {
@@ -89,6 +90,7 @@ impl DefaultReedSolomon {
             interleave,
             virtual_fill: 0,
             parity_len: PARITY_LEN,
+            remove_parity: true,
             detect: true,
             correct: true,
         }
@@ -117,12 +119,16 @@ impl DefaultReedSolomon {
 
     /// When `false` no RS algorithm will be performed.
     ///
-    /// Check symbols will be removed.
-    ///
-    /// This may be used when the data is known to be good to avoid the computation penalty of
-    /// running the algorithm.
+    /// This may be useful for cases where you do not want to pay the penalty of running the
+    /// algorithm but still want to remove the check symbols from the end of the code block.
     pub fn with_detection(mut self, enabled: bool) -> Self {
         self.detect = enabled;
+        self
+    }
+
+    /// When true, remove the parity bytes from the end of the code block.
+    pub fn with_remove_parity(mut self, enabled: bool) -> Self {
+        self.remove_parity = enabled;
         self
     }
 
@@ -193,10 +199,15 @@ impl ReedSolomon for DefaultReedSolomon {
             }
         }
 
-        // The resulting buffer does not include the parity bytes
-        let zult = self.remove_parity(&corrected);
+        let zult = if self.remove_parity {
+            self.remove_parity(&corrected)
+        } else {
+            &corrected
+        };
+
         // Remove any added virtual fill zeros
         let zult = &zult[self.virtual_fill..];
+
         match num_corrected {
             0 => Ok((Integrity::Ok, zult.to_vec())),
             _ => Ok((Integrity::Corrected, zult.to_vec())),
