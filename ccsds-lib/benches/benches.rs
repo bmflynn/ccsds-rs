@@ -1,8 +1,8 @@
 use rand::Rng;
-use std::path::PathBuf;
+use std::{io::Cursor, path::PathBuf};
 
 use ccsds::framing::{
-    DefaultDerandomizer, DefaultReedSolomon, Derandomizer, Integrity, ReedSolomon, VCDUHeader,
+    Block, DefaultDerandomizer, DefaultReedSolomon, Derandomizer, Integrity, ReedSolomon, SyncOpts,
 };
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 
@@ -12,22 +12,17 @@ fn fixture_path(name: &str) -> PathBuf {
     path
 }
 
-// fn bench_synchronization(c: &mut Criterion) {
-//     let mut group = c.benchmark_group("sync");
-//     group.throughput(Throughput::Bytes(1024));
-//     group.bench_function("random_data", move |b| {
-//         let mut data: [u8; 1024] = [0u8; 1024];
-//         let mut rng = rand::thread_rng();
-//         rng.fill_bytes(&mut data);
-//
-//         b.iter(move || {
-//             let sync = ccsds::framing::synchronize(data, SyncOpts::new(1020));
-//             let _: Vec<Block> = sync.into_iter().collect();
-//         });
-//     });
-//
-//     group.finish();
-// }
+fn bench_synchronization(c: &mut Criterion) {
+    let data = [0u8; 1024];
+    let mut group = c.benchmark_group("synchronize");
+    group.throughput(Throughput::Bytes(data.len() as u64));
+    group.bench_function("loop", move |b| {
+        b.iter(move || {
+            let sync = ccsds::framing::synchronize(Cursor::new(data), SyncOpts::new(1020));
+            let _: Vec<Block> = sync.into_iter().collect();
+        });
+    });
+}
 
 fn bench_rs_correct_codeblock(c: &mut Criterion) {
     let mut block = std::fs::read(fixture_path("benches/snpp_block.dat")).unwrap();
@@ -41,13 +36,12 @@ fn bench_rs_correct_codeblock(c: &mut Criterion) {
         b
     };
 
-    let header = VCDUHeader::decode(block).unwrap();
     let mut group = c.benchmark_group("rs");
     group.throughput(Throughput::Bytes(1020));
     group.bench_function("correct_codeblock", |b| {
         b.iter(|| {
             let rs = DefaultReedSolomon::new(4);
-            let (i, _) = rs.perform(&header, block).unwrap();
+            let (i, _) = rs.perform(block).unwrap();
             assert_eq!(
                 i,
                 Integrity::Corrected,
@@ -82,6 +76,6 @@ criterion_group!(
     benches,
     bench_derandomize,
     bench_rs_correct_codeblock,
-    // bench_synchronization
+    bench_synchronization,
 );
 criterion_main!(benches);
