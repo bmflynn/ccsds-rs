@@ -73,10 +73,10 @@ enum FramingCommands {
         output: Option<PathBuf>,
 
         /// Perform configured integrity checks, dropping uncorrectable frames.
-        /// 
+        ///
         /// By default, integrity checks are not performed and all check symbols are dropped before
         /// writing the output frame data.
-        /// 
+        ///
         /// If there is no integrity configured in the framing config, this option is ignored.
         #[arg(short, long)]
         correct: bool,
@@ -84,7 +84,7 @@ enum FramingCommands {
         /// Spacecraft identifier used to lookup framing config.
         scid: Scid,
 
-        /// Input CADU file to synchronize
+        /// Input CADU file to frame
         input: PathBuf,
     },
 
@@ -97,7 +97,16 @@ enum FramingCommands {
         /// Spacecraft identifier used to lookup framing config.
         scid: Scid,
 
-        /// Input raw CADU file.
+        /// Type of the input file. One of 'frame', or 'cadu'; defaults to 'cadu'.
+        ///
+        /// When set to 'frame', the input file must already be byte-aligned frames and must not
+        /// containe any ASM or integrity check symbols. When set to 'cadu', the input file will
+        /// first decoded using the spacecraft framing config before summarizing the frames,
+        /// including an PN and integrity checking as configured.
+        #[arg(short, long, value_parser = parse_input_type, default_value = "cadu")]
+        r#type: frame::InputType,
+
+        /// Input file. Assumed to be raw CADU data
         input: PathBuf,
     },
 
@@ -132,7 +141,6 @@ enum FramingCommands {
         /// Input frame file
         input: PathBuf,
     },
-
 }
 
 #[derive(Subcommand)]
@@ -317,6 +325,10 @@ fn parse_number_ranges(list: Vec<String>) -> Result<Vec<u32>> {
     Ok(values)
 }
 
+fn parse_input_type(s: &str) -> Result<frame::InputType, String> {
+    frame::InputType::from_str(s).ok_or("Could not parse into an input type".to_string())
+}
+
 fn parse_timestamp(s: &str) -> Result<Epoch, String> {
     let zult = Epoch::from_str(s);
     if zult.is_err() {
@@ -475,18 +487,26 @@ fn main() -> Result<()> {
                 };
                 info!("writing to {:?} using {:?}", &output, sc.framing_config);
 
-                frame::frame(input, &output, sc.framing_config, include, exclude, *correct)
+                frame::frame(
+                    input,
+                    &output,
+                    sc.framing_config,
+                    include,
+                    exclude,
+                    *correct,
+                )
             }
             FramingCommands::Info {
                 format,
                 input,
                 scid,
+                r#type,
             } => {
                 let Some(sc) = Spacecrafts::default().lookup(*scid) else {
                     bail!("No spacecraft config found for {scid}");
                 };
-                frame::info(sc.framing_config, input, format)
-            },
+                frame::info(sc.framing_config, input, format, r#type.clone())
+            }
             FramingCommands::Packetize {
                 include,
                 exclude,

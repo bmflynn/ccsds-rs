@@ -14,6 +14,22 @@ use std::{
 };
 use tracing::{debug, warn};
 
+#[derive(Debug, Clone)]
+pub enum InputType {
+    Cadu,
+    Frame,
+}
+
+impl InputType {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "cadu" => Some(Self::Cadu),
+            "frame" => Some(Self::Frame),
+            _ => None,
+        }
+    }
+}
+
 pub fn sync(srcpath: &Path, dstpath: &Path, block_size: usize) -> Result<()> {
     let src = BufReader::new(File::open(srcpath).context("opening source")?);
     let mut dst = File::create(dstpath).context("creating dest")?;
@@ -190,7 +206,7 @@ struct Info {
     vcids: Vec<(Vcid, Summary)>,
 }
 
-pub fn info(config: FramingConfig, fpath: &Path, format: &Format) -> Result<()> {
+fn frames_from_cadu(config: FramingConfig, fpath: &Path) -> Result<impl Iterator<Item = Frame>> {
     let block_len = config.codeblock_len();
     let mut pipeline = Pipeline::new(block_len);
 
@@ -209,6 +225,45 @@ pub fn info(config: FramingConfig, fpath: &Path, format: &Format) -> Result<()> 
 
     let src = BufReader::new(File::open(fpath).context("opening source")?);
     let frames = pipeline.start(src);
+
+    Ok(frames)
+}
+
+struct FrameIter {
+    file: BufReader<File>,
+    frame_len: usize,
+}
+
+impl Iterator for FrameIter {
+    type Item = Frame;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut buf = vec![0u8; self.frame_len];
+        match self.file.read_exact(&mut buf) {
+            Ok(_) => Frame::decode(buf),
+            Err(_) => None,
+        }
+    }
+}
+
+fn frames_from_file(config: FramingConfig, fpath: &Path) -> Result<impl Iterator<Item = Frame>> {
+    let frame_len = config.length;
+    let src = BufReader::new(File::open(fpath).context("opening source")?);
+    Ok(FrameIter {
+        file: src,
+        frame_len,
+    }
+    .into_iter())
+}
+
+pub fn info(config: FramingConfig, fpath: &Path, format: &Format, itype: InputType) -> Result<()> {
+    let frames =
+        match itype {
+            InputType::Cadu => Box::new(frames_from_cadu(config.clone(), fpath)?)
+                as Box<dyn Iterator<Item = Frame>>,
+            InputType::Frame => Box::new(frames_from_file(config.clone(), fpath)?)
+                as Box<dyn Iterator<Item = Frame>>,
+        };
 
     let mut info = Info {
         filename: fpath.file_name().unwrap().to_string_lossy().to_string(),
