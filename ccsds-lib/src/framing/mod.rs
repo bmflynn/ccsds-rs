@@ -46,10 +46,14 @@ pub use synchronizer::{Block, ASM};
 
 pub type Scid = u16;
 pub type Vcid = u16;
-
 pub type Cadu = Block;
 
 /// Loose representation of a single frame of data extracted from a Cadu.
+///
+/// This can generally be though of as containing from data from a version 1 or version
+/// 2 CCSDS Transfer Frame, see [VCDUHeader::decode] for details on version support.
+///
+/// TM Transfer Frames (CCSDS 132.0-B-3) are not supported.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Frame {
@@ -67,7 +71,8 @@ pub struct Frame {
 }
 
 impl Frame {
-    /// Decode `dat` into a `Frame`, or `None` if not enough bytes.
+    /// Decode `dat` representing an AOS Transfer Frame into a `Frame`, or `None` if
+    /// not enough bytes.
     #[must_use]
     pub fn decode(dat: Vec<u8>) -> Option<Self> {
         let header = VCDUHeader::decode(&dat)?;
@@ -103,9 +108,6 @@ pub struct VCDUHeader {
     pub scid: Scid,
     pub vcid: Vcid,
     pub counter: u32,
-    pub replay: bool,
-    pub cycle: bool,
-    pub counter_cycle: u8,
 }
 
 impl VCDUHeader {
@@ -116,22 +118,48 @@ impl VCDUHeader {
     /// Maximum value for the zero-based VCDU counter before rollover;
     pub const COUNTER_MAX: u32 = 0xff_ffff - 1;
 
-    /// Construct from the provided bytes, or `None` if there are not enough bytes.
+    /// Construct from the provided bytes, or `None` if there are not enough bytes
+    /// or the version is not supported.
+    ///
+    /// This supports version 1 (CCSDS 732.0-B-1) and version 2 (CCSDS 132.0-B-3). For
+    /// version 2 the master channel frame count and virtual channel frame count are
+    /// combined into a single 32b counter.
+    ///
+    /// If the version is unknown or unsupported, `None` is returned.
     #[must_use]
     pub fn decode(dat: &[u8]) -> Option<Self> {
         if dat.len() < Self::LEN {
             return None;
         }
 
+        let ver = (dat[0] >> 6) & 0x3;
+        match ver {
+            0 => Self::decode_v1(dat),
+            1 => Self::decode_v2(dat),
+            // Unknown or unsupported version
+            _ => None,
+        }
+    }
+
+    /// TM Transfer Frame header CCSDS 132.0
+    fn decode_v1(dat: &[u8]) -> Option<Self> {
         let x = u16::from_be_bytes([dat[0], dat[1]]);
         Some(VCDUHeader {
-            version: (dat[0] >> 6) & 0x3,
+            version: 0,
+            scid: ((x >> 4) & 0x3ff),
+            vcid: ((x >> 1) & 0x7),
+            counter: u32::from_be_bytes([0, 0, dat[2], dat[3]]),
+        })
+    }
+
+    /// AOS Transfer Frame header CCSDS 732.0
+    fn decode_v2(dat: &[u8]) -> Option<Self> {
+        let x = u16::from_be_bytes([dat[0], dat[1]]);
+        Some(VCDUHeader {
+            version: 1,
             scid: ((x >> 6) & 0xff),
             vcid: (x & 0x3f),
             counter: u32::from_be_bytes([0, dat[2], dat[3], dat[4]]),
-            replay: (dat[5] >> 7) & 0x1 == 1,
-            cycle: (dat[5] >> 6) & 0x1 == 1,
-            counter_cycle: dat[5] & 0xf,
         })
     }
 }
@@ -235,7 +263,7 @@ mod test {
     #[test]
     fn decode_vcduheader() {
         let dat: Vec<u8> = vec![
-            0x55, 0x61, // version 1, scid 85, vcid 33
+            0x55, 0x61, // version 2 (0x01), scid 85, vcid 33
             0x01, 0xe2, 0x40, // counter 123456
             0x05, // replay:false, frame count usage:false, frame-count-cycle:5
             0x01, 0x02, 0x03, // insert zone
@@ -248,20 +276,14 @@ mod test {
         assert_eq!(header.scid, 85);
         assert_eq!(header.vcid, 33);
         assert_eq!(header.counter, 123_456);
-        assert!(!header.replay);
-        assert!(!header.cycle);
-        assert_eq!(header.counter_cycle, 5);
     }
 
     #[test]
-    fn decode_vcduheader_minmax() {
-        let dat: Vec<u8> = vec![0, 0, 0, 0, 0, 0];
-
-        VCDUHeader::decode(&dat).unwrap();
-
+    fn decode_vcduheader_unsupported_version_is_none() {
         let dat: Vec<u8> = vec![0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
 
-        VCDUHeader::decode(&dat).unwrap();
+        let hdr = VCDUHeader::decode(&dat);
+        assert!(hdr.is_none(), "expected none, got {:?}", hdr);
     }
 
     #[test]

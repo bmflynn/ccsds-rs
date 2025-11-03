@@ -6,10 +6,12 @@
 
 The project provides tools for decoding spacecraft downlink telemetry streams conforming
 to the [`CCSDS`] recommended specifications (Blue Books)
-[`TM Synchronization and Channel Coding`] and [`Space Packet Protocol`].
+[`TM Synchronization and Channel Coding`], [`AOS Space Data Link Protocol`], and [`Space Packet Protocol`].
 
 Supports:
 - Framing
+    - Supports AOS Transfer Frames (CCSDS 732.0-B-4)
+        * TM Transfer Frames (CCSDS 132.0-B-3) are not currently supported
     - Stream synchronization
     - Deransomization (pseudo-noise removal)
     - Integrity checking/correcting
@@ -71,6 +73,7 @@ let packets = packet_decoder(frames, izone_len, trailer_len);
 ## References
 * [`CCSDS`]
 * [`Space Packet Protocol`]
+* [`AOS Space Data Link Protocol`]
 * [`TM Synchronization and Channel Coding`]
 * [`TM Synchronization and Channel Coding - Summary of Concept and Rationale`]
 
@@ -85,6 +88,8 @@ at your option.
 
 [`CCSDS`]: https://public.ccsds.org
 [`Space Packet Protocol`]: https://public.ccsds.org/Pubs/133x0b1c2.pdf
+[`TM Space Data Link Protocol`]: https://public.ccsds.org/Pubs/132x0b3.pdf
+[`AOS Space Data Link Protocol`]: https://public.ccsds.org/Pubs/732x0b4.pdf
 [`TM Synchronization and Channel Coding`]: https://public.ccsds.org/Pubs/131x0b5.pdf
 [`TM Synchronization and Channel Coding - Summary of Concept and Rationale`]: https://public.ccsds.org/Pubs/130x1g3.pdf
 [Level-0]: https://www.earthdata.nasa.gov/engage/open-data-services-and-software/data-information-policy/data-levels
