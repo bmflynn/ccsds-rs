@@ -19,7 +19,7 @@ fn bench_synchronization(c: &mut Criterion) {
     group.bench_function("loop", move |b| {
         b.iter(move || {
             let sync = ccsds::framing::synchronize(Cursor::new(data), SyncOpts::new(1020));
-            let _: Vec<Block> = sync.into_iter().collect();
+            let _: Vec<Block> = sync.into_iter().map_while(Result::ok).collect();
         });
     });
 }

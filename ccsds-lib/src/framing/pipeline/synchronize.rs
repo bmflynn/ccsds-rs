@@ -2,6 +2,7 @@ use std::io::Read;
 
 use tracing::debug;
 
+use crate::error::Result;
 use crate::framing::{synchronizer::Synchronizer, ASM};
 
 use super::Cadu;
@@ -44,13 +45,13 @@ where
 }
 
 #[allow(unused)]
-fn sync_on_main<R>(reader: R, opts: SyncOpts) -> impl Iterator<Item = Cadu>
+fn sync_on_main<R>(reader: R, opts: SyncOpts) -> impl Iterator<Item = Result<Cadu>>
 where
     R: Read + Send + 'static,
 {
     let sync = Synchronizer::new(reader, opts.length).with_asm(opts.asm);
 
-    sync.into_iter().filter_map(Result::ok)
+    sync.into_iter()
 }
 
 /// Options used for synchronization
@@ -77,7 +78,7 @@ impl<'a> SyncOpts<'a> {
 }
 
 /// Syncronize a bit stream to provide a byte-aligned iterator of [Block] data.
-pub fn synchronize<R>(reader: R, opts: SyncOpts) -> impl Iterator<Item = Cadu>
+pub fn synchronize<R>(reader: R, opts: SyncOpts) -> impl Iterator<Item = Result<Cadu>>
 where
     R: Read + Send + 'static,
 {

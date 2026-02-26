@@ -13,7 +13,7 @@
 //! let trailer_len = 0;
 //!
 //! let file = BufReader::new(File::open("snpp.dat").unwrap());
-//! let cadus = synchronize(file, SyncOpts::new(block_len));
+//! let cadus = synchronize(file, SyncOpts::new(block_len)).map_while(Result::ok);
 //! let cadus = derandomize(cadus);
 //! let frames = frame_decoder(cadus);
 //! let rs_opts = RsOpts::new(interleave)

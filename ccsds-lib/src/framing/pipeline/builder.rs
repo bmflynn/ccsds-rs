@@ -37,7 +37,7 @@ impl Pipeline {
 
     pub fn start<R: Read + Send + 'static>(&mut self, reader: R) -> impl Iterator<Item = Frame> {
         let mut blocks: Box<dyn Iterator<Item = Block> + Send + 'static> =
-            Box::new(synchronize(reader, SyncOpts::new(self.block_length)));
+            Box::new(synchronize(reader, SyncOpts::new(self.block_length)).filter_map(Result::ok));
 
         if self.derandomize {
             blocks = Box::new(derandomize(blocks))

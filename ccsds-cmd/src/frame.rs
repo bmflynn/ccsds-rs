@@ -34,7 +34,7 @@ pub fn sync(srcpath: &Path, dstpath: &Path, block_size: usize) -> Result<()> {
     let src = BufReader::new(File::open(srcpath).context("opening source")?);
     let mut dst = File::create(dstpath).context("creating dest")?;
 
-    for cadu in synchronize(src, SyncOpts::new(block_size)) {
+    for cadu in synchronize(src, SyncOpts::new(block_size)).map_while(Result::ok) {
         dst.write_all(&ASM)?;
         dst.write_all(&cadu.data)?;
     }
