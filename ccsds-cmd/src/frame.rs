@@ -120,6 +120,7 @@ pub fn frame_aos<O: AsRef<Path>>(
         channel.total_frames += 1;
         channel.total_bytes += frame.data.len();
         channel.missing_frames += frame.missing as usize;
+        summary.info.missing_frames += frame.missing as usize;
         match &frame.integrity {
             Some(integrity) => match integrity {
                 Integrity::Ok => {
@@ -146,7 +147,12 @@ pub fn frame_aos<O: AsRef<Path>>(
         }
         match &frame.integrity {
             Some(Integrity::Uncorrectable | Integrity::NotCorrected | Integrity::Failed) => {
-                warn!(vcid = %frame.header.vcid, counter = frame.header.counter, integrity = ?frame.integrity, "frame integrity failed, dropping");
+                let s = if let Some(i) = &frame.integrity {
+                    format!("{}", i)
+                } else {
+                    "??".to_string()
+                };
+                warn!(vcid = %frame.header.vcid, counter = frame.header.counter, integrity = s, "frame integrity failed, dropping");
                 continue;
             }
             _ => {}
