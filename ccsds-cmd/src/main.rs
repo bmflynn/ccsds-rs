@@ -3,19 +3,19 @@ mod filter;
 mod frame;
 mod info;
 mod merge;
-mod spacecraft;
-mod spacecrafts;
 
+use std::io::{BufReader, Read};
+use std::net::TcpStream;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::{fs::File, io::stderr};
 
 use anyhow::{anyhow, bail, Context, Result};
+use ccsds::framing::Vcid;
+use ccsds::spacepacket::Apid;
 use ccsds::spacepacket::TimecodeDecoder;
-use ccsds::{framing::Scid, framing::Vcid, spacepacket::Apid};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use hifitime::Epoch;
-use spacecrafts::Spacecrafts;
 use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
 
@@ -26,121 +26,40 @@ struct Cli {
     command: Commands,
 }
 
-#[derive(Subcommand)]
-enum FramingCommands {
-    /// Byte-align and remove fill
-    ///
-    /// Leaves ASM in place. Performs no PN or integrity checking
-    Sync {
-        /// Output file path. Defaults to input name with .sync suffix.
-        #[arg(short, long)]
-        output: Option<PathBuf>,
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum SummaryFormat {
+    JSON,
+    TXT,
+}
 
-        /// Spacecraft identifier used to lookup framing config.
-        scid: Scid,
+#[derive(Debug)]
+pub enum InputReader {
+    Stdin(BufReader<std::io::Stdin>),
+    File(BufReader<std::fs::File>),
+    TCP(BufReader<std::net::TcpStream>),
+}
 
-        /// Input CADU file to synchronize
-        input: PathBuf,
-    },
-    /// Decode raw data (CADU) file into frames.
-    ///
-    /// The input need not be synchronized. PN and integrity aglorithms will be applied as
-    /// configured for the specified spacecraft. The output frame data will not include any
-    /// integrity check symbols and all frames will be byte-aligned data using a frame length
-    /// of defined by the spacecraft framing configuration.
-    Frame {
-        /// Include these vcids or vcid ranges.
-        ///
-        /// This accepts a CSV of VCIDs as well as ranges of the format `<start>-<end>`
-        /// where start and end are inclusive. For example, you can specify
-        /// --include 0,1,2,3,4,5,10,20,30 or --include 0-5,10,20,30
-        ///
-        /// If used with --exclude, values are first included, then excluded.
-        #[arg(short, long, value_name = "csv", value_delimiter = ',')]
-        include: Vec<String>,
+impl InputReader {
+    fn from_str(s: &str) -> Result<InputReader> {
+        if s == "-" {
+            return Ok(InputReader::Stdin(BufReader::new(std::io::stdin())));
+        }
+        if std::fs::exists(s).unwrap_or_default() {
+            return Ok(InputReader::File(BufReader::new(File::open(s)?)));
+        }
+        let conn = TcpStream::connect(s).context("failed to connect")?;
+        return Ok(InputReader::TCP(BufReader::new(conn)));
+    }
+}
 
-        /// Exclude these vcids or vcid ranges.
-        ///
-        /// This accepts a CSV of vcids as well as ranges of the format `<start>-<end>`
-        /// where start is inclusive and end is exclusive.
-        ///
-        /// If used with --include, values are first included, then excluded.
-        #[arg(short, long, value_name = "csv", value_delimiter = ',')]
-        exclude: Vec<String>,
-
-        /// Output file path to save frame data to. Defaults to input name with .frames suffix.
-        #[arg(short, long)]
-        output: Option<PathBuf>,
-
-        /// Perform configured integrity checks, dropping uncorrectable frames.
-        ///
-        /// By default, integrity checks are not performed and all check symbols are dropped before
-        /// writing the output frame data.
-        ///
-        /// If there is no integrity configured in the framing config, this option is ignored.
-        #[arg(short, long)]
-        correct: bool,
-
-        /// Spacecraft identifier used to lookup framing config.
-        scid: Scid,
-
-        /// Input CADU file to frame
-        input: PathBuf,
-    },
-
-    /// Summarize contained frames
-    Info {
-        /// Output format
-        #[arg(short, long, default_value = "text")]
-        format: frame::Format,
-
-        /// Spacecraft identifier used to lookup framing config.
-        scid: Scid,
-
-        /// Type of the input file. One of 'frame', or 'cadu'; defaults to 'cadu'.
-        ///
-        /// When set to 'frame', the input file must already be byte-aligned frames and must not
-        /// containe any ASM or integrity check symbols. When set to 'cadu', the input file will
-        /// first decoded using the spacecraft framing config before summarizing the frames,
-        /// including an PN and integrity checking as configured.
-        #[arg(short, long, value_parser = parse_input_type, default_value = "cadu")]
-        r#type: frame::InputType,
-
-        /// Input file. Assumed to be raw CADU data
-        input: PathBuf,
-    },
-
-    /// Decode space packet data from frames.
-    Packetize {
-        /// Include these apid or apid ranges.
-        ///
-        /// This accepts a CSV of APIDs as well as ranges of the format `<start>-<end>`
-        /// where start and end are inclusive. For example, you can specify
-        /// --include 0,1,2,3,4,5,10,20,30 or --include 0-5,10,20,30
-        ///
-        /// If used with --exclude, values are first included, then excluded.
-        #[arg(short, long, value_name = "csv", value_delimiter = ',')]
-        include: Vec<String>,
-
-        /// Exclude these apids or apid ranges.
-        ///
-        /// This accepts a CSV of apids as well as ranges of the format `<start>-<end>`
-        /// where start is inclusive and end is exclusive.
-        ///
-        /// If used with --include, values are first included, then excluded.
-        #[arg(short, long, value_name = "csv", value_delimiter = ',')]
-        exclude: Vec<String>,
-
-        /// Output file path to save packet data to. Defaults to input name with .packets suffix.
-        #[arg(short, long)]
-        output: Option<PathBuf>,
-
-        /// Spacecraft identifier used to lookup framing config.
-        scid: Scid,
-
-        /// Input frame file
-        input: PathBuf,
-    },
+impl Read for InputReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            InputReader::Stdin(r) => r.read(buf),
+            InputReader::File(r) => r.read(buf),
+            InputReader::TCP(r) => r.read(buf),
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -257,26 +176,84 @@ enum Commands {
         /// Input spacepacket file.
         input: PathBuf,
     },
-    /// View spacecraft information.
-    ///
-    /// This requires a spacecraft database be available a ./spacecraftdb.json or
-    /// ~/.spacecraftdb.json.
-    ///
-    /// See: <https://github.com/bmflynn/spacecraftsdb/releases>
-    Spacecraft {
-        /// Spacecraft identifier
-        #[arg(short, long)]
-        scid: Option<Scid>,
 
-        /// Path to spacecraft database to merge with built-in spacecrafts.
-        #[arg(short, long)]
-        db: Option<PathBuf>,
-    },
-
-    /// Framing commands.
+    /// Decode frames from an input stream of CADUs.
     Framing {
-        #[command(subcommand)]
-        command: FramingCommands,
+        // #[command(subcommand)]
+        // command: FramingCommands,
+        /// Type of the contained frames
+        #[arg(short = 't', long = "type", default_value = "aos")]
+        frame_type: frame::FrameType,
+        /// Frame length not including any reed-solomon parity or cadu attached sync marker
+        /// bytes.
+        #[arg(short, long, value_name = "NUM")]
+        length: usize,
+        /// Remove pseudo-noise
+        #[arg(short='N', long, action=clap::ArgAction::SetTrue)]
+        pn: bool,
+        /// Frame contains frame error control bytes
+        #[arg(long, action=clap::ArgAction::SetTrue)]
+        fec: bool,
+        /// Frame contains operational control field bytes
+        #[arg(long, action=clap::ArgAction::SetTrue)]
+        ocf: bool,
+        /// Don't drop fill frames
+        #[arg(long, action=clap::ArgAction::SetTrue)]
+        keep_fill: bool,
+
+        /// Number of AOS frame insert zone bytes. Ignored unless --type=aos
+        #[arg(long, value_name = "NUM", default_value = "0")]
+        aos_izone: usize,
+
+        /// Enables reed-solomon handling with this interleave.
+        #[arg(short, long, value_name = "INTERLEAVE")]
+        rs: Option<u8>,
+        /// If reed-solomon is enabled, perform error detection. Ignored unless --reed-solomon.
+        #[arg(long, action=clap::ArgAction::SetTrue)]
+        rs_detect: bool,
+        /// If reed-solomon is enabled, perform error correction. Ignored unless --reed-solomon, implies
+        /// --reed-solomon-detect
+        #[arg(short='C', long, action=clap::ArgAction::SetTrue)]
+        rs_correct: bool,
+        /// Number of reed-solomon virtual-fill bytes. Ignored unless --reed-solomon.
+        #[arg(short = 'V', long, value_name = "NUM", default_value = "0")]
+        rs_virtualfill: usize,
+        /// Number of threads to use for reed-solomon. Defaults to all available.
+        #[arg(long, value_name = "NUM")]
+        rs_threads: Option<usize>,
+        /// Number of frames to keep waiting in memory.
+        #[arg(long, value_name = "NUM", default_value = "50")]
+        rs_buffersize: usize,
+
+        /// Include these vcids or vcid ranges. If not specified, include all.
+        ///
+        /// This accepts a CSV of VCIDs as well as ranges of the format `<start>-<end>`
+        /// where start and end are inclusive. For example, you can specify
+        /// --include 0,1,2,3,4,5,10,20,30 or --include 0-5,10,20,30
+        ///
+        /// If used with --exclude, values are first included, then excluded.
+        #[arg(long, value_name = "csv", value_delimiter = ',')]
+        include: Vec<String>,
+
+        /// Exclude these vcids or vcid ranges.
+        ///
+        /// This accepts a CSV of vcids as well as ranges of the format `<start>-<end>`
+        /// where start is inclusive and end is exclusive.
+        ///
+        /// If used with --include, values are first included, then excluded.
+        #[arg(short, long, value_name = "csv", value_delimiter = ',')]
+        exclude: Vec<String>,
+
+        /// Output file path, or '-' for stdout. If not specified only print the summary.
+        #[arg(short, long, value_name = "PATH")]
+        output: Option<PathBuf>,
+
+        /// Format for the framing summary
+        #[arg(long, default_value = "json")]
+        format: SummaryFormat,
+
+        /// Input file path
+        input: String,
     },
 
     /// Difference 2 packet files.
@@ -323,10 +300,6 @@ fn parse_number_ranges(list: Vec<String>) -> Result<Vec<u32>> {
     }
 
     Ok(values)
-}
-
-fn parse_input_type(s: &str) -> Result<frame::InputType, String> {
-    frame::InputType::from_str(s).ok_or("Could not parse into an input type".to_string())
 }
 
 fn parse_timestamp(s: &str) -> Result<Epoch, String> {
@@ -433,115 +406,62 @@ fn main() -> Result<()> {
 
             filter::filter(src, dest, &include, &exclude, *before, *after)
         }
-        Commands::Spacecraft { scid, db } => {
-            spacecraft::spacecraft_info(db.as_ref(), scid.as_ref().copied(), true, true)
-        }
-        Commands::Framing { command } => match command {
-            FramingCommands::Sync {
-                input,
-                output,
-                scid,
-            } => {
-                let Some(sc) = Spacecrafts::default().lookup(*scid) else {
-                    bail!("No spacecraft config found for {scid}");
-                };
-                let output = match output {
-                    Some(p) => p.clone(),
-                    None => PathBuf::from(format!(
-                        "{}.sync",
-                        input.file_name().unwrap().to_string_lossy()
-                    )),
-                };
-                info!(
-                    "writing to {:?} using block size {}",
-                    &output,
-                    sc.framing_config.codeblock_len()
-                );
-                frame::sync(input, &output, sc.framing_config.codeblock_len())
-            }
-            FramingCommands::Frame {
-                include,
-                exclude,
-                input,
-                output,
-                scid,
-                correct,
-            } => {
-                let Some(sc) = Spacecrafts::default().lookup(*scid) else {
-                    bail!("No spacecraft config found for {scid}");
-                };
-                let include = parse_number_ranges(include.clone())?
-                    .iter()
-                    .filter_map(|v| Vcid::try_from(*v).ok())
-                    .collect::<Vec<Vcid>>();
-                let exclude = parse_number_ranges(exclude.clone())?
-                    .iter()
-                    .filter_map(|v| Vcid::try_from(*v).ok())
-                    .collect::<Vec<Vcid>>();
-                let output = match output {
-                    Some(p) => p.clone(),
-                    None => PathBuf::from(format!(
-                        "{}.frames",
-                        input.file_name().unwrap().to_string_lossy()
-                    )),
-                };
-                info!("writing to {:?} using {:?}", &output, sc.framing_config);
-
-                frame::frame(
-                    input,
-                    &output,
-                    sc.framing_config,
-                    include,
-                    exclude,
-                    *correct,
-                )
-            }
-            FramingCommands::Info {
-                format,
-                input,
-                scid,
-                r#type,
-            } => {
-                let Some(sc) = Spacecrafts::default().lookup(*scid) else {
-                    bail!("No spacecraft config found for {scid}");
-                };
-                frame::info(sc.framing_config, input, format, r#type.clone())
-            }
-            FramingCommands::Packetize {
-                include,
-                exclude,
-                input,
-                output,
-                scid,
-            } => {
-                let Some(sc) = Spacecrafts::default().lookup(*scid) else {
-                    bail!("No spacecraft config found for {scid}");
-                };
-                let include = parse_number_ranges(include.clone())?
-                    .iter()
-                    .filter_map(|v| Apid::try_from(*v).ok())
-                    .collect::<Vec<Vcid>>();
-                let exclude = parse_number_ranges(exclude.clone())?
-                    .iter()
-                    .filter_map(|v| Apid::try_from(*v).ok())
-                    .collect::<Vec<Vcid>>();
-
-                let output = match output {
-                    Some(p) => p.clone(),
-                    None => PathBuf::from(format!(
-                        "{}.packets",
-                        input.file_name().unwrap().to_string_lossy()
-                    )),
-                };
-                info!("writing to {:?} using {:?}", &output, sc.framing_config);
-
-                frame::packetize(input, &output, sc.framing_config, include, exclude)
-            }
-        },
         Commands::Diff {
             left,
             right,
             verbose,
         } => crate::diff::diff(left, right, *verbose),
+        Commands::Framing {
+            frame_type: _,
+            length,
+            pn,
+            fec,
+            ocf,
+            keep_fill,
+            aos_izone,
+            rs,
+            rs_detect,
+            rs_correct,
+            rs_virtualfill,
+            rs_threads,
+            rs_buffersize,
+            include,
+            exclude,
+            input,
+            output,
+            format,
+        } => {
+            let include = parse_number_ranges(include.clone())?
+                .iter()
+                .filter_map(|v| Vcid::try_from(*v).ok())
+                .collect::<Vec<Vcid>>();
+            let exclude = parse_number_ranges(exclude.clone())?
+                .iter()
+                .filter_map(|v| Vcid::try_from(*v).ok())
+                .collect::<Vec<Vcid>>();
+
+            let input = InputReader::from_str(input)?;
+
+            let summary = frame::frame_aos(
+                input,
+                *length,
+                *pn,
+                *fec,
+                *ocf,
+                *keep_fill,
+                *aos_izone,
+                *rs,
+                *rs_detect,
+                *rs_correct,
+                *rs_virtualfill,
+                *rs_threads,
+                *rs_buffersize,
+                include,
+                exclude,
+                output.as_ref(),
+            )?;
+
+            frame::render_summary(&summary, *format)
+        }
     }
 }

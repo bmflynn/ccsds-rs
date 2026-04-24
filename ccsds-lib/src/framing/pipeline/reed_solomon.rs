@@ -74,7 +74,7 @@ where
 
     // Channel used to maintain the order of the frames as they are processed. Jobs are waited
     // for in the order they were submitted
-    let (jobs_tx, jobs_rx) = crossbeam::channel::unbounded();
+    let (jobs_tx, jobs_rx) = crossbeam::channel::bounded(opts.buffer_size * 2);
 
     let rs = Arc::new(
         DefaultReedSolomon::new(opts.interleave)

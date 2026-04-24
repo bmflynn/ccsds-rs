@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use rs2::{correct_message, has_errors, RSState, N, PARITY_LEN};
 
 #[cfg(feature = "serde")]
@@ -19,6 +21,18 @@ pub enum Integrity {
     NotCorrected,
     /// Algorithm failed to run due to precondition, e.g., bad frame size
     Failed,
+}
+
+impl Display for Integrity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Integrity::Ok => write!(f, "ok"),
+            Integrity::Corrected => write!(f, "corrected"),
+            Integrity::Uncorrectable => write!(f, "uncorrectable"),
+            Integrity::NotCorrected => write!(f, "notcorrected"),
+            Integrity::Failed => write!(f, "failed"),
+        }
+    }
 }
 
 impl Integrity {
