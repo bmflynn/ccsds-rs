@@ -1,18 +1,13 @@
-use std::{
-    collections::HashMap,
-    fs::File,
-    io::{stdout, Write},
-    path::Path,
-};
+use std::{collections::HashMap, fs::File, io::Write, path::Path};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result};
 use clap::ValueEnum;
 
 use ccsds::framing::{Integrity, Pipeline, RsOpts, Vcid};
+use handlebars::handlebars_helper;
 use serde::Serialize;
-use tracing::warn;
 
-use crate::{InputReader, SummaryFormat};
+use crate::InputReader;
 
 const FEC_LEN: usize = 2;
 const OCF_LEN: usize = 4;
@@ -20,6 +15,7 @@ const RS_PARITY_LEN: usize = 128;
 
 #[derive(Default, Debug, Clone, Serialize)]
 pub struct Info {
+    vcid: Vcid,
     total_frames: usize,
     total_bytes: usize,
     missing_frames: usize,
@@ -31,10 +27,18 @@ pub struct Info {
     not_performed: usize,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Default, Clone, Serialize)]
 pub struct Summary {
-    info: Info,
-    vcids: Vec<(Vcid, Info)>,
+    total_frames: usize,
+    total_bytes: usize,
+    missing_frames: usize,
+
+    corrected: usize,
+    uncorrectable: usize,
+    ok: usize,
+    error: usize,
+    not_performed: usize,
+    vcids: Vec<Info>,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -91,10 +95,7 @@ pub fn frame_aos<O: AsRef<Path>>(
         pipeline = pipeline.with_rs(opts);
     }
 
-    let mut summary = Summary {
-        info: Info::default(),
-        vcids: Vec::default(),
-    };
+    let mut summary = Summary::default();
     let mut vcids: HashMap<Vcid, Info> = HashMap::default();
 
     let frames = pipeline.start(input);
@@ -113,46 +114,41 @@ pub fn frame_aos<O: AsRef<Path>>(
         if !exclude.is_empty() && exclude.contains(&frame.header.vcid) {
             continue;
         }
-        summary.info.total_frames += 1;
-        summary.info.total_bytes += frame.data.len();
+        summary.total_frames += 1;
+        summary.total_bytes += frame.data.len();
 
         let channel = vcids.entry(frame.header.vcid).or_default();
+        channel.vcid = frame.header.vcid;
         channel.total_frames += 1;
         channel.total_bytes += frame.data.len();
         channel.missing_frames += frame.missing as usize;
-        summary.info.missing_frames += frame.missing as usize;
+        summary.missing_frames += frame.missing as usize;
         match &frame.integrity {
             Some(integrity) => match integrity {
                 Integrity::Ok => {
                     channel.ok += 1;
-                    summary.info.ok += 1;
+                    summary.ok += 1;
                 }
                 Integrity::Corrected => {
                     channel.corrected += 1;
-                    summary.info.corrected += 1;
+                    summary.corrected += 1;
                 }
                 Integrity::Uncorrectable | Integrity::NotCorrected => {
                     channel.uncorrectable += 1;
-                    summary.info.uncorrectable += 1;
+                    summary.uncorrectable += 1;
                 }
                 Integrity::Failed => {
                     channel.error += 1;
-                    summary.info.error += 1;
+                    summary.error += 1;
                 }
             },
             None => {
                 channel.not_performed += 1;
-                summary.info.not_performed += 1;
+                summary.not_performed += 1;
             }
         }
         match &frame.integrity {
             Some(Integrity::Uncorrectable | Integrity::NotCorrected | Integrity::Failed) => {
-                let s = if let Some(i) = &frame.integrity {
-                    format!("{}", i)
-                } else {
-                    "??".to_string()
-                };
-                warn!(vcid = %frame.header.vcid, counter = frame.header.counter, integrity = s, "frame integrity failed, dropping");
                 continue;
             }
             _ => {}
@@ -163,17 +159,65 @@ pub fn frame_aos<O: AsRef<Path>>(
         }
     }
 
-    for (vcid, each) in vcids {
-        summary.vcids.push((vcid, each));
-    }
+    let mut vcids: Vec<Info> = vcids.values().cloned().collect();
+    vcids.sort_unstable_by(|a, b| a.vcid.cmp(&b.vcid));
+    summary.vcids = vcids;
 
     Ok(summary)
 }
 
-pub fn render_summary(summary: &Summary, format: SummaryFormat) -> Result<()> {
-    match format {
-        SummaryFormat::JSON => serde_json::to_writer_pretty(stdout(), &summary)
-            .map_err(|err| anyhow!("writing output: {err}")),
-        _ => bail!("{:?} not currently supported", format),
-    }
+pub fn render_json_summary(summary: &Summary) -> Result<String> {
+    serde_json::to_string_pretty(&summary).context("serde")
+}
+
+const TEXT_TEMPLATE: &str = r#"======================================================================================================
+Frames:        {{ total_frames }}
+Bytes:         {{ total_bytes }} 
+Missing:       {{ missing_frames}}
+Corrected:     {{ corrected }}
+Uncorrectable: {{ uncorrectable }}
+Ok:            {{ ok }}
+Error:         {{ error }}
+NotPerformed:  {{ not_performed }}
+------------------------------------------------------------------------------------------------------
+VCID  Frames      Bytes       Missing     Corrected   Uncorr.     Ok          Error       NotPerf.
+------------------------------------------------------------------------------------------------------
+{{ #each vcids }}
+{{ lpad 4 this.vcid }}
+{{~ lpad 12 this.total_frames }}
+{{~ lpad 12 this.total_bytes }}
+{{~ lpad 12 this.missing_frames }}
+{{~ lpad 12 this.corrected }}
+{{~ lpad 12 this.uncorrectable }}
+{{~ lpad 12 this.ok }}
+{{~ lpad 12 this.error }}
+{{~ lpad 12 this.not_performed }}
+{{/each}}
+"#;
+
+pub fn write_text_summary<W: Write>(mut w: W, summary: &Summary) -> Result<()> {
+    handlebars_helper!(left_pad: |num: u64, v: Json| {
+        let v = match v {
+            serde_json::Value::String(s) => s.to_owned(),
+            serde_json::Value::Null => String::new(),
+            _ => v.to_string()
+        };
+        let mut num: usize = usize::try_from(num).unwrap();
+        if num < v.len() {
+            num = v.len();
+        }
+        let mut s = String::new();
+        let padding = num - v.len();
+        for _ in 0..padding {
+            s.push(' ');
+        }
+        s.push_str(&v);
+        s
+    });
+    let mut hb = handlebars::Handlebars::new();
+    hb.register_helper("lpad", Box::new(left_pad));
+    assert!(hb.register_template_string("main", TEXT_TEMPLATE).is_ok());
+
+    let content = hb.render("main", &summary).context("rendering text")?;
+    w.write_all(content.as_bytes()).context("writing tempalte")
 }

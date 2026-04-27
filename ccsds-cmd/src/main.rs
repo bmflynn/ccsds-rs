@@ -4,7 +4,8 @@ mod frame;
 mod info;
 mod merge;
 
-use std::io::{BufReader, Read};
+use std::fs;
+use std::io::{stdout, BufReader, Read};
 use std::net::TcpStream;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -248,9 +249,9 @@ enum Commands {
         #[arg(short, long, value_name = "PATH")]
         output: Option<PathBuf>,
 
-        /// Format for the framing summary
-        #[arg(long, default_value = "json")]
-        format: SummaryFormat,
+        /// Write a JSON summary of the decode.
+        #[arg(short, long)]
+        summary: Option<PathBuf>,
 
         /// Input file path
         input: String,
@@ -429,7 +430,7 @@ fn main() -> Result<()> {
             exclude,
             input,
             output,
-            format,
+            summary: summary_path,
         } => {
             let include = parse_number_ranges(include.clone())?
                 .iter()
@@ -461,7 +462,11 @@ fn main() -> Result<()> {
                 output.as_ref(),
             )?;
 
-            frame::render_summary(&summary, *format)
+            if let Some(path) = summary_path {
+                let content = frame::render_json_summary(&summary).context("rendering summary")?;
+                fs::write(path, content).context("writing JSON summary")?;
+            }
+            frame::write_text_summary(stdout(), &summary)
         }
     }
 }
