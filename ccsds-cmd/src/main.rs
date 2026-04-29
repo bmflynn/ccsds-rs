@@ -192,19 +192,9 @@ enum Commands {
         /// Remove pseudo-noise
         #[arg(short='N', long, action=clap::ArgAction::SetTrue)]
         pn: bool,
-        /// Frame contains frame error control bytes
-        #[arg(long, action=clap::ArgAction::SetTrue)]
-        fec: bool,
-        /// Frame contains operational control field bytes
-        #[arg(long, action=clap::ArgAction::SetTrue)]
-        ocf: bool,
         /// Don't drop fill frames
         #[arg(long, action=clap::ArgAction::SetTrue)]
         keep_fill: bool,
-
-        /// Number of AOS frame insert zone bytes. Ignored unless --type=aos
-        #[arg(long, value_name = "NUM", default_value = "0")]
-        aos_izone: usize,
 
         /// Enables reed-solomon handling with this interleave.
         #[arg(short, long, value_name = "INTERLEAVE")]
@@ -416,10 +406,7 @@ fn main() -> Result<()> {
             frame_type: _,
             length,
             pn,
-            fec,
-            ocf,
             keep_fill,
-            aos_izone,
             rs,
             rs_detect,
             rs_correct,
@@ -447,10 +434,7 @@ fn main() -> Result<()> {
                 input,
                 *length,
                 *pn,
-                *fec,
-                *ocf,
                 *keep_fill,
-                *aos_izone,
                 *rs,
                 *rs_detect,
                 *rs_correct,

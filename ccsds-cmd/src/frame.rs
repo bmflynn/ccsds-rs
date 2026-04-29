@@ -6,12 +6,12 @@ use clap::ValueEnum;
 use ccsds::framing::{Integrity, Pipeline, RsOpts, Vcid};
 use handlebars::handlebars_helper;
 use serde::Serialize;
+use tracing::info;
 
 use crate::InputReader;
 
-const FEC_LEN: usize = 2;
-const OCF_LEN: usize = 4;
-const RS_PARITY_LEN: usize = 128;
+// size of a single block of RS parity for 223/255
+const RS_PARITY_LEN: usize = 32;
 
 #[derive(Default, Debug, Clone, Serialize)]
 pub struct Info {
@@ -46,26 +46,11 @@ pub enum FrameType {
     AOS,
 }
 
-fn aos_block_len(length: usize, fec: bool, ocf: bool, izone: usize) -> usize {
-    let mut block_len = length;
-    block_len += izone;
-    if fec {
-        block_len += FEC_LEN;
-    }
-    if ocf {
-        block_len += OCF_LEN;
-    }
-    return block_len + RS_PARITY_LEN;
-}
-
 pub fn frame_aos<O: AsRef<Path>>(
     input: InputReader,
     length: usize,
     pn: bool,
-    fec: bool,
-    ocf: bool,
     keep_fill: bool,
-    izone: usize,
     reed_solomon: Option<u8>,
     reed_solomon_detect: bool,
     reed_solomon_correct: bool,
@@ -76,8 +61,10 @@ pub fn frame_aos<O: AsRef<Path>>(
     exclude: Vec<Vcid>,
     output: Option<O>,
 ) -> Result<Summary> {
-    let block_len = aos_block_len(length, fec, ocf, izone);
-    let mut pipeline = Pipeline::new(block_len);
+    let interleave = reed_solomon.unwrap_or_default();
+    let sync_block_len = length + RS_PARITY_LEN * interleave as usize;
+    info!("using frame/cadu length: {}/{}", length, sync_block_len);
+    let mut pipeline = Pipeline::new(sync_block_len);
     if !pn {
         pipeline = pipeline.without_derandomization();
     }

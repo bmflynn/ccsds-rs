@@ -64,7 +64,7 @@ fn do_reed_solomon<I>(frames: I, opts: RsOpts, result_tx: Sender<Frame>)
 where
     I: Iterator<Item = Frame> + Send + 'static,
 {
-    // Thread pool to hose the  RS computation tasks. 1 job per frame, which results in
+    // Thread pool to host the  RS computation tasks. 1 job per frame, which results in
     // `interleave` computations per frame as a single job.
     let pool = rayon::ThreadPoolBuilder::new()
         .thread_name(|i| format!("reed_solomon::compute{i}"))
