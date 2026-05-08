@@ -5,7 +5,7 @@ use clap::ValueEnum;
 
 use ccsds::framing::{Integrity, Pipeline, RsOpts, Vcid};
 use handlebars::handlebars_helper;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use crate::InputReader;
@@ -41,7 +41,7 @@ pub struct Summary {
     vcids: Vec<Info>,
 }
 
-#[derive(Clone, Copy, Debug, ValueEnum)]
+#[derive(Clone, Copy, Debug, ValueEnum, Serialize, Deserialize)]
 pub enum FrameType {
     AOS,
 }

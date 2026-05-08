@@ -1,3 +1,4 @@
+mod config;
 mod diff;
 mod filter;
 mod frame;
@@ -19,6 +20,8 @@ use clap::{Parser, Subcommand, ValueEnum};
 use hifitime::Epoch;
 use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
+
+use crate::config::Config;
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -180,14 +183,24 @@ enum Commands {
 
     /// Decode frames from an input stream of CADUs.
     Framing {
-        // #[command(subcommand)]
-        // command: FramingCommands,
+        /// Spacecraft framing JSON config file. If provided assiciated flags are ignored.
+        ///
+        /// JSON config format:
+        /// {"asm": [<int>,...],
+        ///  "scid": <u16>,
+        ///  "type": "aos",
+        ///  "length": <int>,
+        ///  "pn": bool,
+        ///  "rs": {"interleave": <int>, "virtualfill": <int>}
+        /// }
+        #[arg(short = 'c', long = "config")]
+        config: Option<PathBuf>,
         /// Type of the contained frames
         #[arg(short = 't', long = "type", default_value = "aos")]
         frame_type: frame::FrameType,
         /// Frame length not including any reed-solomon parity or cadu attached sync marker
         /// bytes.
-        #[arg(short, long, value_name = "NUM")]
+        #[arg(short, long, value_name = "NUM", default_value_t = 0)]
         length: usize,
         /// Remove pseudo-noise
         #[arg(short='N', long, action=clap::ArgAction::SetTrue)]
@@ -199,14 +212,14 @@ enum Commands {
         /// Enables reed-solomon handling with this interleave.
         #[arg(short, long, value_name = "INTERLEAVE")]
         rs: Option<u8>,
-        /// If reed-solomon is enabled, perform error detection. Ignored unless --reed-solomon.
+        /// If reed-solomon is enabled, perform error detection. Ignored unless --rs.
         #[arg(long, action=clap::ArgAction::SetTrue)]
         rs_detect: bool,
-        /// If reed-solomon is enabled, perform error correction. Ignored unless --reed-solomon, implies
-        /// --reed-solomon-detect
+        /// If reed-solomon is enabled, perform error correction. Ignored unless --rs, implies
+        /// --rs-detect
         #[arg(short='C', long, action=clap::ArgAction::SetTrue)]
         rs_correct: bool,
-        /// Number of reed-solomon virtual-fill bytes. Ignored unless --reed-solomon.
+        /// Number of reed-solomon virtual-fill bytes. Ignored unless --rs.
         #[arg(short = 'V', long, value_name = "NUM", default_value = "0")]
         rs_virtualfill: usize,
         /// Number of threads to use for reed-solomon. Defaults to all available.
@@ -403,14 +416,15 @@ fn main() -> Result<()> {
             verbose,
         } => crate::diff::diff(left, right, *verbose),
         Commands::Framing {
+            config,
             frame_type: _,
-            length,
-            pn,
+            mut length,
+            mut pn,
             keep_fill,
-            rs,
+            mut rs,
             rs_detect,
             rs_correct,
-            rs_virtualfill,
+            mut rs_virtualfill,
             rs_threads,
             rs_buffersize,
             include,
@@ -430,15 +444,30 @@ fn main() -> Result<()> {
 
             let input = InputReader::from_str(input)?;
 
+            if let Some(path) = config {
+                let config = Config::read(path)?;
+                length = config.length;
+                // frame_type = config.frame_type;
+                pn = config.pn;
+                if let Some(cfg) = config.rs {
+                    rs = Some(cfg.interleave as u8);
+                    rs_virtualfill = cfg.virtualfill;
+                }
+            }
+
+            if length == 0 {
+                bail!("length cannot be 0")
+            }
+
             let summary = frame::frame_aos(
                 input,
-                *length,
-                *pn,
+                length,
+                pn,
                 *keep_fill,
-                *rs,
+                rs,
                 *rs_detect,
                 *rs_correct,
-                *rs_virtualfill,
+                rs_virtualfill,
                 *rs_threads,
                 *rs_buffersize,
                 include,
