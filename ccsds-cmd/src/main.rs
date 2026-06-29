@@ -4,6 +4,7 @@ mod filter;
 mod frame;
 mod info;
 mod merge;
+mod sync;
 
 use std::fs;
 use std::io::{stdout, BufReader, Read};
@@ -271,6 +272,34 @@ enum Commands {
         #[arg(short, long)]
         verbose: bool,
     },
+
+    /// Synchronize a bit stream.
+    Sync {
+        /// Do not include ASM in output
+        #[arg(short, long, default_value_t = false)]
+        no_asm: bool,
+
+        /// Applly PN algorithm to all non-ASM bytes before writing.
+        ///
+        /// This effectively toggles the pseudo-random noise in the output.
+        #[arg(short, long, default_value_t = false)]
+        pn: bool,
+
+        /// Output file path for syncronized data. If not specified only print the position of
+        /// located ASMs.
+        #[arg(short, long, value_name = "PATH")]
+        output: Option<PathBuf>,
+
+        /// Print data block start byte and bit offset
+        #[arg(short, long, default_value_t = false)]
+        verbose: bool,
+
+        /// Input file path
+        input: PathBuf,
+
+        /// Length of a CADU, not including the sync marker.
+        block_len: usize,
+    },
 }
 
 fn parse_number_ranges(list: Vec<String>) -> Result<Vec<u32>> {
@@ -481,5 +510,20 @@ fn main() -> Result<()> {
             }
             frame::write_text_summary(stdout(), &summary)
         }
+        Commands::Sync {
+            input,
+            block_len,
+            output,
+            pn,
+            no_asm,
+            verbose,
+        } => sync::synchronize(
+            input.clone(),
+            *block_len,
+            *pn,
+            *no_asm,
+            output.clone(),
+            *verbose,
+        ),
     }
 }

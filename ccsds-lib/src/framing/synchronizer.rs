@@ -56,9 +56,9 @@ fn create_patterns(dat: &[u8]) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
 /// A sychronized block location.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Loc {
-    /// Offset (1-based) to the first byte after a found sync marker
+    /// Offset (0-based) to the first byte containing block data after a found sync marker
     pub offset: usize,
-    /// The bit in the byte at offset where the marker is found.
+    /// The bit in the byte where the data block starts
     pub bit: u8,
 }
 
@@ -162,8 +162,8 @@ where
             }
 
             let mut loc = Loc {
-                offset: self.bytes.offset(),
-                bit: (8 - u8::try_from(self.pattern_idx).unwrap()) % 8,
+                offset: self.bytes.offset() - 1,
+                bit: (u8::try_from(self.pattern_idx).unwrap()) % 8,
             };
             // Exact sync means data block starts at the next byte
             if loc.bit == 0 {
