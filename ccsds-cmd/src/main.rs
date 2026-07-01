@@ -4,6 +4,7 @@ mod filter;
 mod frame;
 mod info;
 mod merge;
+mod packetize;
 mod sync;
 
 use std::fs;
@@ -17,7 +18,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use ccsds::framing::Vcid;
 use ccsds::spacepacket::Apid;
 use ccsds::spacepacket::TimecodeDecoder;
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
 use hifitime::Epoch;
 use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
@@ -65,6 +66,18 @@ impl Read for InputReader {
             InputReader::TCP(r) => r.read(buf),
         }
     }
+}
+
+#[derive(Args)]
+#[group(required = true, multiple = false)]
+struct TrailerConfig {
+    /// Frames have the 4-byte operational control field (OCF).
+    #[arg(long, action = ArgAction::SetTrue)]
+    ocf: bool,
+
+    /// Number of bytes in the frame trailer
+    #[arg(long, default_value_t = 0)]
+    trailer_len: usize,
 }
 
 #[derive(Subcommand)]
@@ -294,11 +307,32 @@ enum Commands {
         #[arg(short, long, default_value_t = false)]
         verbose: bool,
 
-        /// Input file path
-        input: PathBuf,
-
         /// Length of a CADU, not including the sync marker.
         block_len: usize,
+
+        /// Input file path
+        input: PathBuf,
+    },
+
+    /// Extract packets from frames
+    Packetize {
+        #[command(flatten)]
+        trailer: Option<TrailerConfig>,
+
+        /// Number of insert zone bytes
+        #[arg(long, default_value_t = 0)]
+        izone_len: usize,
+
+        /// Output packet file path, or '-' for stdout. If not specified only print the summary.
+        #[arg(short, long, value_name = "PATH")]
+        output: Option<PathBuf>,
+
+        // Length of each frame.
+        frame_len: usize,
+
+        /// Input file containing decoded frames. The input must not include any
+        /// ASM or RS parity bytes.
+        input: PathBuf,
     },
 }
 
@@ -525,5 +559,30 @@ fn main() -> Result<()> {
             output.clone(),
             *verbose,
         ),
+        Commands::Packetize {
+            input,
+            output,
+            frame_len,
+            trailer,
+            izone_len,
+        } => {
+            let trailer_len = match trailer {
+                Some(t) => {
+                    if t.ocf {
+                        4
+                    } else {
+                        t.trailer_len
+                    }
+                }
+                None => 0,
+            };
+            packetize::packetize(
+                input.clone(),
+                *frame_len,
+                *izone_len,
+                trailer_len,
+                output.clone(),
+            )
+        }
     }
 }
