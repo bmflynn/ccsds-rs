@@ -36,6 +36,8 @@ mod pn;
 mod reed_solomon;
 mod synchronizer;
 
+#[cfg(feature = "python")]
+use pyo3::{exceptions::PyValueError, prelude::*};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -55,6 +57,7 @@ pub type Cadu = Block;
 ///
 /// TM Transfer Frames (CCSDS 132.0-B-3) are not supported.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "python", pyclass(frozen, get_all))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Frame {
     /// This frames header data
@@ -68,6 +71,15 @@ pub struct Frame {
     /// be longer than the expected frame length.
     #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
     pub data: Vec<u8>,
+}
+
+#[cfg(feature = "python")]
+#[cfg_attr(feature = "python", pymethods)]
+impl Frame {
+    #[cfg(feature = "python")]
+    fn __repr__(&self) -> String {
+        format!("{self:?}")
+    }
 }
 
 impl Frame {
@@ -102,6 +114,7 @@ impl Frame {
 
 /// Contents of a valid VCDU header
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "python", pyclass(frozen, get_all))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct VCDUHeader {
     pub version: u8,
@@ -111,13 +124,6 @@ pub struct VCDUHeader {
 }
 
 impl VCDUHeader {
-    /// VCDU header length in bytes
-    pub const LEN: usize = 6;
-    /// VCID indicating a fill frame
-    pub const FILL: Vcid = 63;
-    /// Maximum value for the zero-based VCDU counter before rollover;
-    pub const COUNTER_MAX: u32 = 0xff_ffff - 1;
-
     /// Construct from the provided bytes, or `None` if there are not enough bytes
     /// or the version is not supported.
     ///
@@ -164,8 +170,37 @@ impl VCDUHeader {
     }
 }
 
+#[cfg(feature = "python")]
+#[cfg_attr(feature = "python", pymethods)]
+impl VCDUHeader {
+    #[new]
+    pub fn py_new(dat: &[u8]) -> PyResult<Self> {
+        match Self::decode(dat) {
+            Some(hdr) => Ok(hdr),
+            None => {
+                if dat.len() < Self::LEN {
+                    Err(PyValueError::new_err("not enough bytes or w"))
+                } else {
+                    Err(PyValueError::new_err("invalid frame version"))
+                }
+            }
+        }
+    }
+}
+
+#[cfg_attr(feature = "python", pymethods)]
+impl VCDUHeader {
+    /// VCDU header length in bytes
+    pub const LEN: usize = 6;
+    /// VCID indicating a fill frame
+    pub const FILL: Vcid = 63;
+    /// Maximum value for the zero-based VCDU counter before rollover;
+    pub const COUNTER_MAX: u32 = 0xff_ffff - 1;
+}
+
 /// MPDU contained within a [Frame].
 #[derive(Clone)]
+#[cfg_attr(feature = "python", pyclass(get_all))]
 pub struct MPDU {
     // the offset of the header minus 1
     first_header: u16,
@@ -184,12 +219,6 @@ impl std::fmt::Debug for MPDU {
 }
 
 impl MPDU {
-    /// MPDU first-header pointer value indicating fill data
-    pub const FILL: u16 = 0x7fe;
-    /// MPDU first-header pointer value indicating this MPDU does not contain a packet
-    /// primary header.
-    pub const NO_HEADER: u16 = 0x7ff;
-
     /// Decode `data` into a ``VCDUHeader``.
     #[must_use]
     pub fn decode(data: &[u8]) -> Option<Self> {
@@ -203,10 +232,27 @@ impl MPDU {
             data: data.to_vec(),
         })
     }
+}
 
-    #[must_use]
+#[cfg_attr(feature = "python", pymethods)]
+impl MPDU {
+    /// MPDU first-header pointer value indicating fill data
+    pub const FILL: u16 = 0x7fe;
+    /// MPDU first-header pointer value indicating this MPDU does not contain a packet
+    /// primary header.
+    pub const NO_HEADER: u16 = 0x7ff;
+
     pub fn is_fill(&self) -> bool {
         self.first_header == Self::FILL
+    }
+
+    #[cfg(feature = "python")]
+    #[new]
+    pub fn new(dat: &[u8]) -> PyResult<MPDU> {
+        if let Some(m) = Self::decode(dat) {
+            return Ok(m);
+        }
+        Err(PyValueError::new_err("not enough bytes"))
     }
 
     #[must_use]

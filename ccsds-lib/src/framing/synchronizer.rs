@@ -162,8 +162,8 @@ where
             }
 
             let mut loc = Loc {
-                offset: self.bytes.offset() - 1,
-                bit: (u8::try_from(self.pattern_idx).unwrap()) % 8,
+                offset: self.bytes.offset(),
+                bit: (8 - u8::try_from(self.pattern_idx).unwrap()) % 8,
             };
             // Exact sync means data block starts at the next byte
             if loc.bit == 0 {
