@@ -21,21 +21,52 @@ pub trait PacketTimeDecoder {
     fn decode(&self, packet: &Packet) -> Result<Option<Epoch>>;
 }
 
+/// A [PacketTimeDecoder] that uses a static timecode format.
+pub struct StaticTimeDecoder<T: TimecodeDecoder>(T);
+
+impl<T> StaticTimeDecoder<T>
+where
+    T: TimecodeDecoder,
+{
+    pub fn new(decoder: T) -> Self {
+        StaticTimeDecoder(decoder)
+    }
+}
+
+impl<T> PacketTimeDecoder for StaticTimeDecoder<T>
+where
+    T: TimecodeDecoder,
+{
+    fn decode(&self, packet: &Packet) -> Result<Option<Epoch>> {
+        let millis = self
+            .0
+            .decode_unix_millis(&packet.data[PrimaryHeader::LEN..])?;
+        Ok(Some(Epoch::from_unix_milliseconds(millis)))
+    }
+}
+
 /// ApidTimecodeDecoder is a [PacketTimeDecoder] for decoding times from packet secondary headers
 /// per-APID.
 pub struct PacketApidTimeDecoder {
+    default: Option<Box<dyn PacketTimeDecoder>>,
     decoders: HashMap<Apid, Box<dyn TimecodeDecoder>>,
 }
 
 impl Default for PacketApidTimeDecoder {
     fn default() -> Self {
         Self {
+            default: None,
             decoders: HashMap::default(),
         }
     }
 }
 
 impl PacketApidTimeDecoder {
+    pub fn with_default<T: PacketTimeDecoder + 'static>(mut self, decoder: T) -> Self {
+        self.default = Some(Box::new(decoder));
+        self
+    }
+
     pub fn with_config(mut self, cfg: config::Config) -> Result<Self> {
         for ch in cfg.apids.iter() {
             let Some(name) = ch.timecode.as_ref() else {

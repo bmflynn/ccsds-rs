@@ -1,12 +1,11 @@
 mod common;
 
-use ccsds::timecode;
+use ccsds::spacepacket::timecode::{PacketApidTimeDecoder, StaticTimeDecoder};
+use ccsds::timecode::{self, cds, cuc};
 use std::fs::{self, File};
 use std::result::Result;
 
-use ccsds::spacepacket::{
-    collect_groups, decode_packets, Merger, Packet, PacketGroup, TimecodeDecoder,
-};
+use ccsds::spacepacket::{collect_groups, decode_packets, Merger, Packet, PacketGroup};
 
 use common::fixture_path;
 
@@ -48,15 +47,13 @@ fn merge_test() {
     let tmpdir = tempfile::tempdir().unwrap();
     let out_path = tmpdir.path().join("output.dat");
     let out_file = File::create(&out_path).unwrap();
+    let time_decoder = StaticTimeDecoder::new(cds::Decoder::new(2, 2));
     Merger::new(
         vec![
             fixture_path("viirs_merge1.dat"),
             fixture_path("viirs_merge2.dat"),
         ],
-        TimecodeDecoder::new(timecode::Format::Cds {
-            num_day: 2,
-            num_submillis: 2,
-        }),
+        time_decoder,
     )
     .merge(out_file)
     .unwrap();

@@ -40,6 +40,7 @@ mod synchronizer;
 use pyo3::{exceptions::PyValueError, prelude::*};
 use serde::{Deserialize, Serialize};
 
+pub use packets::PacketDemux;
 pub use pipeline::*;
 pub use pn::{DefaultDerandomizer, Derandomizer};
 pub use reed_solomon::{DefaultReedSolomon, Integrity, ReedSolomon};

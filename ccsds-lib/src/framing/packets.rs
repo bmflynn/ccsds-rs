@@ -39,7 +39,7 @@ struct ChannelConfig {
 /// use ccsds::spacepacket::Packet;
 ///
 /// let frames = vec![Frame::decode(vec![0u8; 1020]).unwrap()];
-/// let packets: Vec<Packet> = PacketDemux::new(frames, 0, false, false, false).collect();
+/// let packets: Vec<Packet> = PacketDemux::new(frames.into_iter(), 0, false, false, false).collect();
 /// ```
 #[derive(Clone, Debug)]
 pub struct PacketDemux<I>
