@@ -4,26 +4,24 @@ use std::{
 };
 
 use anyhow::{bail, Result};
-use ccsds::{
-    spacepacket::{collect_groups, decode_packets, Apid, PrimaryHeader, TimecodeDecoder},
-    timecode::Format,
+use ccsds::spacepacket::{
+    collect_groups, decode_packets,
+    timecode::{PacketApidTimeDecoder, PacketTimeDecoder},
+    Apid, PrimaryHeader,
 };
 use hifitime::{Duration, Epoch};
 use tracing::{debug, trace};
 
 struct Ptr(Vec<u8>, Apid, Epoch);
 
-fn packets_with_times<R: Read + Send>(input: R) -> impl Iterator<Item = Ptr> {
+fn packets_with_times<R: Read + Send>(
+    input: R,
+    time_decoder: Option<PacketApidTimeDecoder>,
+) -> impl Iterator<Item = Ptr> {
     let packets = decode_packets(input).filter_map(Result::ok);
     collect_groups(packets)
         .filter_map(Result::ok)
-        .filter_map(|g| {
-            // FIXME: Hard-coded to JPSS cds format
-            let timecode_decoder = TimecodeDecoder::new(Format::Cds {
-                num_day: 2,
-                num_submillis: 2,
-            });
-
+        .filter_map(move |g| {
             if g.packets.is_empty() || g.packets[0].is_last() || g.packets[0].is_cont() {
                 // Drop incomplete packet groups
                 return None;
@@ -31,12 +29,18 @@ fn packets_with_times<R: Read + Send>(input: R) -> impl Iterator<Item = Ptr> {
             // now we can be sure first packet has a timecode
             let first = &g.packets[0];
             let apid = first.header.apid;
-            let nanos = match timecode_decoder.decode(first) {
-                Ok(e) => e,
-                Err(err) => {
-                    debug!("failed to convert timecode to epoch: {err}");
-                    return None;
-                }
+            let nanos = match time_decoder.as_ref() {
+                Some(tc) => match tc.decode(first) {
+                    Ok(e) => match e {
+                        Some(e) => e,
+                        None => Epoch::from_unix_seconds(0.0),
+                    },
+                    Err(err) => {
+                        debug!("failed to convert timecode to epoch: {err}");
+                        return None;
+                    }
+                },
+                None => Epoch::from_unix_seconds(0.0),
             };
 
             // total size of all packets in group
@@ -62,6 +66,7 @@ pub fn filter<R, W>(
     exclude: &[Apid],
     before: Option<Epoch>,
     after: Option<Epoch>,
+    time_decoder: Option<PacketApidTimeDecoder>,
 ) -> Result<()>
 where
     R: Read + Send,
@@ -75,7 +80,7 @@ where
     }
 
     let packets: Box<dyn Iterator<Item = Ptr>> = if before.is_some() || after.is_some() {
-        Box::new(packets_with_times(input))
+        Box::new(packets_with_times(input, time_decoder))
     } else {
         Box::new(
             decode_packets(input)

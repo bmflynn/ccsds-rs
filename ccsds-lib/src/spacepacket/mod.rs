@@ -1,26 +1,19 @@
 //! Space packet decoding
-#[cfg(feature = "merge")]
 mod merge;
 mod summary;
-#[cfg(feature = "timecode")]
-mod timecode;
+pub mod timecode;
 
 #[cfg(feature = "python")]
-use pyo3::{exceptions::PyValueError, prelude::*, types::PyBytes};
+use pyo3::{exceptions::PyValueError, prelude::*};
 
 use std::fmt::Display;
 use std::io::Read;
 
-#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::{Error, Result};
-#[cfg(feature = "merge")]
 pub use merge::*;
 pub use summary::*;
-
-#[cfg(feature = "timecode")]
-pub use timecode::*;
 
 pub type Apid = u16;
 
@@ -47,14 +40,13 @@ pub type Apid = u16;
 /// assert_eq!(packet.header.apid, 1369);
 /// # Ok::<(), ccsds::Error>(())
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "python", pyclass(frozen, get_all))]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Packet {
     /// All packets have a primary header
     pub header: PrimaryHeader,
     /// All packet bytes, including header and user data
-    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
+    #[serde(with = "serde_bytes")]
     pub data: Vec<u8>,
 
     pub(crate) offset: usize,
@@ -171,9 +163,8 @@ impl Packet {
 ///
 /// The primary header format is common to all CCSDS space packets.
 ///
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "python", pyclass(frozen))]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct PrimaryHeader {
     pub version: u8,
     pub type_flag: u8,
@@ -245,8 +236,7 @@ impl PrimaryHeader {
 
 /// Packet data representing a CCSDS packet group according to the packet
 /// sequencing value in primary header.
-#[derive(Clone, Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "python", pyclass(frozen, get_all))]
 pub struct PacketGroup {
     pub apid: Apid,

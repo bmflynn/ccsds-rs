@@ -1,9 +1,4 @@
-#[derive(thiserror::Error, Debug)]
-#[non_exhaustive]
-pub enum TimecodeError {
-    #[error("Invalid timecode config: {0}")]
-    Config(String),
-}
+use crate::timecode::Error as TimecodeError;
 
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
@@ -20,6 +15,9 @@ pub enum Error {
     /// Integrity check or correct error executing the algorithm.
     #[error("integrity algorithm error: {0}")]
     IntegrityAlgorithm(String),
+
+    #[error("config: {0}")]
+    Config(String),
 }
 
 #[cfg(feature = "python")]

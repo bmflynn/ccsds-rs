@@ -1,7 +1,8 @@
 use std::{io::Write, path::PathBuf};
 
 use anyhow::{bail, Context, Result};
-use ccsds::spacepacket::{Apid, Merger, TimecodeDecoder};
+use ccsds::spacepacket::timecode::PacketApidTimeDecoder;
+use ccsds::spacepacket::{Apid, Merger};
 use hifitime::Epoch;
 
 pub fn apid_order(name: &str) -> Option<Vec<Apid>> {
@@ -14,7 +15,7 @@ pub fn apid_order(name: &str) -> Option<Vec<Apid>> {
 
 pub fn merge<W>(
     inputs: &[PathBuf],
-    time_decoder: TimecodeDecoder,
+    time_decoder: PacketApidTimeDecoder,
     writer: W,
     order: Option<Vec<Apid>>,
     from: Option<Epoch>,

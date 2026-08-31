@@ -1,5 +1,9 @@
 use anyhow::{Context, Result};
-use ccsds::spacepacket::{decode_packets, missing_packets, Apid, TimecodeDecoder};
+use ccsds::spacepacket::{
+    decode_packets, missing_packets,
+    timecode::{PacketApidTimeDecoder, PacketTimeDecoder},
+    Apid,
+};
 use handlebars::handlebars_helper;
 use hifitime::{Duration, Epoch};
 use serde::Serialize;
@@ -32,15 +36,16 @@ impl clap::ValueEnum for Format {
 
 #[derive(Debug, Clone)]
 pub enum TCFormat {
-    Cds,
-    // EosCuc,
+    Jpss,
+    Eos,
     None,
 }
 
 impl clap::ValueEnum for TCFormat {
     fn value_variants<'a>() -> &'a [Self] {
         &[
-            Self::Cds,
+            Self::Jpss,
+            Self::Eos,
             // Self::EosCuc,
             Self::None,
         ]
@@ -48,8 +53,8 @@ impl clap::ValueEnum for TCFormat {
 
     fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
         match self {
-            Self::Cds => Some(clap::builder::PossibleValue::new("cds")),
-            // Self::EosCuc => Some(clap::builder::PossibleValue::new("eoscuc")),
+            Self::Jpss => Some(clap::builder::PossibleValue::new("jpss")),
+            Self::Eos => Some(clap::builder::PossibleValue::new("eos")),
             Self::None => Some(clap::builder::PossibleValue::new("none")),
         }
     }
@@ -71,21 +76,9 @@ struct Info {
     apids: Vec<(Apid, Summary)>,
 }
 
-fn new_cds_decoder() -> TimecodeDecoder {
-    TimecodeDecoder::new(ccsds::timecode::Format::Cds {
-        num_day: 2,
-        num_submillis: 2,
-    })
-}
-
-fn summarize(fpath: &Path, tc_format: &TCFormat) -> Result<Info> {
+fn summarize(fpath: &Path, time_decoder: Option<PacketApidTimeDecoder>) -> Result<Info> {
     let reader = std::fs::File::open(fpath).context("opening input")?;
     let packets = decode_packets(reader).filter_map(Result::ok);
-
-    let time_decoder: Option<TimecodeDecoder> = match tc_format {
-        TCFormat::Cds => Some(new_cds_decoder()),
-        TCFormat::None => None,
-    };
 
     let mut last_seqid: HashMap<Apid, u16> = HashMap::default();
     let mut apids: HashMap<Apid, Summary> = HashMap::default();
@@ -116,7 +109,7 @@ fn summarize(fpath: &Path, tc_format: &TCFormat) -> Result<Info> {
         // NOTE: The resulting Epoch will have a reference time of Jan 1, 1900 and must be
         // converted to the basetime for the specific APID.
         if let Some(ref time_decoder) = time_decoder {
-            if let Ok(epoch) = time_decoder.decode(&packet) {
+            if let Ok(Some(epoch)) = time_decoder.decode(&packet) {
                 summary.first_packet_time = summary
                     .first_packet_time
                     .map_or(Some(epoch), |cur| Some(cmp::min(epoch, cur)));
@@ -154,8 +147,12 @@ fn summarize(fpath: &Path, tc_format: &TCFormat) -> Result<Info> {
     })
 }
 
-pub fn info(fpath: &Path, format: &Format, tc_format: &TCFormat) -> Result<()> {
-    let info = summarize(fpath, tc_format)?;
+pub fn info(
+    fpath: &Path,
+    format: &Format,
+    time_decoder: Option<PacketApidTimeDecoder>,
+) -> Result<()> {
+    let info = summarize(fpath, time_decoder)?;
 
     match format {
         Format::Json => {

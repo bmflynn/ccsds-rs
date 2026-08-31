@@ -1,75 +1,68 @@
-use hifitime::Epoch;
-
 use std::collections::HashMap;
 
-use super::{Apid, Packet, PrimaryHeader};
-use crate::timecode::{decode as decode_timecode, Format};
-use crate::Result;
+use hifitime::Epoch;
 
-/// Helper class to decode [hifitime::Epoch]s from [Packet]s.
-///
-/// It manages the match up of packet APIDs to a timecode [Format](Format), supporting a
-/// default format for the case where a specific format for an APID is not found.
-///
-/// For sequences of packets containing only a single format only the default will be necessary.
-pub struct TimecodeDecoder {
-    formats: HashMap<Apid, Format>,
-    default: Format,
+use crate::{config, Error};
+use crate::{spacepacket::Packet, timecode::TimecodeDecoder};
+use crate::{
+    spacepacket::{Apid, PrimaryHeader},
+    Result,
+};
+
+pub trait PacketTimeDecoder {
+    /// Decode [Epoch] from a [Packet].
+    ///
+    /// This makes an assumption that the pfield is implied and not included in
+    /// the packet bytes, and also that the timecode format details can be determined
+    /// soley by the packet metadata (APID).
+    ///
+    /// Arguments:
+    /// * `packet` - The packet to decode the timestamp for
+    fn decode(&self, packet: &Packet) -> Result<Option<Epoch>>;
 }
 
-impl TimecodeDecoder {
-    pub fn new(default: Format) -> Self {
+/// ApidTimecodeDecoder is a [PacketTimeDecoder] for decoding times from packet secondary headers
+/// per-APID.
+pub struct PacketApidTimeDecoder {
+    decoders: HashMap<Apid, Box<dyn TimecodeDecoder>>,
+}
+
+impl Default for PacketApidTimeDecoder {
+    fn default() -> Self {
         Self {
-            formats: HashMap::default(),
-            default,
+            decoders: HashMap::default(),
         }
     }
+}
 
-    /// Register `format` as a specific format to use for each of `apids`.
-    pub fn register(&mut self, format: Format, apids: &[Apid]) {
-        apids.iter().for_each(|a| {
-            self.formats.insert(*a, format.clone());
-        });
+impl PacketApidTimeDecoder {
+    pub fn with_config(mut self, cfg: config::Config) -> Result<Self> {
+        for ch in cfg.apids.iter() {
+            let Some(name) = ch.timecode.as_ref() else {
+                continue;
+            };
+            let Some(cfg) = cfg.timecodes.get(name) else {
+                return Err(Error::Config("not config for timecode {name}".to_string()));
+            };
+            let decoder = cfg.clone().decoder()?;
+            self.decoders.insert(ch.apid, decoder);
+        }
+
+        Ok(self)
     }
 
-    /// Decode a timecode from `packet`.
-    ///
-    /// # Errors
-    /// If a timecode cannot be decoded for `packet` or if there is not specific format for the
-    /// packet's APID and their is no default to fall back to.
-    pub fn decode(&self, packet: &Packet) -> Result<Epoch> {
-        let fmt = self
-            .formats
-            .get(&packet.header.apid)
-            .unwrap_or(&self.default);
-        decode_timecode(fmt, &packet.data[PrimaryHeader::LEN..])
+    pub fn add(mut self, apid: Apid, decoder: Box<dyn TimecodeDecoder>) -> Self {
+        self.decoders.insert(apid, decoder);
+        return self;
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::spacepacket::PrimaryHeader;
-
-    use super::*;
-
-    #[test]
-    fn test_cds() {
-        let dat: Vec<u8> = vec![
-            0x0b, 0x20, 0x52, 0xc4, 0x00, 0xad, 0x5c, 0xbd, 0x03, 0xc4, 0x1a, 0x6e, 0x03, 0xc9,
-        ];
-
-        let packet = Packet {
-            header: PrimaryHeader::decode(&dat).unwrap(),
-            data: dat,
-            offset: 0,
+impl PacketTimeDecoder for PacketApidTimeDecoder {
+    fn decode(&self, packet: &Packet) -> Result<Option<Epoch>> {
+        let Some(dec) = self.decoders.get(&packet.header.apid) else {
+            return Ok(None);
         };
-        let decoder = TimecodeDecoder::new(Format::Cds {
-            num_day: 2,
-            num_submillis: 2,
-        });
-
-        let timecode = decoder.decode(&packet).unwrap();
-
-        assert_eq!(timecode.to_string(), "2023-01-01T17:33:03.470969000 UTC");
+        let millis = dec.decode_unix_millis(&packet.data[PrimaryHeader::LEN..])?;
+        Ok(Some(Epoch::from_unix_milliseconds(millis)))
     }
 }

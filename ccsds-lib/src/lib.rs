@@ -2,10 +2,9 @@
 
 mod error;
 
+pub mod config;
 pub mod framing;
 pub mod spacepacket;
-
-#[cfg(feature = "timecode")]
 pub mod timecode;
 
 pub use error::{Error, Result};

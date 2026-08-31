@@ -5,90 +5,129 @@ use std::{
 
 use tracing::{debug, trace};
 
-use crate::framing::{Integrity, Vcid};
+use crate::framing::{Integrity, Vcid, FEC_LEN, MPDU, OCF_LEN};
 use crate::spacepacket::{Packet, PrimaryHeader};
 
 use super::Frame;
 
-struct VcidTracker {
-    vcid: Vcid,
-    /// Caches partial packets for this vcid
-    cache: Vec<u8>,
-    // True when any frame used to fill the cache was rs corrected
-    rs_corrected: bool,
-    // True when a FHP has been found and data should be added to cache. False
-    // where there is a missing data due to RS failure or missing frames.
-    sync: bool,
+#[derive(Clone, Debug, Default)]
+struct ChannelConfig {
+    izone_len: usize,
+    fhec: bool,
+    fec: bool,
+    ocf: bool,
 }
 
-impl VcidTracker {
-    fn new(vcid: Vcid) -> Self {
-        VcidTracker {
-            vcid,
-            sync: false,
-            cache: vec![],
-            rs_corrected: false,
-        }
-    }
-
-    fn reset(&mut self) {
-        self.cache.clear();
-        self.sync = false;
-        self.rs_corrected = false;
-    }
-}
-
-impl Display for VcidTracker {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "VcidTracker{{vcid={}, sync={}, cache_len={}, rs_corrected:{}}}",
-            self.vcid,
-            self.sync,
-            self.cache.len(),
-            self.rs_corrected
-        )
-    }
-}
-
-pub(crate) struct FramedPacketIter<I>
+/// Demux packets from frames.
+///
+/// Packets are decoded in the order in which they are received, per VCID.
+///
+/// Packet data may be dropped/lost in the following cases:
+///
+/// * Not enough data left to construct an entire frame.
+/// * Not enough data left to construct an entire packet.
+/// * Not enough data within the frame to construct a packet primary header.
+/// * Frame received with that contains errors ([Integrity::Uncorrectable](crate::framing),
+///   [Integrity::NotCorrected](crate::framing))
+/// * Invalid MPDU first header pointer value
+/// * Discontinuity in the frame counter from the current frame to the previous frame of the same
+///   VCID.
+///
+/// # Example
+/// ```
+/// use ccsds::framing::{Frame, PacketDemux};
+/// use ccsds::spacepacket::Packet;
+///
+/// let frames = vec![Frame::decode(vec![0u8; 1020]).unwrap()];
+/// let packets: Vec<Packet> = PacketDemux::new(frames, 0, false, false, false).collect();
+/// ```
+#[derive(Clone, Debug)]
+pub struct PacketDemux<I>
 where
     I: Iterator<Item = Frame> + Send,
 {
     frames: I,
-    izone_length: usize,
-    trailer_length: usize,
 
     // Cache of partial packet data from frames that has not yet been decoded into
     // packets. There should only be up to about 1 frame worth of data in the cache
     cache: HashMap<Vcid, VcidTracker>,
     // Packets that have already been decoded and are waiting to be provided.
     ready: VecDeque<Packet>,
+    default_config: ChannelConfig,
+    channel_config: HashMap<Vcid, ChannelConfig>,
 }
 
-impl<I> FramedPacketIter<I>
+impl<I> PacketDemux<I>
 where
     I: Iterator<Item = Frame> + Send,
 {
-    pub fn new(frames: I, izone_length: usize, trailer_length: usize) -> Self {
-        FramedPacketIter {
+    /// Create a new [PacketDemux].
+    ///
+    /// # Arguments:
+    /// * `frames` - Frames to demux packets from
+    /// * `izone_len` - Insert zone length in bytes.
+    /// * `fhec` - Frame header contains frame header error control bytes
+    /// * `ocf` - Frame trailer contains operational control field bytes
+    /// * `fec` - Frame trailer contains frame error control bytes
+    pub fn new(frames: I, izone_len: usize, fhec: bool, ocf: bool, fec: bool) -> Self {
+        Self {
             frames,
-            izone_length,
-            trailer_length,
             cache: HashMap::default(),
             ready: VecDeque::default(),
+            channel_config: HashMap::default(),
+            default_config: ChannelConfig {
+                izone_len,
+                fhec,
+                ocf,
+                fec,
+            },
         }
+    }
+    /// Add an chanel specific framing configuration.
+    pub fn with_channel_config(
+        mut self,
+        vcid: Vcid,
+        izone_len: usize,
+        fhec: bool,
+        ocf: bool,
+        fec: bool,
+    ) -> PacketDemux<I> {
+        self.channel_config.insert(
+            vcid,
+            ChannelConfig {
+                izone_len,
+                fhec,
+                ocf,
+                fec,
+            },
+        );
+        self
+    }
+
+    /// Get a frames MPDU based on the channel config
+    fn mpdu(&self, frame: &Frame) -> MPDU {
+        let cfg = self
+            .channel_config
+            .get(&frame.header.vcid)
+            .unwrap_or(&self.default_config);
+        let trailer_len = match (cfg.ocf, cfg.fec) {
+            (true, true) => OCF_LEN + FEC_LEN,
+            (true, false) => OCF_LEN,
+            (false, true) => FEC_LEN,
+            (false, false) => 0,
+        };
+        frame.mpdu(cfg.izone_len, trailer_len, cfg.fhec).unwrap()
     }
 }
 
-impl<I> Iterator for FramedPacketIter<I>
+impl<I> Iterator for PacketDemux<I>
 where
     I: Iterator<Item = Frame> + Send,
 {
     type Item = Packet;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // If there are packets ready to go provide the oldest one
+        // If there are packets ready to go, provide the oldest one
         if let Some(packet) = self.ready.pop_front() {
             return Some(packet);
         }
@@ -101,7 +140,7 @@ where
                 break;
             };
 
-            let mpdu = frame.mpdu(self.izone_length, self.trailer_length).unwrap();
+            let mpdu = self.mpdu(&frame);
             let tracker = self
                 .cache
                 .entry(frame.header.vcid)
@@ -217,6 +256,48 @@ where
         // Attempted to read a frame, but the iterator is done.  Make sure to
         // provide a ready frame if there are any.
         self.ready.pop_front()
+    }
+}
+
+#[derive(Clone, Debug)]
+struct VcidTracker {
+    vcid: Vcid,
+    /// Caches partial packets for this vcid
+    cache: Vec<u8>,
+    // True when any frame used to fill the cache was rs corrected
+    rs_corrected: bool,
+    // True when a FHP has been found and data should be added to cache. False
+    // where there is a missing data due to RS failure or missing frames.
+    sync: bool,
+}
+
+impl VcidTracker {
+    fn new(vcid: Vcid) -> Self {
+        VcidTracker {
+            vcid,
+            sync: false,
+            cache: vec![],
+            rs_corrected: false,
+        }
+    }
+
+    fn reset(&mut self) {
+        self.cache.clear();
+        self.sync = false;
+        self.rs_corrected = false;
+    }
+}
+
+impl Display for VcidTracker {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "VcidTracker{{vcid={}, sync={}, cache_len={}, rs_corrected:{}}}",
+            self.vcid,
+            self.sync,
+            self.cache.len(),
+            self.rs_corrected
+        )
     }
 }
 

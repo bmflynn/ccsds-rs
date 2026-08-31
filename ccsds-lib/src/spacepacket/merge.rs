@@ -12,7 +12,8 @@ use tracing::{debug, error, trace, warn};
 
 use crate::spacepacket::{Apid, Error, PrimaryHeader};
 
-use super::{collect_groups, decode_packets, TimecodeDecoder};
+use super::timecode::PacketTimeDecoder;
+use super::{collect_groups, decode_packets};
 
 /// Merge, sort, and deduplicate multiple packet data files into a single file.
 ///
@@ -26,9 +27,12 @@ use super::{collect_groups, decode_packets, TimecodeDecoder};
 /// are dropped and not merged.
 ///
 /// Additionally, any packet groups where a timecode cannot be successfully decode are dropped.
-pub struct Merger {
+pub struct Merger<T>
+where
+    T: PacketTimeDecoder,
+{
     paths: Vec<PathBuf>,
-    time_decoder: TimecodeDecoder,
+    time_decoder: T,
     /// Maps an APID to its value used for ordering.
     order: HashMap<Apid, i32>,
     from: Option<u64>,
@@ -36,14 +40,17 @@ pub struct Merger {
     apids: Option<Vec<Apid>>,
 }
 
-impl Merger {
+impl<T> Merger<T>
+where
+    T: PacketTimeDecoder,
+{
     /// Create a new instance.
     ///
     /// # Arguments
     /// * `paths` Paths to input files to be opened in read mode when [Self::merge] is called.
     /// * `decoder` [TimecodeDecoder] that is able to decode timecodes from input packets. An
     /// packets for which a timecode cannot be decoded will be silently dropped.
-    pub fn new<S: AsRef<Path>>(paths: Vec<S>, decoder: TimecodeDecoder) -> Self {
+    pub fn new<S: AsRef<Path>>(paths: Vec<S>, decoder: T) -> Self {
         Self {
             paths: paths.iter().map(|s| s.as_ref().to_path_buf()).collect(),
             time_decoder: decoder,
@@ -121,6 +128,10 @@ impl Merger {
                     // Timecode comparisons
                     let Ok(epoch) = self.time_decoder.decode(first) else {
                         error!(header=?first.header, "timecode decode error; skipping");
+                        return None;
+                    };
+                    let Some(epoch) = epoch else {
+                        warn!(header=?first.header, "no configured packet time decoder; skipping");
                         return None;
                     };
                     if epoch < from {

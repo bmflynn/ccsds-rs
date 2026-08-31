@@ -1,4 +1,3 @@
-mod config;
 mod diff;
 mod filter;
 mod frame;
@@ -14,16 +13,16 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::{fs::File, io::stderr};
 
-use anyhow::{anyhow, bail, Context, Result};
+use ccsds::config::{self, Config};
 use ccsds::framing::Vcid;
 use ccsds::spacepacket::Apid;
-use ccsds::spacepacket::TimecodeDecoder;
-use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
+
+use anyhow::{anyhow, bail, Context, Result};
+use ccsds::spacepacket::timecode::PacketApidTimeDecoder;
+use clap::{Parser, Subcommand, ValueEnum};
 use hifitime::Epoch;
 use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
-
-use crate::config::Config;
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -68,18 +67,6 @@ impl Read for InputReader {
     }
 }
 
-#[derive(Args)]
-#[group(required = true, multiple = false)]
-struct TrailerConfig {
-    /// Frames have the 4-byte operational control field (OCF).
-    #[arg(long, action = ArgAction::SetTrue)]
-    ocf: bool,
-
-    /// Number of bytes in the frame trailer
-    #[arg(long, default_value_t = 0)]
-    trailer_len: usize,
-}
-
 #[derive(Subcommand)]
 enum Commands {
     /// Merge multiple spacepacket files.
@@ -90,6 +77,10 @@ enum Commands {
     /// The merge process will reorder packets by time and APID. To write the merged
     /// packets in a specific order see --apid-order.
     Merge {
+        /// Path to spacecraft config file.
+        #[arg(short = 'c', long = "config")]
+        config: PathBuf,
+
         /// Manually set the APID order the merged packets for the same time are written.
         ///
         /// Any unspecified APIDs will be sorted by their numerical APID value. This will
@@ -139,17 +130,16 @@ enum Commands {
         #[arg(short, long, default_value = "text")]
         format: info::Format,
 
-        /// Decode packet timecodes using this format.
-        ///
-        /// The cds timecode decoder expects timecodes in the first 8 bytes of each
-        /// packets' secondary header. The eoscuc timecode decoder expects timecodes
-        /// in the first 8 bytes encoded as a NASA EOS Mission timecode used for Aqua
-        /// and Terra.
-        #[arg(short, long, default_value = "cds")]
-        timecode: info::TCFormat,
+        /// Path to spacecraft config file.
+        #[arg(short = 'c', long = "config")]
+        config: Option<PathBuf>,
     },
     /// Apply various filters to spacepacket files.
     Filter {
+        /// Path to spacecraft config file.
+        #[arg(short = 'c', long = "config")]
+        config: Option<PathBuf>,
+
         /// Include these apids or apid ranges.
         ///
         /// This accepts a CSV of APIDs as well as ranges of the format `<start>-<end>`
@@ -197,51 +187,16 @@ enum Commands {
 
     /// Decode frames from an input stream of CADUs.
     Framing {
-        /// Spacecraft framing JSON config file. If provided assiciated flags are ignored.
-        ///
-        /// JSON config format:
-        /// {"asm": [<int>,...],
-        ///  "scid": <u16>,
-        ///  "type": "aos",
-        ///  "length": <int>,
-        ///  "pn": bool,
-        ///  "rs": {"interleave": <int>, "virtualfill": <int>}
-        /// }
+        /// Path to spacecraft config file.
         #[arg(short = 'c', long = "config")]
-        config: Option<PathBuf>,
-        /// Type of the contained frames
-        #[arg(short = 't', long = "type", default_value = "aos")]
-        frame_type: frame::FrameType,
-        /// Frame length not including any reed-solomon parity or cadu attached sync marker
-        /// bytes.
-        #[arg(short, long, value_name = "NUM", default_value_t = 0)]
-        length: usize,
-        /// Remove pseudo-noise
-        #[arg(short='N', long, action=clap::ArgAction::SetTrue)]
-        pn: bool,
-        /// Don't drop fill frames
-        #[arg(long, action=clap::ArgAction::SetTrue)]
-        keep_fill: bool,
+        config: PathBuf,
 
-        /// Enables reed-solomon handling with this interleave.
-        #[arg(short, long, value_name = "INTERLEAVE")]
-        rs: Option<u8>,
-        /// If reed-solomon is enabled, perform error detection. Ignored unless --rs.
-        #[arg(long, action=clap::ArgAction::SetTrue)]
-        rs_detect: bool,
-        /// If reed-solomon is enabled, perform error correction. Ignored unless --rs, implies
-        /// --rs-detect
-        #[arg(short='C', long, action=clap::ArgAction::SetTrue)]
+        /// Enable RS correction (implies rs-detect).
+        #[arg(long, default_value_t = false)]
         rs_correct: bool,
-        /// Number of reed-solomon virtual-fill bytes. Ignored unless --rs.
-        #[arg(short = 'V', long, value_name = "NUM", default_value = "0")]
-        rs_virtualfill: usize,
-        /// Number of threads to use for reed-solomon. Defaults to all available.
-        #[arg(long, value_name = "NUM")]
-        rs_threads: Option<usize>,
-        /// Number of frames to keep waiting in memory.
-        #[arg(long, value_name = "NUM", default_value = "50")]
-        rs_buffersize: usize,
+        /// Enable RS detection only, no correction.
+        #[arg(long, default_value_t = false)]
+        rs_detect: bool,
 
         /// Include these vcids or vcid ranges. If not specified, include all.
         ///
@@ -316,8 +271,9 @@ enum Commands {
 
     /// Extract packets from frames
     Packetize {
-        #[command(flatten)]
-        trailer: Option<TrailerConfig>,
+        /// Path to spacecraft config file.
+        #[arg(short = 'c', long = "config")]
+        config: PathBuf,
 
         /// Number of insert zone bytes
         #[arg(long, default_value_t = 0)]
@@ -400,6 +356,7 @@ fn main() -> Result<()> {
     // matches just as you would the top level cmd
     match &cli.command {
         Commands::Merge {
+            config,
             output,
             inputs,
             clobber,
@@ -423,12 +380,13 @@ fn main() -> Result<()> {
             let dest = File::create(output)
                 .with_context(|| format!("failed to create output {output:?}"))?;
 
+            let cfg = config::Config::read(config)?;
+
+            let time_decoder = PacketApidTimeDecoder::default().with_config(cfg)?;
+
             merge::merge(
                 inputs,
-                TimecodeDecoder::new(ccsds::timecode::Format::Cds {
-                    num_day: 2,
-                    num_submillis: 2,
-                }),
+                time_decoder,
                 dest,
                 apid_order,
                 *from,
@@ -439,8 +397,18 @@ fn main() -> Result<()> {
         Commands::Info {
             input,
             format,
-            timecode,
-        } => info::info(input, format, timecode),
+            config,
+        } => {
+            let time_decoder = match config {
+                Some(path) => {
+                    let cfg = Config::read(path)?;
+                    let decoder = PacketApidTimeDecoder::default().with_config(cfg)?;
+                    Some(decoder)
+                }
+                None => None,
+            };
+            info::info(input, format, time_decoder)
+        }
         Commands::Filter {
             include,
             exclude,
@@ -449,6 +417,7 @@ fn main() -> Result<()> {
             input,
             before,
             after,
+            config,
         } => {
             if !clobber && output.exists() {
                 bail!("{output:?} exists; use --clobber");
@@ -471,7 +440,16 @@ fn main() -> Result<()> {
             debug!("before: {:?}", before);
             debug!("after: {:?}", after);
 
-            filter::filter(src, dest, &include, &exclude, *before, *after)
+            let time_decoder = match config {
+                Some(path) => {
+                    let cfg = Config::read(path)?;
+                    let decoder = PacketApidTimeDecoder::default().with_config(cfg)?;
+                    Some(decoder)
+                }
+                None => None,
+            };
+
+            filter::filter(src, dest, &include, &exclude, *before, *after, time_decoder)
         }
         Commands::Diff {
             left,
@@ -480,16 +458,8 @@ fn main() -> Result<()> {
         } => crate::diff::diff(left, right, *verbose),
         Commands::Framing {
             config,
-            frame_type: _,
-            mut length,
-            mut pn,
-            keep_fill,
-            mut rs,
             rs_detect,
             rs_correct,
-            mut rs_virtualfill,
-            rs_threads,
-            rs_buffersize,
             include,
             exclude,
             input,
@@ -507,32 +477,32 @@ fn main() -> Result<()> {
 
             let input = InputReader::from_str(input)?;
 
-            if let Some(path) = config {
-                let config = Config::read(path)?;
-                length = config.length;
-                // frame_type = config.frame_type;
-                pn = config.pn;
-                if let Some(cfg) = config.rs {
-                    rs = Some(cfg.interleave as u8);
-                    rs_virtualfill = cfg.virtualfill;
-                }
-            }
+            let cfg = Config::read(config)?;
 
-            if length == 0 {
-                bail!("length cannot be 0")
-            }
-
+            let (interleave, virtual_fill) = if let Some(rs) = cfg.framing.reed_solomon {
+                (
+                    u8::try_from(rs.interleave)
+                        .map_err(|_| anyhow!("invalid rs interleave; must be 0 ... 255"))?,
+                    rs.virtual_fill_length.unwrap_or_default(),
+                )
+            } else {
+                (0, 0)
+            };
             let summary = frame::frame_aos(
                 input,
-                length,
-                pn,
-                *keep_fill,
-                rs,
+                cfg.framing.length,
+                cfg.framing.pseudo_noise.is_some(),
+                false, // always ditch fill for now
+                if interleave == 0 {
+                    None
+                } else {
+                    Some(interleave)
+                }, // only do rs if interleave set
                 *rs_detect,
                 *rs_correct,
-                rs_virtualfill,
-                *rs_threads,
-                *rs_buffersize,
+                virtual_fill,
+                None,
+                100,
                 include,
                 exclude,
                 output.as_ref(),
@@ -563,26 +533,8 @@ fn main() -> Result<()> {
             input,
             output,
             frame_len,
-            trailer,
+            config,
             izone_len,
-        } => {
-            let trailer_len = match trailer {
-                Some(t) => {
-                    if t.ocf {
-                        4
-                    } else {
-                        t.trailer_len
-                    }
-                }
-                None => 0,
-            };
-            packetize::packetize(
-                input.clone(),
-                *frame_len,
-                *izone_len,
-                trailer_len,
-                output.clone(),
-            )
-        }
+        } => todo!("use PacketDemux"),
     }
 }

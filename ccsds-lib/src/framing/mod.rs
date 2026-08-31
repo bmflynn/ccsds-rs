@@ -38,7 +38,6 @@ mod synchronizer;
 
 #[cfg(feature = "python")]
 use pyo3::{exceptions::PyValueError, prelude::*};
-#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 pub use pipeline::*;
@@ -50,15 +49,21 @@ pub type Scid = u16;
 pub type Vcid = u16;
 pub type Cadu = Block;
 
+/// Length of the operational control field
+pub const OCF_LEN: usize = 4;
+// Length of the frame error control field
+pub const FEC_LEN: usize = 2;
+/// Length of the frame header error control field
+pub const FHEC_LEN: usize = 2;
+
 /// Loose representation of a single frame of data extracted from a Cadu.
 ///
 /// This can generally be though of as containing from data from a version 1 or version
 /// 2 CCSDS Transfer Frame, see [VCDUHeader::decode] for details on version support.
 ///
 /// TM Transfer Frames (CCSDS 132.0-B-3) are not supported.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "python", pyclass(frozen, get_all))]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Frame {
     /// This frames header data
     pub header: VCDUHeader,
@@ -69,7 +74,7 @@ pub struct Frame {
     /// Frame bytes. If integrity checking was performed and failed, e.g., not [Integrity::Ok] or
     /// [Integrity::Corrected], this will also include any check symbols and therefore potentially
     /// be longer than the expected frame length.
-    #[cfg_attr(feature = "serde", serde(with = "serde_bytes"))]
+    #[serde(with = "serde_bytes")]
     pub data: Vec<u8>,
 }
 
@@ -103,8 +108,12 @@ impl Frame {
 
     /// Extract the MPDU bytes from this frame, or `None` if not enough bytes.
     #[must_use]
-    pub fn mpdu(&self, izone_length: usize, trailer_length: usize) -> Option<MPDU> {
-        let start: usize = VCDUHeader::LEN + izone_length;
+    pub fn mpdu(&self, izone_length: usize, trailer_length: usize, fhec: bool) -> Option<MPDU> {
+        let start: usize = if fhec {
+            VCDUHeader::LEN + izone_length + FHEC_LEN
+        } else {
+            VCDUHeader::LEN + izone_length
+        };
         let end: usize = self.data.len() - trailer_length;
         let data = self.data[start..end].to_vec();
 
@@ -113,9 +122,8 @@ impl Frame {
 }
 
 /// Contents of a valid VCDU header
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "python", pyclass(frozen, get_all))]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct VCDUHeader {
     pub version: u8,
     pub scid: Scid,
@@ -132,6 +140,8 @@ impl VCDUHeader {
     /// combined into a single 32b counter.
     ///
     /// If the version is unknown or unsupported, `None` is returned.
+    ///
+    /// The returned header length will not include [FHEC_LEN] if used.
     #[must_use]
     pub fn decode(dat: &[u8]) -> Option<Self> {
         if dat.len() < Self::LEN {

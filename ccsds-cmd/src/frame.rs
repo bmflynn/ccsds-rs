@@ -6,7 +6,7 @@ use clap::ValueEnum;
 use ccsds::framing::{Integrity, Pipeline, RsOpts, Vcid};
 use handlebars::handlebars_helper;
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::InputReader;
 
@@ -79,6 +79,7 @@ pub fn frame_aos<O: AsRef<Path>>(
         if let Some(num) = reed_solomon_threads {
             opts = opts.with_num_threads(num);
         }
+        debug!("rs opts: {:?}", opts);
         pipeline = pipeline.with_rs(opts);
     }
 
