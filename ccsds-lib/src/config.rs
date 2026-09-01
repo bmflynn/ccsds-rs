@@ -24,8 +24,10 @@ pub struct PNConfig {}
 #[serde(rename_all = "camelCase")]
 pub struct FramingConfig {
     pub length: usize,
-    pub insert_zone_length: Option<usize>,
+    pub fhec_present: Option<bool>,
     pub ocf_present: Option<bool>,
+    pub fec_present: Option<bool>,
+    pub izone_length: Option<usize>,
     pub pseudo_noise: Option<PNConfig>,
     #[serde(rename = "type")]
     pub frame_type: String,
@@ -38,6 +40,7 @@ pub struct ChannelFramingConfig {
     pub fhec_present: Option<bool>,
     pub ocf_present: Option<bool>,
     pub fec_present: Option<bool>,
+    pub izone_length: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,7 +115,7 @@ impl TimecodeConfig {
                 let epoch = Epoch::from_format_str(&epoch, "%Y-%m-%dT%H:%M:%SZ")
                     .map_err(|_| Error::Config("invalid timestamp".to_string()))?;
                 Ok(if self_identifying.unwrap_or_default() {
-                    Box::new(cds::PFieldDecoder::default().with_epoch(epoch.to_unix_seconds()))
+                    Box::new(cuc::PFieldDecoder::default().with_epoch(epoch.to_unix_seconds()))
                 } else {
                     let len = basic_length.unwrap_or_default();
                     if len == 0 {

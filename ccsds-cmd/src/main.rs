@@ -1,10 +1,5 @@
-mod diff;
-mod filter;
 mod frame;
-mod info;
-mod merge;
-mod packetize;
-mod sync;
+mod packet;
 
 use std::fs;
 use std::io::{stdout, BufReader, Read};
@@ -21,7 +16,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use ccsds::spacepacket::timecode::PacketApidTimeDecoder;
 use clap::{Parser, Subcommand, ValueEnum};
 use hifitime::Epoch;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -31,44 +26,28 @@ struct Cli {
     command: Commands,
 }
 
-#[derive(Clone, Copy, Debug, ValueEnum)]
-pub enum SummaryFormat {
-    JSON,
-    TXT,
-}
-
-#[derive(Debug)]
-pub enum InputReader {
-    Stdin(BufReader<std::io::Stdin>),
-    File(BufReader<std::fs::File>),
-    TCP(BufReader<std::net::TcpStream>),
-}
-
-impl InputReader {
-    fn from_str(s: &str) -> Result<InputReader> {
-        if s == "-" {
-            return Ok(InputReader::Stdin(BufReader::new(std::io::stdin())));
-        }
-        if std::fs::exists(s).unwrap_or_default() {
-            return Ok(InputReader::File(BufReader::new(File::open(s)?)));
-        }
-        let conn = TcpStream::connect(s).context("failed to connect")?;
-        return Ok(InputReader::TCP(BufReader::new(conn)));
-    }
-}
-
-impl Read for InputReader {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        match self {
-            InputReader::Stdin(r) => r.read(buf),
-            InputReader::File(r) => r.read(buf),
-            InputReader::TCP(r) => r.read(buf),
-        }
-    }
-}
-
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 enum Commands {
+    /// Spacepacket commands
+    Packets(PacketArgs),
+    /// Frame commands
+    Frames(FrameArgs),
+}
+
+#[derive(Debug, clap::Args)]
+struct PacketArgs {
+    #[command(subcommand)]
+    command: PacketCommands,
+}
+
+#[derive(Debug, clap::Args)]
+struct FrameArgs {
+    #[command(subcommand)]
+    command: FrameCommands,
+}
+
+#[derive(Debug, Subcommand)]
+enum PacketCommands {
     /// Merge multiple spacepacket files.
     ///
     /// Contained packets must have an 8 byte CDS timecode at the start of the packet
@@ -128,11 +107,11 @@ enum Commands {
 
         /// Output format
         #[arg(short, long, default_value = "text")]
-        format: info::Format,
+        format: crate::packet::Format,
 
         /// Path to spacecraft config file.
         #[arg(short = 'c', long = "config")]
-        config: Option<PathBuf>,
+        config: PathBuf,
     },
     /// Apply various filters to spacepacket files.
     Filter {
@@ -185,8 +164,38 @@ enum Commands {
         input: PathBuf,
     },
 
+    /// Difference 2 packet files.
+    ///
+    /// Packet differences are based on APID, sequence number, and CRC (not including the packet
+    /// header).
+    Diff {
+        left: PathBuf,
+        right: PathBuf,
+        /// Show details on specific missing packets
+        #[arg(short, long)]
+        verbose: bool,
+    },
+
+    /// Extract packets from frame stream
+    Demux {
+        /// Path to spacecraft config file.
+        #[arg(short = 'c', long = "config")]
+        config: PathBuf,
+
+        #[arg(short, long, value_name = "PATH")]
+        output: Option<PathBuf>,
+
+        /// Input file containing decoded frames. The input must not include any
+        /// ASM or RS parity bytes.
+        input: PathBuf,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+#[command()]
+enum FrameCommands {
     /// Decode frames from an input stream of CADUs.
-    Framing {
+    Decode {
         /// Path to spacecraft config file.
         #[arg(short = 'c', long = "config")]
         config: PathBuf,
@@ -228,19 +237,6 @@ enum Commands {
         /// Input file path
         input: String,
     },
-
-    /// Difference 2 packet files.
-    ///
-    /// Packet differences are based on APID, sequence number, and CRC (not including the packet
-    /// header).
-    Diff {
-        left: PathBuf,
-        right: PathBuf,
-        /// Show details on specific missing packets
-        #[arg(short, long)]
-        verbose: bool,
-    },
-
     /// Synchronize a bit stream.
     Sync {
         /// Do not include ASM in output
@@ -268,26 +264,12 @@ enum Commands {
         /// Input file path
         input: PathBuf,
     },
-
-    /// Extract packets from frames
-    Packetize {
+    Info {
         /// Path to spacecraft config file.
         #[arg(short = 'c', long = "config")]
         config: PathBuf,
 
-        /// Number of insert zone bytes
-        #[arg(long, default_value_t = 0)]
-        izone_len: usize,
-
-        /// Output packet file path, or '-' for stdout. If not specified only print the summary.
-        #[arg(short, long, value_name = "PATH")]
-        output: Option<PathBuf>,
-
-        // Length of each frame.
-        frame_len: usize,
-
-        /// Input file containing decoded frames. The input must not include any
-        /// ASM or RS parity bytes.
+        /// Input file path
         input: PathBuf,
     },
 }
@@ -355,186 +337,233 @@ fn main() -> Result<()> {
     // You can check for the existence of subcommands, and if found use their
     // matches just as you would the top level cmd
     match &cli.command {
-        Commands::Merge {
-            config,
-            output,
-            inputs,
-            clobber,
-            apid_order,
-            apid_order_name,
-            from,
-            to,
-            apids,
-        } => {
-            if !clobber && output.exists() {
-                bail!("{output:?} exists; use --clobber");
-            }
-            info!("merging {inputs:?} to {output:?}");
-            let apid_order = match apid_order_name {
-                Some(name) => match merge::apid_order(name) {
-                    Some(order) => Some(order),
-                    None => bail!("{name} is not a valid APID order name"),
-                },
-                None => Some(apid_order.as_deref().unwrap_or(&Vec::default()).to_vec()),
-            };
-            let dest = File::create(output)
-                .with_context(|| format!("failed to create output {output:?}"))?;
-
-            let cfg = config::Config::read(config)?;
-
-            let time_decoder = PacketApidTimeDecoder::default().with_config(cfg)?;
-
-            merge::merge(
-                inputs,
-                time_decoder,
-                dest,
-                apid_order,
-                *from,
-                *to,
-                Some(apids),
-            )
-        }
-        Commands::Info {
-            input,
-            format,
-            config,
-        } => {
-            let time_decoder = match config {
-                Some(path) => {
-                    let cfg = Config::read(path)?;
-                    let decoder = PacketApidTimeDecoder::default().with_config(cfg)?;
-                    Some(decoder)
-                }
-                None => None,
-            };
-            info::info(input, format, time_decoder)
-        }
-        Commands::Filter {
-            include,
-            exclude,
-            clobber,
-            output,
-            input,
-            before,
-            after,
-            config,
-        } => {
-            if !clobber && output.exists() {
-                bail!("{output:?} exists; use --clobber");
-            }
-            let src = File::open(input).context("opening input")?;
-            let dest = File::create(output)
-                .with_context(|| format!("failed to create output {output:?}"))?;
-
-            let include = parse_number_ranges(include.clone())?
-                .iter()
-                .filter_map(|v| Apid::try_from(*v).ok())
-                .collect::<Vec<Apid>>();
-            let exclude = parse_number_ranges(exclude.clone())?
-                .iter()
-                .filter_map(|v| Apid::try_from(*v).ok())
-                .collect::<Vec<Apid>>();
-
-            debug!("including apids {:?}", include);
-            debug!("excluding apids {:?}", exclude);
-            debug!("before: {:?}", before);
-            debug!("after: {:?}", after);
-
-            let time_decoder = match config {
-                Some(path) => {
-                    let cfg = Config::read(path)?;
-                    let decoder = PacketApidTimeDecoder::default().with_config(cfg)?;
-                    Some(decoder)
-                }
-                None => None,
-            };
-
-            filter::filter(src, dest, &include, &exclude, *before, *after, time_decoder)
-        }
-        Commands::Diff {
-            left,
-            right,
-            verbose,
-        } => crate::diff::diff(left, right, *verbose),
-        Commands::Framing {
-            config,
-            rs_detect,
-            rs_correct,
-            include,
-            exclude,
-            input,
-            output,
-            summary: summary_path,
-        } => {
-            let include = parse_number_ranges(include.clone())?
-                .iter()
-                .filter_map(|v| Vcid::try_from(*v).ok())
-                .collect::<Vec<Vcid>>();
-            let exclude = parse_number_ranges(exclude.clone())?
-                .iter()
-                .filter_map(|v| Vcid::try_from(*v).ok())
-                .collect::<Vec<Vcid>>();
-
-            let input = InputReader::from_str(input)?;
-
-            let cfg = Config::read(config)?;
-
-            let (interleave, virtual_fill) = if let Some(rs) = cfg.framing.reed_solomon {
-                (
-                    u8::try_from(rs.interleave)
-                        .map_err(|_| anyhow!("invalid rs interleave; must be 0 ... 255"))?,
-                    rs.virtual_fill_length.unwrap_or_default(),
-                )
-            } else {
-                (0, 0)
-            };
-            let summary = frame::frame_aos(
-                input,
-                cfg.framing.length,
-                cfg.framing.pseudo_noise.is_some(),
-                false, // always ditch fill for now
-                if interleave == 0 {
-                    None
-                } else {
-                    Some(interleave)
-                }, // only do rs if interleave set
-                *rs_detect,
-                *rs_correct,
-                virtual_fill,
-                None,
-                100,
+        Commands::Frames(args) => match &args.command {
+            FrameCommands::Decode {
+                config,
+                rs_detect,
+                rs_correct,
                 include,
                 exclude,
-                output.as_ref(),
-            )?;
+                input,
+                output,
+                summary: summary_path,
+            } => {
+                let include = parse_number_ranges(include.clone())?
+                    .iter()
+                    .filter_map(|v| Vcid::try_from(*v).ok())
+                    .collect::<Vec<Vcid>>();
+                let exclude = parse_number_ranges(exclude.clone())?
+                    .iter()
+                    .filter_map(|v| Vcid::try_from(*v).ok())
+                    .collect::<Vec<Vcid>>();
 
-            if let Some(path) = summary_path {
-                let content = frame::render_json_summary(&summary).context("rendering summary")?;
-                fs::write(path, content).context("writing JSON summary")?;
+                let input = InputReader::from_str(&input)?;
+
+                let cfg = Config::read(config)?;
+
+                let (interleave, virtual_fill) = if let Some(rs) = cfg.framing.reed_solomon {
+                    (
+                        u8::try_from(rs.interleave)
+                            .map_err(|_| anyhow!("invalid rs interleave; must be 0 ... 255"))?,
+                        rs.virtual_fill_length.unwrap_or_default(),
+                    )
+                } else {
+                    (0, 0)
+                };
+                let summary = frame::frame_aos(
+                    input,
+                    cfg.framing.length,
+                    cfg.framing.pseudo_noise.is_some(),
+                    true,
+                    if interleave == 0 {
+                        None
+                    } else {
+                        Some(interleave)
+                    }, // only do rs if interleave set
+                    *rs_detect,
+                    *rs_correct,
+                    virtual_fill,
+                    None,
+                    100,
+                    include,
+                    exclude,
+                    output.as_ref(),
+                )?;
+
+                if let Some(path) = summary_path {
+                    let content =
+                        frame::render_json_summary(&summary).context("rendering summary")?;
+                    fs::write(path, content).context("writing JSON summary")?;
+                }
+                frame::write_text_summary(stdout(), &summary)
             }
-            frame::write_text_summary(stdout(), &summary)
+            FrameCommands::Sync {
+                input,
+                block_len,
+                output,
+                pn,
+                no_asm,
+                verbose,
+            } => frame::synchronize(
+                input.clone(),
+                *block_len,
+                *pn,
+                *no_asm,
+                output.clone(),
+                *verbose,
+            ),
+            FrameCommands::Info { config, input } => {
+                let cfg = config::Config::read(config)?;
+                crate::frame::info(input, &cfg)
+            }
+        },
+        Commands::Packets(args) => match &args.command {
+            PacketCommands::Merge {
+                config,
+                output,
+                inputs,
+                clobber,
+                apid_order,
+                apid_order_name,
+                from,
+                to,
+                apids,
+            } => {
+                if !clobber && output.exists() {
+                    bail!("{output:?} exists; use --clobber");
+                }
+                info!("merging {inputs:?} to {output:?}");
+                let apid_order = match apid_order_name {
+                    Some(name) => match crate::packet::apid_order(&name) {
+                        Some(order) => Some(order),
+                        None => bail!("{name} is not a valid APID order name"),
+                    },
+                    None => Some(apid_order.as_deref().unwrap_or(&Vec::default()).to_vec()),
+                };
+                let dest = File::create(output)
+                    .with_context(|| format!("failed to create output {output:?}"))?;
+
+                let cfg = config::Config::read(config)?;
+
+                let time_decoder = PacketApidTimeDecoder::default().with_config(&cfg)?;
+
+                crate::packet::merge(
+                    &inputs,
+                    time_decoder,
+                    dest,
+                    apid_order,
+                    *from,
+                    *to,
+                    Some(&apids),
+                )
+            }
+            PacketCommands::Info {
+                input,
+                format,
+                config,
+            } => {
+                let cfg = Config::read(config)?;
+                let timecodes = match PacketApidTimeDecoder::default().with_config(&cfg) {
+                    Ok(tc) => Some(tc),
+                    Err(err) => {
+                        warn!(%err, "failed to configured timecodes");
+                        None
+                    }
+                };
+                crate::packet::info(&input, &format, timecodes)
+            }
+            PacketCommands::Filter {
+                include,
+                exclude,
+                clobber,
+                output,
+                input,
+                before,
+                after,
+                config,
+            } => {
+                if !clobber && output.exists() {
+                    bail!("{output:?} exists; use --clobber");
+                }
+                let src = File::open(input).context("opening input")?;
+                let dest = File::create(output)
+                    .with_context(|| format!("failed to create output {output:?}"))?;
+
+                let include = parse_number_ranges(include.clone())?
+                    .iter()
+                    .filter_map(|v| Apid::try_from(*v).ok())
+                    .collect::<Vec<Apid>>();
+                let exclude = parse_number_ranges(exclude.clone())?
+                    .iter()
+                    .filter_map(|v| Apid::try_from(*v).ok())
+                    .collect::<Vec<Apid>>();
+
+                debug!("including apids {:?}", include);
+                debug!("excluding apids {:?}", exclude);
+                debug!("before: {:?}", before);
+                debug!("after: {:?}", after);
+
+                let time_decoder = match config {
+                    Some(path) => {
+                        let cfg = Config::read(path)?;
+                        let decoder = PacketApidTimeDecoder::default().with_config(&cfg)?;
+                        Some(decoder)
+                    }
+                    None => None,
+                };
+
+                crate::packet::filter(src, dest, &include, &exclude, *before, *after, time_decoder)
+            }
+            PacketCommands::Diff {
+                left,
+                right,
+                verbose,
+            } => crate::packet::diff(left, right, *verbose),
+            PacketCommands::Demux {
+                input,
+                output,
+                config,
+            } => {
+                let cfg = Config::read(config)?;
+
+                crate::packet::demux_packets(input, cfg, output.as_ref())
+            }
+        },
+    }
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum SummaryFormat {
+    JSON,
+    TXT,
+}
+
+#[derive(Debug)]
+pub enum InputReader {
+    Stdin(BufReader<std::io::Stdin>),
+    File(BufReader<std::fs::File>),
+    TCP(BufReader<std::net::TcpStream>),
+}
+
+impl InputReader {
+    fn from_str(s: &str) -> Result<InputReader> {
+        if s == "-" {
+            return Ok(InputReader::Stdin(BufReader::new(std::io::stdin())));
         }
-        Commands::Sync {
-            input,
-            block_len,
-            output,
-            pn,
-            no_asm,
-            verbose,
-        } => sync::synchronize(
-            input.clone(),
-            *block_len,
-            *pn,
-            *no_asm,
-            output.clone(),
-            *verbose,
-        ),
-        Commands::Packetize {
-            input,
-            output,
-            frame_len,
-            config,
-            izone_len,
-        } => todo!("use PacketDemux"),
+        if std::fs::exists(s).unwrap_or_default() {
+            return Ok(InputReader::File(BufReader::new(File::open(s)?)));
+        }
+        let conn = TcpStream::connect(s).context("failed to connect")?;
+        return Ok(InputReader::TCP(BufReader::new(conn)));
+    }
+}
+
+impl Read for InputReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            InputReader::Stdin(r) => r.read(buf),
+            InputReader::File(r) => r.read(buf),
+            InputReader::TCP(r) => r.read(buf),
+        }
     }
 }

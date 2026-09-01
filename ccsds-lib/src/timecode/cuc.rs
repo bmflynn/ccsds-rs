@@ -9,37 +9,31 @@ use super::TimecodeDecoder;
 
 /// PField decodes timecodes where the PField is implied, or not present in the timecode
 /// bytes.
+#[derive(Debug)]
 struct PField {
     /// Number of bytes of basic time
     num_basic: usize,
     /// Number of bytes of fine time
     num_fine: usize,
+    /// Total length of the pfield
+    len: usize,
 }
 
 impl PField {
-    pub fn new(num_basic: usize, num_fine: usize) -> Result<Self> {
-        if num_basic < 1 {
-            Err(Error::InvalidPField("num_basic must be > 0".to_string()))
-        } else {
-            Ok(PField {
-                num_basic,
-                num_fine,
-            })
-        }
-    }
     pub fn decode(buf: &[u8]) -> Result<PField> {
         if buf.is_empty() {
             return Err(Error::NotEnoughData);
         }
         let mut pf = PField {
-            num_basic: usize::from(buf[0] >> 4u8 & 0b11) + 1,
-            num_fine: usize::from(buf[0] >> 6u8 & 0b11),
+            num_basic: usize::from((buf[0] >> 2) & 0b11) + 1,
+            num_fine: usize::from(buf[0] & 0b11),
+            len: 1,
         };
         let mut i = 0;
-        while buf[i] & 1 == 1 {
-            // 0b1010ccff
-            pf.num_fine += usize::from(buf[i] >> 4u8 & 0b11);
-            pf.num_fine += usize::from(buf[i] >> 6u8 & 0b11);
+        while (buf[i] >> 7) & 1 == 1 {
+            pf.len += 1;
+            pf.num_basic += usize::from(buf[i] >> 4 & 0b11);
+            pf.num_fine += usize::from(buf[i] >> 6 & 0b11);
             if buf[i] & 1 == 0 {
                 break;
             }
@@ -55,6 +49,10 @@ impl PField {
     }
 
     fn len(&self) -> usize {
+        self.len
+    }
+
+    fn time_len(&self) -> usize {
         self.num_basic + self.num_fine
     }
 }
@@ -91,6 +89,14 @@ impl PFieldDecoder {
         }
     }
 
+    /// Use the provided epoch (TAI).
+    pub fn with_epoch(self, secs: f64) -> Self {
+        PFieldDecoder {
+            epoch: hifitime::Epoch::from_unix_seconds(secs),
+            fine_nanos: self.fine_nanos,
+        }
+    }
+
     pub fn with_fine_nanos(mut self, nanos: u32) -> Self {
         self.fine_nanos = nanos;
         self
@@ -109,11 +115,11 @@ impl Default for PFieldDecoder {
 impl TimecodeDecoder for PFieldDecoder {
     fn decode_unix_millis(&self, buf: &[u8]) -> Result<f64> {
         let pfield = PField::decode(buf)?;
-        if buf.len() < pfield.len() {
+        if buf.len() < pfield.len() + pfield.time_len() {
             return Err(Error::NotEnoughData);
         }
         decode_cuc(
-            buf,
+            &buf[pfield.len()..],
             &self.epoch,
             pfield.num_basic,
             pfield.num_fine,

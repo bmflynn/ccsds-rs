@@ -67,7 +67,7 @@ impl PacketApidTimeDecoder {
         self
     }
 
-    pub fn with_config(mut self, cfg: config::Config) -> Result<Self> {
+    pub fn with_config(mut self, cfg: &config::Config) -> Result<Self> {
         for ch in cfg.apids.iter() {
             let Some(name) = ch.timecode.as_ref() else {
                 continue;

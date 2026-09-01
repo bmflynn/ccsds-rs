@@ -13,7 +13,7 @@ use std::{
     io::{stdout, Write},
     path::Path,
 };
-use tracing::debug;
+use tracing::{trace, warn};
 
 #[derive(Debug, Clone)]
 pub enum Format {
@@ -34,32 +34,6 @@ impl clap::ValueEnum for Format {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum TCFormat {
-    Jpss,
-    Eos,
-    None,
-}
-
-impl clap::ValueEnum for TCFormat {
-    fn value_variants<'a>() -> &'a [Self] {
-        &[
-            Self::Jpss,
-            Self::Eos,
-            // Self::EosCuc,
-            Self::None,
-        ]
-    }
-
-    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
-        match self {
-            Self::Jpss => Some(clap::builder::PossibleValue::new("jpss")),
-            Self::Eos => Some(clap::builder::PossibleValue::new("eos")),
-            Self::None => Some(clap::builder::PossibleValue::new("none")),
-        }
-    }
-}
-
 #[derive(Default, Debug, Clone, Serialize)]
 struct Summary {
     total_packets: usize,
@@ -76,7 +50,7 @@ struct Info {
     apids: Vec<(Apid, Summary)>,
 }
 
-fn summarize(fpath: &Path, time_decoder: Option<PacketApidTimeDecoder>) -> Result<Info> {
+fn summarize(fpath: &Path, timecodes: Option<PacketApidTimeDecoder>) -> Result<Info> {
     let reader = std::fs::File::open(fpath).context("opening input")?;
     let packets = decode_packets(reader).filter_map(Result::ok);
 
@@ -108,31 +82,37 @@ fn summarize(fpath: &Path, time_decoder: Option<PacketApidTimeDecoder>) -> Resul
 
         // NOTE: The resulting Epoch will have a reference time of Jan 1, 1900 and must be
         // converted to the basetime for the specific APID.
-        if let Some(ref time_decoder) = time_decoder {
-            if let Ok(Some(epoch)) = time_decoder.decode(&packet) {
-                summary.first_packet_time = summary
-                    .first_packet_time
-                    .map_or(Some(epoch), |cur| Some(cmp::min(epoch, cur)));
-                summary.last_packet_time = summary
-                    .last_packet_time
-                    .map_or(Some(epoch), |cur| Some(cmp::max(epoch, cur)));
-                if summary.first_packet_time.is_some() && summary.last_packet_time.is_some() {
-                    summary.duration =
-                        summary.last_packet_time.unwrap() - summary.first_packet_time.unwrap();
-                }
+        if let Some(ref time_decoder) = timecodes {
+            match time_decoder.decode(&packet) {
+                Ok(Some(epoch)) => {
+                    summary.first_packet_time = summary
+                        .first_packet_time
+                        .map_or(Some(epoch), |cur| Some(cmp::min(epoch, cur)));
+                    summary.last_packet_time = summary
+                        .last_packet_time
+                        .map_or(Some(epoch), |cur| Some(cmp::max(epoch, cur)));
+                    if summary.first_packet_time.is_some() && summary.last_packet_time.is_some() {
+                        summary.duration =
+                            summary.last_packet_time.unwrap() - summary.first_packet_time.unwrap();
+                    }
 
-                apid.first_packet_time = apid
-                    .first_packet_time
-                    .map_or(Some(epoch), |cur| Some(cmp::min(epoch, cur)));
-                apid.last_packet_time = apid
-                    .last_packet_time
-                    .map_or(Some(epoch), |cur| Some(cmp::max(epoch, cur)));
-                if apid.first_packet_time.is_some() && apid.last_packet_time.is_some() {
-                    apid.duration =
-                        apid.last_packet_time.unwrap() - apid.first_packet_time.unwrap();
+                    apid.first_packet_time = apid
+                        .first_packet_time
+                        .map_or(Some(epoch), |cur| Some(cmp::min(epoch, cur)));
+                    apid.last_packet_time = apid
+                        .last_packet_time
+                        .map_or(Some(epoch), |cur| Some(cmp::max(epoch, cur)));
+                    if apid.first_packet_time.is_some() && apid.last_packet_time.is_some() {
+                        apid.duration =
+                            apid.last_packet_time.unwrap() - apid.first_packet_time.unwrap();
+                    }
                 }
-            } else {
-                debug!("failed to decode time from {:?}", packet.header);
+                Ok(None) => {
+                    trace!(header=?packet.header, "no timecode config");
+                }
+                Err(err) => {
+                    warn!(%err, "failed to decode timecode")
+                }
             }
         }
     }

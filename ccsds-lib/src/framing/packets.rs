@@ -10,11 +10,15 @@ use crate::spacepacket::{Packet, PrimaryHeader};
 
 use super::Frame;
 
+/// Per-channel framing configuration
 #[derive(Clone, Debug, Default)]
 struct ChannelConfig {
     izone_len: usize,
+    // Frame header error correction
     fhec: bool,
+    // Frame error correction
     fec: bool,
+    // Operational control field
     ocf: bool,
 }
 
@@ -39,7 +43,7 @@ struct ChannelConfig {
 /// use ccsds::spacepacket::Packet;
 ///
 /// let frames = vec![Frame::decode(vec![0u8; 1020]).unwrap()];
-/// let packets: Vec<Packet> = PacketDemux::new(frames.into_iter(), 0, false, false, false).collect();
+/// let packets: Vec<Packet> = PacketDemux::new(frames.into_iter()).with_defaults(0, false, false, false).collect();
 /// ```
 #[derive(Clone, Debug)]
 pub struct PacketDemux<I>
@@ -53,7 +57,7 @@ where
     cache: HashMap<Vcid, VcidTracker>,
     // Packets that have already been decoded and are waiting to be provided.
     ready: VecDeque<Packet>,
-    default_config: ChannelConfig,
+    default_config: Option<ChannelConfig>,
     channel_config: HashMap<Vcid, ChannelConfig>,
 }
 
@@ -65,24 +69,33 @@ where
     ///
     /// # Arguments:
     /// * `frames` - Frames to demux packets from
-    /// * `izone_len` - Insert zone length in bytes.
-    /// * `fhec` - Frame header contains frame header error control bytes
-    /// * `ocf` - Frame trailer contains operational control field bytes
-    /// * `fec` - Frame trailer contains frame error control bytes
-    pub fn new(frames: I, izone_len: usize, fhec: bool, ocf: bool, fec: bool) -> Self {
+    pub fn new(frames: I) -> Self {
         Self {
             frames,
             cache: HashMap::default(),
             ready: VecDeque::default(),
             channel_config: HashMap::default(),
-            default_config: ChannelConfig {
-                izone_len,
-                fhec,
-                ocf,
-                fec,
-            },
+            default_config: None,
         }
     }
+
+    /// Set the default framing configuration if no per-channel configuration is avaialble.
+    ///
+    /// # Arguments
+    /// * `izone_len` - Insert zone length in bytes.
+    /// * `fhec` - Frame header contains frame header error control bytes
+    /// * `ocf` - Frame trailer contains operational control field bytes
+    /// * `fec` - Frame trailer contains frame error control bytes
+    pub fn with_defaults(mut self, izone_len: usize, fhec: bool, ocf: bool, fec: bool) -> Self {
+        self.default_config = Some(ChannelConfig {
+            izone_len,
+            fhec,
+            ocf,
+            fec,
+        });
+        self
+    }
+
     /// Add an chanel specific framing configuration.
     pub fn with_channel_config(
         mut self,
@@ -105,18 +118,18 @@ where
     }
 
     /// Get a frames MPDU based on the channel config
-    fn mpdu(&self, frame: &Frame) -> MPDU {
+    fn mpdu(&self, frame: &Frame) -> Option<MPDU> {
         let cfg = self
             .channel_config
             .get(&frame.header.vcid)
-            .unwrap_or(&self.default_config);
+            .or(self.default_config.as_ref())?;
         let trailer_len = match (cfg.ocf, cfg.fec) {
             (true, true) => OCF_LEN + FEC_LEN,
             (true, false) => OCF_LEN,
             (false, true) => FEC_LEN,
             (false, false) => 0,
         };
-        frame.mpdu(cfg.izone_len, trailer_len, cfg.fhec).unwrap()
+        frame.mpdu(cfg.izone_len, trailer_len, cfg.fhec)
     }
 }
 
@@ -140,7 +153,13 @@ where
                 break;
             };
 
-            let mpdu = self.mpdu(&frame);
+            let mpdu = match self.mpdu(&frame) {
+                Some(m) => m,
+                None => {
+                    debug!("demux failed to extract mpdu from frame");
+                    return None;
+                }
+            };
             let tracker = self
                 .cache
                 .entry(frame.header.vcid)

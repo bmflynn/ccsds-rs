@@ -3,7 +3,7 @@ use std::{collections::HashMap, fs::File, io::Write, path::Path};
 use anyhow::{Context, Result};
 use clap::ValueEnum;
 
-use ccsds::framing::{Integrity, Pipeline, RsOpts, Vcid};
+use ccsds::framing::{Frame, Integrity, Pipeline, RsOpts, Vcid};
 use handlebars::handlebars_helper;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
@@ -15,30 +15,69 @@ const RS_PARITY_LEN: usize = 32;
 
 #[derive(Default, Debug, Clone, Serialize)]
 pub struct Info {
-    vcid: Vcid,
-    total_frames: usize,
-    total_bytes: usize,
-    missing_frames: usize,
+    pub vcid: Vcid,
+    pub total_frames: usize,
+    pub total_bytes: usize,
+    pub missing_frames: usize,
 
-    corrected: usize,
-    uncorrectable: usize,
-    ok: usize,
-    error: usize,
-    not_performed: usize,
+    pub corrected: usize,
+    pub uncorrectable: usize,
+    pub ok: usize,
+    pub error: usize,
+    pub not_performed: usize,
 }
 
 #[derive(Debug, Default, Clone, Serialize)]
 pub struct Summary {
-    total_frames: usize,
-    total_bytes: usize,
-    missing_frames: usize,
+    pub total_frames: usize,
+    pub total_bytes: usize,
+    pub missing_frames: usize,
 
-    corrected: usize,
-    uncorrectable: usize,
-    ok: usize,
-    error: usize,
-    not_performed: usize,
-    vcids: Vec<Info>,
+    pub corrected: usize,
+    pub uncorrectable: usize,
+    pub ok: usize,
+    pub error: usize,
+    pub not_performed: usize,
+    pub with_rs: bool,
+    pub vcids: HashMap<Vcid, Info>,
+}
+
+impl Summary {
+    pub fn collect(&mut self, frame: &Frame) {
+        self.total_frames += 1;
+        self.total_bytes += frame.data.len();
+
+        let channel = self.vcids.entry(frame.header.vcid).or_default();
+        channel.vcid = frame.header.vcid;
+        channel.total_frames += 1;
+        channel.total_bytes += frame.data.len();
+        channel.missing_frames += frame.missing as usize;
+        self.missing_frames += frame.missing as usize;
+        match &frame.integrity {
+            Some(integrity) => match integrity {
+                Integrity::Ok => {
+                    channel.ok += 1;
+                    self.ok += 1;
+                }
+                Integrity::Corrected => {
+                    channel.corrected += 1;
+                    self.corrected += 1;
+                }
+                Integrity::Uncorrectable | Integrity::NotCorrected => {
+                    channel.uncorrectable += 1;
+                    self.uncorrectable += 1;
+                }
+                Integrity::Failed => {
+                    channel.error += 1;
+                    self.error += 1;
+                }
+            },
+            None => {
+                channel.not_performed += 1;
+                self.not_performed += 1;
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum, Serialize, Deserialize)]
@@ -46,6 +85,7 @@ pub enum FrameType {
     AOS,
 }
 
+/// General purpose framing that extracts all contained frames to the provided path.
 pub fn frame_aos<O: AsRef<Path>>(
     input: InputReader,
     length: usize,
@@ -84,7 +124,6 @@ pub fn frame_aos<O: AsRef<Path>>(
     }
 
     let mut summary = Summary::default();
-    let mut vcids: HashMap<Vcid, Info> = HashMap::default();
 
     let frames = pipeline.start(input);
     let dst = match output {
@@ -102,39 +141,7 @@ pub fn frame_aos<O: AsRef<Path>>(
         if !exclude.is_empty() && exclude.contains(&frame.header.vcid) {
             continue;
         }
-        summary.total_frames += 1;
-        summary.total_bytes += frame.data.len();
-
-        let channel = vcids.entry(frame.header.vcid).or_default();
-        channel.vcid = frame.header.vcid;
-        channel.total_frames += 1;
-        channel.total_bytes += frame.data.len();
-        channel.missing_frames += frame.missing as usize;
-        summary.missing_frames += frame.missing as usize;
-        match &frame.integrity {
-            Some(integrity) => match integrity {
-                Integrity::Ok => {
-                    channel.ok += 1;
-                    summary.ok += 1;
-                }
-                Integrity::Corrected => {
-                    channel.corrected += 1;
-                    summary.corrected += 1;
-                }
-                Integrity::Uncorrectable | Integrity::NotCorrected => {
-                    channel.uncorrectable += 1;
-                    summary.uncorrectable += 1;
-                }
-                Integrity::Failed => {
-                    channel.error += 1;
-                    summary.error += 1;
-                }
-            },
-            None => {
-                channel.not_performed += 1;
-                summary.not_performed += 1;
-            }
-        }
+        summary.collect(&frame);
         match &frame.integrity {
             Some(Integrity::Uncorrectable | Integrity::NotCorrected | Integrity::Failed) => {
                 continue;
@@ -147,10 +154,6 @@ pub fn frame_aos<O: AsRef<Path>>(
         }
     }
 
-    let mut vcids: Vec<Info> = vcids.values().cloned().collect();
-    vcids.sort_unstable_by(|a, b| a.vcid.cmp(&b.vcid));
-    summary.vcids = vcids;
-
     Ok(summary)
 }
 
@@ -159,14 +162,14 @@ pub fn render_json_summary(summary: &Summary) -> Result<String> {
 }
 
 const TEXT_TEMPLATE: &str = r#"======================================================================================================
-Frames:        {{ total_frames }}
-Bytes:         {{ total_bytes }} 
-Missing:       {{ missing_frames}}
-Corrected:     {{ corrected }}
-Uncorrectable: {{ uncorrectable }}
-Ok:            {{ ok }}
-Error:         {{ error }}
-NotPerformed:  {{ not_performed }}
+Frames:        {{ summary.total_frames }}
+Bytes:         {{ summary.total_bytes }} 
+Missing:       {{ summary.missing_frames}}
+Corrected:     {{ summary.corrected }}
+Uncorrectable: {{ summary.uncorrectable }}
+Ok:            {{ summary.ok }}
+Error:         {{ summary.error }}
+NotPerformed:  {{ summary.not_performed }}
 ------------------------------------------------------------------------------------------------------
 VCID  Frames      Bytes       Missing     Corrected   Uncorr.     Ok          Error       NotPerf.
 ------------------------------------------------------------------------------------------------------
@@ -206,6 +209,23 @@ pub fn write_text_summary<W: Write>(mut w: W, summary: &Summary) -> Result<()> {
     hb.register_helper("lpad", Box::new(left_pad));
     assert!(hb.register_template_string("main", TEXT_TEMPLATE).is_ok());
 
-    let content = hb.render("main", &summary).context("rendering text")?;
+    let mut ordered_vcids: Vec<Info> = summary.vcids.values().cloned().collect();
+    ordered_vcids.sort_unstable_by(|a, b| a.vcid.cmp(&b.vcid));
+
+    #[derive(Debug, Serialize)]
+    struct Data {
+        vcids: Vec<Info>,
+        summary: Summary,
+    }
+
+    let content = hb
+        .render(
+            "main",
+            &Data {
+                vcids: ordered_vcids,
+                summary: summary.clone(),
+            },
+        )
+        .context("rendering text")?;
     w.write_all(content.as_bytes()).context("writing tempalte")
 }
