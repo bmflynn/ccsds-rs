@@ -1,7 +1,7 @@
 mod common;
 
-use ccsds::spacepacket::timecode::{PacketApidTimeDecoder, StaticTimeDecoder};
-use ccsds::timecode::{self, cds, cuc};
+use ccsds::spacepacket::timecode::StaticTimeDecoder;
+use ccsds::timecode::cds;
 use std::fs::{self, File};
 use std::result::Result;
 

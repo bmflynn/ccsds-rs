@@ -1,9 +1,17 @@
-use std::{collections::HashMap, fs::File, io::Write, path::Path};
+use std::{
+    collections::HashMap,
+    fs::{self, File},
+    io::{stdout, Write},
+    path::Path,
+};
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use clap::ValueEnum;
 
-use ccsds::framing::{Frame, Integrity, Pipeline, RsOpts, Vcid};
+use ccsds::{
+    config::Config,
+    framing::{Frame, Integrity, Pipeline, RsOpts, Vcid},
+};
 use handlebars::handlebars_helper;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
@@ -155,6 +163,54 @@ pub fn frame_aos<O: AsRef<Path>>(
     }
 
     Ok(summary)
+}
+
+pub fn decode<O: AsRef<Path>, S: AsRef<Path>>(
+    cfg: &Config,
+    input: &str,
+    include: Vec<Vcid>,
+    exclude: Vec<Vcid>,
+    rs_detect: bool,
+    rs_correct: bool,
+    output: Option<O>,
+    summary_path: Option<S>,
+) -> Result<()> {
+    let input = InputReader::from_str(&input)?;
+
+    let (interleave, virtual_fill) = if let Some(ref rs) = cfg.framing.reed_solomon {
+        (
+            u8::try_from(rs.interleave)
+                .map_err(|_| anyhow!("invalid rs interleave; must be 0 ... 255"))?,
+            rs.virtual_fill_length.unwrap_or_default(),
+        )
+    } else {
+        (0, 0)
+    };
+    let summary = frame_aos(
+        input,
+        cfg.framing.length,
+        cfg.framing.pseudo_noise.is_some(),
+        true,
+        if interleave == 0 {
+            None
+        } else {
+            Some(interleave)
+        }, // only do rs if interleave set
+        rs_detect,
+        rs_correct,
+        virtual_fill,
+        None,
+        100,
+        include,
+        exclude,
+        output.as_ref(),
+    )?;
+
+    if let Some(path) = summary_path {
+        let content = render_json_summary(&summary).context("rendering summary")?;
+        fs::write(path, content).context("writing JSON summary")?;
+    }
+    write_text_summary(stdout(), &summary)
 }
 
 pub fn render_json_summary(summary: &Summary) -> Result<String> {

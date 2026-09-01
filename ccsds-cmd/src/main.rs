@@ -1,24 +1,30 @@
 mod frame;
 mod packet;
 
-use std::fs;
-use std::io::{stdout, BufReader, Read};
+use std::io::{BufReader, Read};
 use std::net::TcpStream;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::{fs::File, io::stderr};
 
-use ccsds::config::{self, Config};
+use ccsds::config::Config;
 use ccsds::framing::Vcid;
 use ccsds::spacepacket::Apid;
 
 use anyhow::{anyhow, bail, Context, Result};
 use ccsds::spacepacket::timecode::PacketApidTimeDecoder;
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use hifitime::Epoch;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
 
+/// ccsds provides tool for decoding spacecraft data, mostly conforming to
+/// CCSDS specifications.
+///
+/// Spacecraft configuration is required for most functions, either via
+/// explicit path or by name. If by name the configuration file must exist
+/// in ~/.config/ccsds/spacecrafts/.
+///
 #[derive(Parser)]
 #[command(version, about)]
 struct Cli {
@@ -56,9 +62,8 @@ enum PacketCommands {
     /// The merge process will reorder packets by time and APID. To write the merged
     /// packets in a specific order see --apid-order.
     Merge {
-        /// Path to spacecraft config file.
-        #[arg(short = 'c', long = "config")]
-        config: PathBuf,
+        #[command(flatten)]
+        config: ConfigArgs,
 
         /// Manually set the APID order the merged packets for the same time are written.
         ///
@@ -109,15 +114,13 @@ enum PacketCommands {
         #[arg(short, long, default_value = "text")]
         format: crate::packet::Format,
 
-        /// Path to spacecraft config file.
-        #[arg(short = 'c', long = "config")]
-        config: PathBuf,
+        #[command(flatten)]
+        config: Option<ConfigArgs>,
     },
     /// Apply various filters to spacepacket files.
     Filter {
-        /// Path to spacecraft config file.
-        #[arg(short = 'c', long = "config")]
-        config: Option<PathBuf>,
+        #[command(flatten)]
+        config: Option<ConfigArgs>,
 
         /// Include these apids or apid ranges.
         ///
@@ -178,9 +181,8 @@ enum PacketCommands {
 
     /// Extract packets from frame stream
     Demux {
-        /// Path to spacecraft config file.
-        #[arg(short = 'c', long = "config")]
-        config: PathBuf,
+        #[command(flatten)]
+        config: ConfigArgs,
 
         #[arg(short, long, value_name = "PATH")]
         output: Option<PathBuf>,
@@ -196,9 +198,8 @@ enum PacketCommands {
 enum FrameCommands {
     /// Decode frames from an input stream of CADUs.
     Decode {
-        /// Path to spacecraft config file.
-        #[arg(short = 'c', long = "config")]
-        config: PathBuf,
+        #[command(flatten)]
+        config: ConfigArgs,
 
         /// Enable RS correction (implies rs-detect).
         #[arg(long, default_value_t = false)]
@@ -231,7 +232,7 @@ enum FrameCommands {
         output: Option<PathBuf>,
 
         /// Write a JSON summary of the decode.
-        #[arg(short, long)]
+        #[arg(short = 'S', long)]
         summary: Option<PathBuf>,
 
         /// Input file path
@@ -264,10 +265,10 @@ enum FrameCommands {
         /// Input file path
         input: PathBuf,
     },
+    /// Show frame file info
     Info {
-        /// Path to spacecraft config file.
-        #[arg(short = 'c', long = "config")]
-        config: PathBuf,
+        #[command(flatten)]
+        config: ConfigArgs,
 
         /// Input file path
         input: PathBuf,
@@ -356,46 +357,18 @@ fn main() -> Result<()> {
                     .iter()
                     .filter_map(|v| Vcid::try_from(*v).ok())
                     .collect::<Vec<Vcid>>();
+                let cfg = get_config(config)?;
 
-                let input = InputReader::from_str(&input)?;
-
-                let cfg = Config::read(config)?;
-
-                let (interleave, virtual_fill) = if let Some(rs) = cfg.framing.reed_solomon {
-                    (
-                        u8::try_from(rs.interleave)
-                            .map_err(|_| anyhow!("invalid rs interleave; must be 0 ... 255"))?,
-                        rs.virtual_fill_length.unwrap_or_default(),
-                    )
-                } else {
-                    (0, 0)
-                };
-                let summary = frame::frame_aos(
+                frame::decode(
+                    &cfg,
                     input,
-                    cfg.framing.length,
-                    cfg.framing.pseudo_noise.is_some(),
-                    true,
-                    if interleave == 0 {
-                        None
-                    } else {
-                        Some(interleave)
-                    }, // only do rs if interleave set
-                    *rs_detect,
-                    *rs_correct,
-                    virtual_fill,
-                    None,
-                    100,
                     include,
                     exclude,
+                    *rs_detect,
+                    *rs_correct,
                     output.as_ref(),
-                )?;
-
-                if let Some(path) = summary_path {
-                    let content =
-                        frame::render_json_summary(&summary).context("rendering summary")?;
-                    fs::write(path, content).context("writing JSON summary")?;
-                }
-                frame::write_text_summary(stdout(), &summary)
+                    summary_path.as_ref(),
+                )
             }
             FrameCommands::Sync {
                 input,
@@ -413,7 +386,7 @@ fn main() -> Result<()> {
                 *verbose,
             ),
             FrameCommands::Info { config, input } => {
-                let cfg = config::Config::read(config)?;
+                let cfg = get_config(config)?;
                 crate::frame::info(input, &cfg)
             }
         },
@@ -443,7 +416,7 @@ fn main() -> Result<()> {
                 let dest = File::create(output)
                     .with_context(|| format!("failed to create output {output:?}"))?;
 
-                let cfg = config::Config::read(config)?;
+                let cfg = get_config(config)?;
 
                 let time_decoder = PacketApidTimeDecoder::default().with_config(&cfg)?;
 
@@ -462,14 +435,15 @@ fn main() -> Result<()> {
                 format,
                 config,
             } => {
-                let cfg = Config::read(config)?;
-                let timecodes = match PacketApidTimeDecoder::default().with_config(&cfg) {
-                    Ok(tc) => Some(tc),
-                    Err(err) => {
-                        warn!(%err, "failed to configured timecodes");
-                        None
+                let timecodes = match config {
+                    Some(args) => {
+                        let cfg = get_config(args)?;
+                        let decoder = PacketApidTimeDecoder::default().with_config(&cfg)?;
+                        Some(decoder)
                     }
+                    None => None,
                 };
+
                 crate::packet::info(&input, &format, timecodes)
             }
             PacketCommands::Filter {
@@ -504,8 +478,8 @@ fn main() -> Result<()> {
                 debug!("after: {:?}", after);
 
                 let time_decoder = match config {
-                    Some(path) => {
-                        let cfg = Config::read(path)?;
+                    Some(args) => {
+                        let cfg = get_config(args)?;
                         let decoder = PacketApidTimeDecoder::default().with_config(&cfg)?;
                         Some(decoder)
                     }
@@ -524,12 +498,40 @@ fn main() -> Result<()> {
                 output,
                 config,
             } => {
-                let cfg = Config::read(config)?;
+                let cfg = get_config(config)?;
 
                 crate::packet::demux_packets(input, cfg, output.as_ref())
             }
         },
     }
+}
+
+fn get_config(args: &ConfigArgs) -> Result<Config> {
+    let path = match &args.config {
+        Some(p) => p,
+        None => {
+            let name = args.spacecraft.clone().unwrap_or_default();
+            let home = std::env::home_dir().context("getting user home dir")?;
+            &home.join(format!(".config/ccsds/spacecrafts/{name}.json"))
+        }
+    };
+    debug!(?path, "reading config");
+    Ok(Config::read(path).with_context(|| format!("reading config from {path:?}"))?)
+}
+
+#[derive(Clone, Debug, Args)]
+#[group(required = true, multiple = false)]
+struct ConfigArgs {
+    /// Path to spacecraft config file.
+    #[arg(short = 'c', long = "config")]
+    config: Option<PathBuf>,
+
+    /// Spacecraft configuration name or used to lookup spacecraft configuration.
+    ///
+    /// The standard location to lookup spacecraft configuration is
+    /// $HOME/.config/ccsds/spacecraft/<name>.json.
+    #[arg(short = 's', long = "spacecraft")]
+    spacecraft: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
