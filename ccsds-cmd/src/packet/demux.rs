@@ -5,16 +5,14 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
+use spacecrafts::Spacecraft;
 use tracing::debug;
 
-use ccsds::{
-    config::Config,
-    framing::{Frame, Integrity, PacketDemux},
-};
+use ccsds::framing::{Frame, Integrity, PacketDemux};
 
 pub fn demux_packets<I: AsRef<Path>, O: AsRef<Path>>(
     input: I,
-    cfg: Config,
+    sc: Spacecraft,
     output: Option<O>,
 ) -> Result<()> {
     let reader = File::open(input)?;
@@ -22,8 +20,8 @@ pub fn demux_packets<I: AsRef<Path>, O: AsRef<Path>>(
         Some(fpath) => Box::new(File::create(fpath)?),
         None => Box::new(stdout()),
     };
-    debug!(cfg = ?cfg.framing, "global framing config");
-    let frame_len = cfg.framing.length;
+    debug!(cfg = ?sc.framing, "global framing config");
+    let frame_len = sc.framing.length;
     let chunks = IterChunks {
         file: BufReader::new(reader),
         size: frame_len,
@@ -37,12 +35,12 @@ pub fn demux_packets<I: AsRef<Path>, O: AsRef<Path>>(
 
     let demux = {
         let mut d = PacketDemux::new(frames).with_defaults(
-            cfg.framing.izone_length.unwrap_or_default(),
-            cfg.framing.fhec_present.unwrap_or_default(),
-            cfg.framing.ocf_present.unwrap_or_default(),
-            cfg.framing.fec_present.unwrap_or_default(),
+            sc.framing.izone_length.unwrap_or_default(),
+            sc.framing.fhec_present.unwrap_or_default(),
+            sc.framing.ocf_present.unwrap_or_default(),
+            sc.framing.fec_present.unwrap_or_default(),
         );
-        for ch in cfg.vcids {
+        for ch in sc.vcids {
             let Some(cfg) = ch.framing else { continue };
             debug!(vcid = ch.vcid, ?cfg, "adding channel config");
             d = d.with_channel_config(

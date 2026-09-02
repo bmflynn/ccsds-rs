@@ -7,9 +7,9 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::{fs::File, io::stderr};
 
-use ccsds::config::Config;
 use ccsds::framing::Vcid;
 use ccsds::spacepacket::Apid;
+use spacecrafts::Spacecraft;
 
 use anyhow::{anyhow, bail, Context, Result};
 use ccsds::spacepacket::timecode::PacketApidTimeDecoder;
@@ -418,7 +418,7 @@ fn main() -> Result<()> {
 
                 let cfg = get_config(config)?;
 
-                let time_decoder = PacketApidTimeDecoder::default().with_config(&cfg)?;
+                let time_decoder = PacketApidTimeDecoder::default().with_spacecraft(&cfg)?;
 
                 crate::packet::merge(
                     &inputs,
@@ -438,7 +438,7 @@ fn main() -> Result<()> {
                 let timecodes = match config {
                     Some(args) => {
                         let cfg = get_config(args)?;
-                        let decoder = PacketApidTimeDecoder::default().with_config(&cfg)?;
+                        let decoder = PacketApidTimeDecoder::default().with_spacecraft(&cfg)?;
                         Some(decoder)
                     }
                     None => None,
@@ -480,7 +480,7 @@ fn main() -> Result<()> {
                 let time_decoder = match config {
                     Some(args) => {
                         let cfg = get_config(args)?;
-                        let decoder = PacketApidTimeDecoder::default().with_config(&cfg)?;
+                        let decoder = PacketApidTimeDecoder::default().with_spacecraft(&cfg)?;
                         Some(decoder)
                     }
                     None => None,
@@ -506,7 +506,7 @@ fn main() -> Result<()> {
     }
 }
 
-fn get_config(args: &ConfigArgs) -> Result<Config> {
+fn get_config(args: &ConfigArgs) -> Result<Spacecraft> {
     let path = match &args.config {
         Some(p) => p,
         None => {
@@ -516,7 +516,7 @@ fn get_config(args: &ConfigArgs) -> Result<Config> {
         }
     };
     debug!(?path, "reading config");
-    Ok(Config::read(path).with_context(|| format!("reading config from {path:?}"))?)
+    Ok(Spacecraft::with_file(path).with_context(|| format!("reading config from {path:?}"))?)
 }
 
 #[derive(Clone, Debug, Args)]

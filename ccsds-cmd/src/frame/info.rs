@@ -7,23 +7,24 @@ use std::{
 use anyhow::{Context, Result};
 use handlebars::handlebars_helper;
 use serde::Serialize;
+use spacecrafts::Spacecraft;
 use tracing::debug;
 
-use ccsds::{config::Config, framing::Frame};
+use ccsds::framing::Frame;
 
 use crate::{
     frame::{Info, Summary},
     packet::IterChunks,
 };
 
-pub fn info<I>(input: I, cfg: &Config) -> Result<()>
+pub fn info<I>(input: I, sc: &Spacecraft) -> Result<()>
 where
     I: AsRef<Path>,
 {
     let reader = File::open(input)?;
     let chunks = IterChunks {
         file: BufReader::new(reader),
-        size: cfg.framing.length,
+        size: sc.framing.length,
     };
 
     let frames = chunks

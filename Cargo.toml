@@ -18,7 +18,7 @@ serde_json = "1.0"
 serde_bytes = "0.11.17"
 tracing = "0.1"
 tracing-subscriber = "0.3"
-spacecrafts = "0.1.0-beta.5"
+spacecrafts = { version = "0.2.0-beta.0", "git" = "https://github.com/bmflynn/spacecrafts-rs.git" }
 hifitime = "4.0.0"
 pyo3 = "0.29.2"
 crc = "3.2.1"

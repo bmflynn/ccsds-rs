@@ -8,12 +8,10 @@ use std::{
 use anyhow::{anyhow, Context, Result};
 use clap::ValueEnum;
 
-use ccsds::{
-    config::Config,
-    framing::{Frame, Integrity, Pipeline, RsOpts, Vcid},
-};
+use ccsds::framing::{Frame, Integrity, Pipeline, RsOpts, Vcid};
 use handlebars::handlebars_helper;
 use serde::{Deserialize, Serialize};
+use spacecrafts::Spacecraft;
 use tracing::{debug, info};
 
 use crate::InputReader;
@@ -166,7 +164,7 @@ pub fn frame_aos<O: AsRef<Path>>(
 }
 
 pub fn decode<O: AsRef<Path>, S: AsRef<Path>>(
-    cfg: &Config,
+    sc: &Spacecraft,
     input: &str,
     include: Vec<Vcid>,
     exclude: Vec<Vcid>,
@@ -177,7 +175,7 @@ pub fn decode<O: AsRef<Path>, S: AsRef<Path>>(
 ) -> Result<()> {
     let input = InputReader::from_str(&input)?;
 
-    let (interleave, virtual_fill) = if let Some(ref rs) = cfg.framing.reed_solomon {
+    let (interleave, virtual_fill) = if let Some(ref rs) = sc.framing.reed_solomon {
         (
             u8::try_from(rs.interleave)
                 .map_err(|_| anyhow!("invalid rs interleave; must be 0 ... 255"))?,
@@ -188,8 +186,8 @@ pub fn decode<O: AsRef<Path>, S: AsRef<Path>>(
     };
     let summary = frame_aos(
         input,
-        cfg.framing.length,
-        cfg.framing.pseudo_noise.is_some(),
+        sc.framing.length,
+        sc.framing.pseudo_noise.is_some(),
         true,
         if interleave == 0 {
             None

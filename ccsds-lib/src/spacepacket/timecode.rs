@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 
 use hifitime::Epoch;
+use spacecrafts::Spacecraft;
 
-use crate::{config, Error};
+use crate::config::new_timecode_decoder;
+use crate::Error;
 use crate::{spacepacket::Packet, timecode::TimecodeDecoder};
 use crate::{
     spacepacket::{Apid, PrimaryHeader},
@@ -67,15 +69,15 @@ impl PacketApidTimeDecoder {
         self
     }
 
-    pub fn with_config(mut self, cfg: &config::Config) -> Result<Self> {
-        for ch in cfg.apids.iter() {
+    pub fn with_spacecraft(mut self, sc: &Spacecraft) -> Result<Self> {
+        for ch in sc.apids.iter() {
             let Some(name) = ch.timecode.as_ref() else {
                 continue;
             };
-            let Some(cfg) = cfg.timecodes.get(name) else {
+            let Some(cfg) = sc.timecodes.get(name) else {
                 return Err(Error::Config("not config for timecode {name}".to_string()));
             };
-            let decoder = cfg.clone().decoder()?;
+            let decoder = new_timecode_decoder(&cfg)?;
             self.decoders.insert(ch.apid, decoder);
         }
 
