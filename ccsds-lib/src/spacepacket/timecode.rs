@@ -3,13 +3,12 @@ use std::collections::HashMap;
 use hifitime::Epoch;
 use spacecrafts::Spacecraft;
 
-use crate::config::new_timecode_decoder;
-use crate::Error;
-use crate::{spacepacket::Packet, timecode::TimecodeDecoder};
 use crate::{
-    spacepacket::{Apid, PrimaryHeader},
+    spacepacket::{Apid, Packet, PrimaryHeader},
+    timecode::TimecodeDecoder,
     Result,
 };
+use crate::{timecode::decoder_with_config, Error};
 
 pub trait PacketTimeDecoder {
     /// Decode [Epoch] from a [Packet].
@@ -77,7 +76,7 @@ impl PacketApidTimeDecoder {
             let Some(cfg) = sc.timecodes.get(name) else {
                 return Err(Error::Config("not config for timecode {name}".to_string()));
             };
-            let decoder = new_timecode_decoder(&cfg)?;
+            let decoder = decoder_with_config(&cfg)?;
             self.decoders.insert(ch.apid, decoder);
         }
 

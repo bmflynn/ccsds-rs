@@ -2,7 +2,6 @@
 
 mod error;
 
-pub mod config;
 pub mod framing;
 pub mod spacepacket;
 pub mod timecode;
