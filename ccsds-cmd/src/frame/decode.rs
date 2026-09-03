@@ -179,7 +179,7 @@ pub fn decode<O: AsRef<Path>, S: AsRef<Path>>(
         (
             u8::try_from(rs.interleave)
                 .map_err(|_| anyhow!("invalid rs interleave; must be 0 ... 255"))?,
-            rs.virtual_fill_length.unwrap_or_default(),
+            rs.virtual_fill_length,
         )
     } else {
         (0, 0)

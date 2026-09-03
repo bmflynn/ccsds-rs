@@ -36,15 +36,12 @@ pub fn decoder_with_config(tc: &TimecodeConfig) -> Result<Box<dyn TimecodeDecode
         } => {
             let epoch = Epoch::from_format_str(&epoch, "%Y-%m-%dT%H:%M:%SZ")
                 .map_err(|_| Error::Config("invalid timestamp".to_string()))?;
-            Ok(if self_identifying.unwrap_or_default() {
+            Ok(if *self_identifying {
                 Box::new(cds::PFieldDecoder::default().with_epoch(epoch.to_unix_seconds()))
             } else {
                 Box::new(
-                    cds::Decoder::new(
-                        day_length.unwrap_or_default(),
-                        submillis_length.unwrap_or_default(),
-                    )
-                    .with_epoch(epoch.to_unix_seconds()),
+                    cds::Decoder::new(*day_length, *submillis_length)
+                        .with_epoch(epoch.to_unix_seconds()),
                 )
             })
         }
@@ -57,18 +54,18 @@ pub fn decoder_with_config(tc: &TimecodeConfig) -> Result<Box<dyn TimecodeDecode
         } => {
             let epoch = Epoch::from_format_str(&epoch, "%Y-%m-%dT%H:%M:%SZ")
                 .map_err(|_| Error::Config("invalid timestamp".to_string()))?;
-            Ok(if self_identifying.unwrap_or_default() {
+            Ok(if *self_identifying {
                 Box::new(cuc::PFieldDecoder::default().with_epoch(epoch.to_unix_seconds()))
             } else {
-                let len = basic_length.unwrap_or_default();
+                let len = *basic_length;
                 if len == 0 {
                     return Err(Error::Config(format!(
                         "CUC timecode basic length must be >= 1"
                     )));
                 }
                 let mut decoder = cuc::Decoder::new(len).with_epoch(epoch.to_unix_seconds());
-                if let Some(f) = fine_length {
-                    decoder = decoder.with_fine_time(*f, fine_nanos.unwrap_or(1))
+                if *fine_length != 0 {
+                    decoder = decoder.with_fine_time(*fine_length, *fine_nanos)
                 }
                 Box::new(decoder)
             })

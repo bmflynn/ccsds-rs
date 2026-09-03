@@ -35,20 +35,20 @@ pub fn demux_packets<I: AsRef<Path>, O: AsRef<Path>>(
 
     let demux = {
         let mut d = PacketDemux::new(frames).with_defaults(
-            sc.framing.izone_length.unwrap_or_default(),
-            sc.framing.fhec_present.unwrap_or_default(),
-            sc.framing.ocf_present.unwrap_or_default(),
-            sc.framing.fec_present.unwrap_or_default(),
+            sc.framing.izone_length,
+            sc.framing.fhec_present,
+            sc.framing.ocf_present,
+            sc.framing.fec_present,
         );
         for ch in sc.vcids {
             let Some(cfg) = ch.framing else { continue };
             debug!(vcid = ch.vcid, ?cfg, "adding channel config");
             d = d.with_channel_config(
                 ch.vcid,
-                cfg.izone_length.unwrap_or_default(),
-                cfg.fhec_present.unwrap_or_default(),
-                cfg.ocf_present.unwrap_or_default(),
-                cfg.fec_present.unwrap_or_default(),
+                cfg.izone_length,
+                cfg.fhec_present,
+                cfg.ocf_present,
+                cfg.fec_present,
             );
         }
         d
