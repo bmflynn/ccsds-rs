@@ -59,9 +59,9 @@ pub fn decoder_with_config(tc: &TimecodeConfig) -> Result<Box<dyn TimecodeDecode
             } else {
                 let len = *basic_length;
                 if len == 0 {
-                    return Err(Error::Config(format!(
-                        "CUC timecode basic length must be >= 1"
-                    )));
+                    return Err(Error::Config(
+                        "CUC timecode basic length must be >= 1".to_string(),
+                    ));
                 }
                 let mut decoder = cuc::Decoder::new(len).with_epoch(epoch.to_unix_seconds());
                 if *fine_length != 0 {

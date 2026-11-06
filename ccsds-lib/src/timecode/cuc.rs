@@ -149,7 +149,7 @@ impl Decoder {
             epoch: hifitime::Epoch::from_gregorian_tai(1958, 1, 1, 0, 0, 0, 0),
             num_basic,
             num_fine: 0,
-            fine_nanos: 0,
+            fine_nanos: 1,
             len: num_basic,
         }
     }
@@ -164,10 +164,11 @@ impl Decoder {
     ///
     /// Arguments:
     /// * `num_fine` - Number of bytes of fine time
-    /// * `fine_micros` The number of microseconds for each fine time count.
-    pub fn with_fine_time(mut self, num_fine: usize, fine_micros: u32) -> Self {
+    /// * `fine_nanos` - The number of nanosecods for each fine time count. A value of 0
+    ///   means 1ns per count.
+    pub fn with_fine_time(mut self, num_fine: usize, fine_nanos: u32) -> Self {
         self.num_fine = num_fine;
-        self.fine_nanos = fine_micros;
+        self.fine_nanos = fine_nanos;
         self.len = self.num_basic + self.num_fine;
         self
     }
@@ -245,5 +246,24 @@ mod test {
             .to_unix_milliseconds();
 
         assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn zero_fine_nanos_is_one_nano_per_count() {
+        let buf = vec![0x7d, 0xb5, 0xbf, 0x2f, 0x80, 0x1f];
+
+        let zero = Decoder::new(4)
+            .with_fine_time(2, 0)
+            .decode_unix_millis(&buf)
+            .unwrap();
+        let one = Decoder::new(4)
+            .with_fine_time(2, 1)
+            .decode_unix_millis(&buf)
+            .unwrap();
+        let none = Decoder::new(4).decode_unix_millis(&buf).unwrap();
+
+        assert_eq!(zero, one);
+        // fine bytes 0x801f are non-zero, so fine time must not be dropped
+        assert!(zero >= none);
     }
 }
