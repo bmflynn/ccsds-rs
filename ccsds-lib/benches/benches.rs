@@ -173,6 +173,131 @@ fn bench_rs_correct_codeblock(c: &mut Criterion) {
             );
         });
     });
+    #[cfg(feature = "libcorrect")]
+    group.bench_function("correct_codeblock_libcorrect", |b| {
+        b.iter(|| {
+            let rs = ccsds::framing::LibcorrectReedSolomon::new(4);
+            let (i, _) = rs.perform(block).unwrap();
+            assert_eq!(
+                i,
+                Integrity::Corrected,
+                "expected to have corrected block; got {i:?}"
+            );
+        });
+    });
+    group.finish();
+}
+
+/// Reed-Solomon implementations to compare, with correction enabled or disabled. Codecs are
+/// created once, outside the timed loop, as the pipeline does.
+fn rs_backends(correct: bool) -> Vec<(&'static str, Box<dyn ReedSolomon>)> {
+    #[allow(unused_mut)]
+    let mut v: Vec<(&'static str, Box<dyn ReedSolomon>)> = vec![(
+        "rs2",
+        Box::new(DefaultReedSolomon::new(4).with_correction(correct)),
+    )];
+    #[cfg(feature = "libcorrect")]
+    v.push((
+        "libcorrect",
+        Box::new(ccsds::framing::LibcorrectReedSolomon::new(4).with_correction(correct)),
+    ));
+    v
+}
+
+/// Compare backends on a single interleave-4 codeblock with different amounts of damage:
+/// clean, 1 byte error, 16 byte errors in every codeword (the maximum), and an uncorrectable
+/// block. Also compares detect-only on clean and damaged blocks.
+fn bench_rs_backends(c: &mut Criterion) {
+    // Fixture is a derandomized, clean block; skip the 4 byte ASM.
+    let clean: Vec<u8> = std::fs::read(fixture_path("benches/snpp_block.dat")).unwrap()[4..].to_vec();
+    assert_eq!(clean.len(), 1020);
+
+    let one_err = {
+        let mut b = clean.clone();
+        b[100] = b[100].wrapping_add(1);
+        b
+    };
+    // Bytes are interleaved by 4, so index = symbol * 4 + codeword. 16 symbols per codeword.
+    let max_err = {
+        let mut b = clean.clone();
+        for cw in 0..4 {
+            for e in 0..16 {
+                b[(e * 15) * 4 + cw] ^= 0x5a;
+            }
+        }
+        b
+    };
+    let uncorrectable = {
+        let mut b = clean.clone();
+        for e in 0..40 {
+            b[e * 4] ^= 0xa5;
+        }
+        b
+    };
+
+    let cases: [(&str, &Vec<u8>, Integrity); 4] = [
+        ("clean", &clean, Integrity::Ok),
+        ("1_error", &one_err, Integrity::Corrected),
+        ("16_errors_x4", &max_err, Integrity::Corrected),
+        ("uncorrectable", &uncorrectable, Integrity::Uncorrectable),
+    ];
+
+    let mut group = c.benchmark_group("rs_backends");
+    group.throughput(Throughput::Bytes(1020));
+    for (name, block, expected) in &cases {
+        for (backend, rs) in rs_backends(true) {
+            group.bench_function(format!("{name}/{backend}"), |b| {
+                b.iter(|| {
+                    let (i, _) = rs.perform(block).unwrap();
+                    assert_eq!(i, *expected, "{backend} {name}: got {i:?}");
+                });
+            });
+        }
+    }
+    // Detect only. libcorrect has no cheap detect, so this shows what is lost.
+    for (name, block, expected) in [
+        ("clean", &clean, Integrity::Ok),
+        ("1_error", &one_err, Integrity::NotCorrected),
+    ] {
+        for (backend, rs) in rs_backends(false) {
+            group.bench_function(format!("detect_only_{name}/{backend}"), |b| {
+                b.iter(|| {
+                    let (i, _) = rs.perform(block).unwrap();
+                    assert_eq!(i, expected, "{backend} detect {name}: got {i:?}");
+                });
+            });
+        }
+    }
+    group.finish();
+}
+
+/// Whole pipeline (sync, derandomize, frame decode, RS) over a real fixture, per backend.
+fn bench_rs_pipeline(c: &mut Criterion) {
+    use ccsds::framing::{derandomize, frame_decoder, reed_solomon, synchronize, RsBackend, RsOpts};
+
+    let path = fixture_path("tests/fixtures/cadu/npp.20241206T173815.dat");
+    let len = std::fs::metadata(&path).unwrap().len();
+    let data = std::fs::read(&path).unwrap();
+
+    #[allow(unused_mut)]
+    let mut backends = vec![("rs2", RsBackend::Rs2)];
+    #[cfg(feature = "libcorrect")]
+    backends.push(("libcorrect", RsBackend::Libcorrect));
+
+    let mut group = c.benchmark_group("rs_pipeline");
+    group.throughput(Throughput::Bytes(len));
+    group.sample_size(10);
+    for (name, backend) in backends {
+        group.bench_function(name, |b| {
+            b.iter(|| {
+                let cadus = synchronize(Cursor::new(data.clone()), SyncOpts::new(BLOCK_LEN))
+                    .map_while(Result::ok);
+                let frames = frame_decoder(derandomize(cadus));
+                let n = reed_solomon(frames, RsOpts::new(4).with_backend(backend)).count();
+                assert!(n > 0);
+            });
+        });
+    }
     group.finish();
 }
 
@@ -200,6 +325,8 @@ criterion_group!(
     benches,
     bench_derandomize,
     bench_rs_correct_codeblock,
+    bench_rs_backends,
+    bench_rs_pipeline,
     bench_synchronization,
     bench_synchronization_file,
 );

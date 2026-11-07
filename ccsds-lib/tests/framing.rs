@@ -96,3 +96,29 @@ fn test_framing_aqua_4_1020() {
         &[(63, 63), (5, 9), (30, 828), (35, 121), (10, 2)],
     );
 }
+
+/// Frames from both Reed-Solomon backends must be identical on real data.
+#[cfg(feature = "libcorrect")]
+#[test]
+fn test_backends_match_on_real_data() {
+    let run = |backend: RsBackend, interleave: u8, block_len: usize, fixture: &str| {
+        let file = File::open(fixture_path(fixture)).expect("Failed to open fixture file");
+        let cadus = synchronize(file, SyncOpts::new(block_len)).map_while(Result::ok);
+        let frames = frame_decoder(derandomize(cadus));
+        reed_solomon(frames, RsOpts::new(interleave).with_backend(backend))
+            .map(|f| (f.header.vcid, f.integrity, f.data))
+            .collect::<Vec<_>>()
+    };
+    for (interleave, block_len, fixture) in [
+        (4, 1020, "cadu/npp.20241206T173815.dat"),
+        (5, 1275, "cadu/noaa21.20241206T171609.dat"),
+    ] {
+        let a = run(RsBackend::Rs2, interleave, block_len, fixture);
+        let b = run(RsBackend::Libcorrect, interleave, block_len, fixture);
+        assert!(!a.is_empty());
+        assert_eq!(a.len(), b.len(), "{fixture}");
+        for (i, (x, y)) in a.iter().zip(b.iter()).enumerate() {
+            assert_eq!(x, y, "{fixture} frame {i}");
+        }
+    }
+}

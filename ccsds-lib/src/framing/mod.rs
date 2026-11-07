@@ -34,6 +34,8 @@ mod packets;
 mod pipeline;
 mod pn;
 mod reed_solomon;
+#[cfg(feature = "libcorrect")]
+mod reed_solomon_libcorrect;
 mod synchronizer;
 
 #[cfg(feature = "python")]
@@ -44,6 +46,8 @@ pub use packets::PacketDemux;
 pub use pipeline::*;
 pub use pn::{DefaultDerandomizer, Derandomizer};
 pub use reed_solomon::{DefaultReedSolomon, Integrity, ReedSolomon};
+#[cfg(feature = "libcorrect")]
+pub use reed_solomon_libcorrect::LibcorrectReedSolomon;
 pub use synchronizer::{Block, ASM};
 
 pub type Scid = u16;

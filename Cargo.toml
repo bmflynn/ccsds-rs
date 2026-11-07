@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["ccsds-cmd", "ccsds-lib", "ccsds-py"]
+members = ["ccsds-cmd", "ccsds-lib", "ccsds-py", "libcorrect-sys"]
 default-members = ["ccsds-cmd", "ccsds-lib"]
 
 [workspace.package]

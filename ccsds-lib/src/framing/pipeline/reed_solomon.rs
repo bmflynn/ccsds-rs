@@ -5,9 +5,23 @@ use tracing::debug;
 
 use crate::framing::{DefaultReedSolomon, Frame, Integrity, ReedSolomon, VCDUHeader};
 
+/// Reed-Solomon implementation used by [reed_solomon].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RsBackend {
+    /// Pure Rust implementation, see [DefaultReedSolomon].
+    #[default]
+    Rs2,
+    /// C implementation from quiet/libcorrect, see
+    /// [LibcorrectReedSolomon](crate::framing::LibcorrectReedSolomon). Requires the `libcorrect`
+    /// cargo feature.
+    #[cfg(feature = "libcorrect")]
+    Libcorrect,
+}
+
 /// Configuration options for the ReedSolomon supported by [super::Pipeline].
 #[derive(Debug, Clone, Copy)]
 pub struct RsOpts {
+    backend: RsBackend,
     interleave: u8,
     virtual_fill: usize,
     num_threads: usize,
@@ -19,6 +33,7 @@ pub struct RsOpts {
 impl RsOpts {
     pub fn new(interleave: u8) -> Self {
         RsOpts {
+            backend: RsBackend::default(),
             interleave,
             virtual_fill: 0,
             num_threads: 0,
@@ -26,6 +41,12 @@ impl RsOpts {
             correct: true,
             buffer_size: 50,
         }
+    }
+
+    /// Choose the Reed-Solomon implementation. Default is [RsBackend::Rs2].
+    pub fn with_backend(mut self, backend: RsBackend) -> Self {
+        self.backend = backend;
+        self
     }
 
     /// See [DefaultReedSolomon::with_virtual_fill]
@@ -76,12 +97,21 @@ where
     // for in the order they were submitted
     let (jobs_tx, jobs_rx) = crossbeam::channel::bounded(opts.buffer_size * 2);
 
-    let rs = Arc::new(
-        DefaultReedSolomon::new(opts.interleave)
-            .with_detection(opts.detect)
-            .with_correction(opts.correct)
-            .with_virtual_fill(opts.virtual_fill),
-    );
+    let rs: Arc<dyn ReedSolomon> = match opts.backend {
+        RsBackend::Rs2 => Arc::new(
+            DefaultReedSolomon::new(opts.interleave)
+                .with_detection(opts.detect)
+                .with_correction(opts.correct)
+                .with_virtual_fill(opts.virtual_fill),
+        ),
+        #[cfg(feature = "libcorrect")]
+        RsBackend::Libcorrect => Arc::new(
+            crate::framing::LibcorrectReedSolomon::new(opts.interleave)
+                .with_detection(opts.detect)
+                .with_correction(opts.correct)
+                .with_virtual_fill(opts.virtual_fill),
+        ),
+    };
 
     // Frame jobs are submitted in a background thread to the compute thread pool. For each job
     // a new "future" channel is created to receive the result of the RS computation. Results are

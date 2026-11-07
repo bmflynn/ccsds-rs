@@ -1,0 +1,13 @@
+[package]
+name = "libcorrect-sys"
+description = "Raw bindings to the Reed-Solomon portion of quiet/libcorrect (vendored C source)"
+edition.workspace = true
+version = "0.1.0"
+authors.workspace = true
+repository.workspace = true
+license = "BSD-3-Clause"
+publish = false
+links = "correct_reed_solomon"
+
+[build-dependencies]
+cc = "1"
