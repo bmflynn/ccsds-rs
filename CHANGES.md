@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [UNRELEASED]
 
+### Changed
+
+- Increase synchronize troughput significantly
+
 ### Fixed
 
 - Bad default CUC fine_nanos, and associated incorrect param name
