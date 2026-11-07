@@ -667,6 +667,13 @@ mod tests {
                     bits.extend((0..rng.gen_range(0..40)).map(|_| rng.gen::<bool>()));
                 }
                 push_bytes(&mut bits, asm);
+                if rng.gen_bool(0.5) {
+                    // Near miss: one bit of the marker is wrong. This is not a marker, but
+                    // for a shifted one most of its whole bytes still match, so it may look
+                    // like one to a search that only checks part of it.
+                    let at = bits.len() - asm.len() * 8 + rng.gen_range(0..asm.len() * 8);
+                    bits[at] = !bits[at];
+                }
                 bits.extend((0..block_size * 8).map(|_| rng.gen::<bool>()));
             }
             bits.extend((0..rng.gen_range(0..60)).map(|_| rng.gen::<bool>()));
@@ -687,7 +694,7 @@ mod tests {
                 vec![0x1a, 0xcf, 0xfc, 0x1d, 0x03, 0x47, 0x76, 0xc7],
                 vec![0x03, 0x47, 0x76, 0xc7, 0x27, 0x28, 0x95, 0xb0, 0x1a, 0xcf],
             ];
-            for seed in 0..600 {
+            for seed in 0..4000 {
                 let mut rng = StdRng::seed_from_u64(seed);
                 let asm = &asms[rng.gen_range(0..asms.len())];
                 let block_size = rng.gen_range(0..24);
