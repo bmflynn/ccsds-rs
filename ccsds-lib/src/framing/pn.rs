@@ -155,7 +155,7 @@ mod tests {
         fn test_inplace() {
             let mut buf = [0u8; 6];
             buf.clone_from_slice(&DATA[..]);
-            DefaultDerandomizer::default().derandomize_inplace(&mut buf);
+            DefaultDerandomizer.derandomize_inplace(&mut buf);
 
             for (i, (a, b)) in buf.iter().zip(EXPECTED.iter()).enumerate() {
                 assert_eq!(*a, *b, "failed at index {i}");
@@ -166,7 +166,7 @@ mod tests {
         fn test() {
             let mut buf = [0u8; 6];
             buf.clone_from_slice(&DATA[..]);
-            let zult = DefaultDerandomizer::default().derandomize(&buf);
+            let zult = DefaultDerandomizer.derandomize(&buf);
 
             for (i, (a, b)) in zult.iter().zip(EXPECTED.iter()).enumerate() {
                 assert_eq!(*a, *b, "failed at index {i}");
