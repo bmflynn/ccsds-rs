@@ -188,17 +188,27 @@ where
     /// # Errors
     /// On [Error]s filling buffer
     pub fn block(&mut self) -> Result<Vec<u8>> {
-        let mut buf = vec![0u8; self.block_size];
-        if self.pattern_idx != 0 {
-            // Make room for bit-shifting
-            buf.push(0);
+        if self.pattern_idx == 0 {
+            // Byte aligned, no shifting required
+            let mut buf = vec![0u8; self.block_size];
+            self.bytes.fill(&mut buf)?;
+            return Ok(buf);
         }
+
+        // Extra byte provides the bits shifted in to the last byte of the block
+        let mut buf = vec![0u8; self.block_size + 1];
         self.bytes.fill(&mut buf)?;
-        if self.pattern_idx != 0 {
-            // There's a partially used byte, so push it back for the next read
-            self.bytes.push(&[buf[buf.len() - 1]]);
+        // The last byte is partially used, so push it back for the next read. This
+        // must happen before shifting.
+        self.bytes.push(&[buf[buf.len() - 1]]);
+
+        // Left shift in place. Going low to high means buf[i + 1] is still unshifted
+        // when it is needed.
+        let k = self.pattern_idx;
+        for i in 0..self.block_size {
+            buf[i] = (buf[i] << k) | (buf[i + 1] >> (8 - k));
         }
-        let buf = left_shift(&buf, self.pattern_idx)[..self.block_size].to_vec();
+        buf.truncate(self.block_size);
 
         Ok(buf)
     }
@@ -390,6 +400,33 @@ mod tests {
             assert_eq!(loc.unwrap(), expected);
             let block = scanner.block().expect("Expected block 2 to succeed");
             assert_eq!(block, [0x03, 0x04]);
+        }
+
+        #[test]
+        fn block_fcn_matches_left_shift_for_all_shifts() {
+            let block_size = 16;
+            // Deterministic, non-trivial bytes
+            let data: Vec<u8> = (0..64u32)
+                .map(|i| u8::try_from((i * 37 + 11) % 251).unwrap())
+                .collect();
+
+            for k in 0..8usize {
+                let mut scanner = Synchronizer::new(&data[..], block_size);
+                scanner.pattern_idx = k;
+
+                let block = scanner.block().expect("block should succeed");
+
+                // Reference: the original left_shift based implementation
+                let want_len = if k == 0 { block_size } else { block_size + 1 };
+                let expected = left_shift(&data[..want_len], k)[..block_size].to_vec();
+                assert_eq!(block, expected, "shift {k}");
+                assert_eq!(block.len(), block_size, "shift {k}");
+
+                // The byte after the block must be the next one read, whether it was
+                // pushed back (shifted) or never consumed (aligned).
+                let next = scanner.bytes.next().expect("next byte");
+                assert_eq!(next, data[block_size], "next byte for shift {k}");
+            }
         }
 
         #[test]
