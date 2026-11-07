@@ -132,9 +132,8 @@ where
                         frame.integrity = Some(integrity);
 
                         // data does not include the check symbols
-                        match frame.integrity {
-                            Some(Integrity::Ok | Integrity::Corrected) => frame.data = data,
-                            _ => (),
+                        if let Some(Integrity::Ok | Integrity::Corrected) = frame.integrity {
+                            frame.data = data
                         }
                     }
 
@@ -170,9 +169,9 @@ where
 /// using [RsOpts::with_num_threads].
 ///
 /// # Arguments
-/// * `frames` [Iterator] of frames as returned by [framing_decoder](crate::framing).
-/// * `opts` Configuration for the ReedSolomon algorithm. For details see the associated
-/// configuration functions on [DefaultReedSolomon].
+/// - `frames` [Iterator] of frames as returned by [framing_decoder](crate::framing).
+/// - `opts` Configuration for the ReedSolomon algorithm. For details see the associated
+///   configuration functions on [DefaultReedSolomon].
 ///
 /// # Example
 /// ```

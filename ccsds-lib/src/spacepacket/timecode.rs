@@ -48,19 +48,12 @@ where
 
 /// ApidTimecodeDecoder is a [PacketTimeDecoder] for decoding times from packet secondary headers
 /// per-APID.
+#[derive(Default)]
 pub struct PacketApidTimeDecoder {
     default: Option<Box<dyn PacketTimeDecoder>>,
     decoders: HashMap<Apid, Box<dyn TimecodeDecoder>>,
 }
 
-impl Default for PacketApidTimeDecoder {
-    fn default() -> Self {
-        Self {
-            default: None,
-            decoders: HashMap::default(),
-        }
-    }
-}
 
 impl PacketApidTimeDecoder {
     pub fn with_default<T: PacketTimeDecoder + 'static>(mut self, decoder: T) -> Self {
@@ -76,7 +69,7 @@ impl PacketApidTimeDecoder {
             let Some(cfg) = sc.timecodes.get(name) else {
                 return Err(Error::Config("not config for timecode {name}".to_string()));
             };
-            let decoder = decoder_with_config(&cfg)?;
+            let decoder = decoder_with_config(cfg)?;
             self.decoders.insert(ch.apid, decoder);
         }
 
@@ -85,7 +78,7 @@ impl PacketApidTimeDecoder {
 
     pub fn add(mut self, apid: Apid, decoder: Box<dyn TimecodeDecoder>) -> Self {
         self.decoders.insert(apid, decoder);
-        return self;
+        self
     }
 }
 

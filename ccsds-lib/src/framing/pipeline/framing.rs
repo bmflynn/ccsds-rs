@@ -47,10 +47,10 @@ pub fn frame_decoder<I>(cadus: I) -> impl Iterator<Item = Frame> + Send + 'stati
 where
     I: Iterator<Item = Cadu> + Send + 'static,
 {
-    let iter = CaduDecoderIter {
+    
+
+    CaduDecoderIter {
         vcid_counters: HashMap::default(),
         cadus,
-    };
-
-    iter
+    }
 }

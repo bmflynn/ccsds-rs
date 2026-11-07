@@ -66,7 +66,7 @@ pub trait ReedSolomon: Send + Sync {
 /// Ref: 130.1-G-2, Section 5.3
 pub(super) fn deinterleave(data: &[u8], interleave: u8) -> Vec<[u8; 255]> {
     assert!(
-        data.len() % interleave as usize == 0,
+        data.len().is_multiple_of(interleave as usize),
         "data length must be multiple of interleave"
     );
     let mut zult: Vec<[u8; 255]> = Vec::new();

@@ -29,7 +29,7 @@ pub fn demux_packets<I: AsRef<Path>, O: AsRef<Path>>(
     let frames = chunks
         .into_iter()
         .map_while(Result::ok)
-        .filter_map(|chunk| Frame::decode(chunk))
+        .filter_map(Frame::decode)
         .filter(|f| !f.is_fill())
         .filter(|f| f.integrity != Some(Integrity::Uncorrectable));
 

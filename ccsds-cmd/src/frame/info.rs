@@ -30,7 +30,7 @@ where
     let frames = chunks
         .into_iter()
         .map_while(Result::ok)
-        .filter_map(|chunk| Frame::decode(chunk));
+        .filter_map(Frame::decode);
 
     let mut summary = Summary::default();
     for frame in frames {
@@ -85,7 +85,7 @@ fn write_text_summary<W: Write>(mut w: W, summary: &Summary) -> Result<()> {
     assert!(hb.register_template_string("main", TEXT_TEMPLATE).is_ok());
 
     let mut ordered_vcids: Vec<Info> = summary.vcids.values().cloned().collect();
-    ordered_vcids.sort_unstable_by(|a, b| a.vcid.cmp(&b.vcid));
+    ordered_vcids.sort_unstable_by_key(|a| a.vcid);
 
     #[derive(Debug, Serialize)]
     struct Data {

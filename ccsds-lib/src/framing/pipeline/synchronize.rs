@@ -41,7 +41,7 @@ where
         })
         .unwrap();
 
-    return rx.into_iter();
+    rx.into_iter()
 }
 
 #[allow(unused)]

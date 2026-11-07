@@ -25,7 +25,7 @@ impl PField {
             }
         }
         match num_submillis {
-            0 | 1 | 2 => (),
+            0..=2 => (),
             x => {
                 return Err(Error::InvalidPField(format!(
                     "submillis must be 0, 1, 2; got {x}"
@@ -164,7 +164,7 @@ fn decode_cds(buf: &[u8], epoch: &Epoch, num_day: usize, num_submillis: usize) -
     let dur = Duration::from_days(days as f64)
         + Duration::from_milliseconds(millis as f64)
         + Duration::from_nanoseconds(nanos as f64);
-    Ok(epoch.clone().add(dur).to_unix_milliseconds())
+    Ok((*epoch).add(dur).to_unix_milliseconds())
 }
 
 #[cfg(test)]

@@ -77,14 +77,6 @@ fn generate_pn_sequence(poly: u8, gen: u8) -> [u8; 255] {
     table
 }
 
-fn _derandomize_loop(buf: &[u8]) -> Vec<u8> {
-    let mut out = vec![0u8; buf.len()];
-    for (idx, b) in buf.iter().enumerate() {
-        out[idx] = b ^ SEQUENCE[idx % SEQUENCE.len()];
-    }
-    out
-}
-
 //fn _derandomize_ndarray(buf: &[u8]) -> Vec<u8> {
 //    assert!(
 //        buf.len() <= SEQUENCE.len(),
@@ -101,7 +93,10 @@ fn _derandomize_loop(buf: &[u8]) -> Vec<u8> {
 
 /// An implementation of Pseudo-noise removal.
 pub trait Derandomizer: Send + Sync {
+    // Derandomize dat in a new buffer.
     fn derandomize(&self, dat: &[u8]) -> Vec<u8>;
+    // Derandomize `dat` in-place.
+    fn derandomize_inplace(&self, dat: &mut [u8]);
 }
 
 /// ``PNDecoder`` implementing standard CCSDS pseudo-noise derandomizon
@@ -111,7 +106,16 @@ pub struct DefaultDerandomizer;
 
 impl Derandomizer for DefaultDerandomizer {
     fn derandomize(&self, dat: &[u8]) -> Vec<u8> {
-        _derandomize_loop(dat)
+        let mut out = vec![0u8; dat.len()];
+        for (idx, b) in dat.iter().enumerate() {
+            out[idx] = b ^ SEQUENCE[idx % SEQUENCE.len()];
+        }
+        out
+    }
+    fn derandomize_inplace(&self, dat: &mut [u8]) {
+        for idx in 0..dat.len() {
+            dat[idx] ^= SEQUENCE[idx % SEQUENCE.len()];
+        }
     }
 }
 
@@ -148,10 +152,21 @@ mod tests {
         const EXPECTED: [u8; 6] = [0x67, 0x50, 0x96, 0x42, 0x16, 0x80];
 
         #[test]
-        fn test_loop() {
+        fn test_inplace() {
             let mut buf = [0u8; 6];
             buf.clone_from_slice(&DATA[..]);
-            let zult = _derandomize_loop(&buf);
+            DefaultDerandomizer::default().derandomize_inplace(&mut buf);
+
+            for (i, (a, b)) in buf.iter().zip(EXPECTED.iter()).enumerate() {
+                assert_eq!(*a, *b, "failed at index {i}");
+            }
+        }
+
+        #[test]
+        fn test() {
+            let mut buf = [0u8; 6];
+            buf.clone_from_slice(&DATA[..]);
+            let zult = DefaultDerandomizer::default().derandomize(&buf);
 
             for (i, (a, b)) in zult.iter().zip(EXPECTED.iter()).enumerate() {
                 assert_eq!(*a, *b, "failed at index {i}");

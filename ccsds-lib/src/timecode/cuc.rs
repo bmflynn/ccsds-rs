@@ -224,7 +224,7 @@ fn decode_cuc(
 
     // TODO: Handle precision loss
     let dur = Duration::compose(0, 0, 0, 0, coarse, 0, 0, fine_nanos as u64);
-    Ok(epoch.clone().add(dur).to_unix_milliseconds())
+    Ok((*epoch).add(dur).to_unix_milliseconds())
 }
 
 #[cfg(test)]

@@ -32,7 +32,7 @@ impl Pipeline {
 
     pub fn with_rs(mut self, opts: RsOpts) -> Self {
         self.rs = Some(opts);
-        return self;
+        self
     }
 
     pub fn start<R: Read + Send + 'static>(&mut self, reader: R) -> impl Iterator<Item = Frame> {

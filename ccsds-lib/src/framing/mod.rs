@@ -29,7 +29,6 @@
 //! ```
 
 mod bytes;
-mod ocf;
 mod packets;
 mod pipeline;
 mod pn;
@@ -63,7 +62,7 @@ pub const FHEC_LEN: usize = 2;
 
 /// Loose representation of a single frame of data extracted from a Cadu.
 ///
-/// This can generally be though of as containing from data from a version 1 or version
+/// This can generally be though of as containing frame data from a version 1 or version
 /// 2 CCSDS Transfer Frame, see [VCDUHeader::decode] for details on version support.
 ///
 /// TM Transfer Frames (CCSDS 132.0-B-3) are not supported.

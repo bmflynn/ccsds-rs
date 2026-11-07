@@ -209,7 +209,8 @@ fn rs_backends(correct: bool) -> Vec<(&'static str, Box<dyn ReedSolomon>)> {
 /// block. Also compares detect-only on clean and damaged blocks.
 fn bench_rs_backends(c: &mut Criterion) {
     // Fixture is a derandomized, clean block; skip the 4 byte ASM.
-    let clean: Vec<u8> = std::fs::read(fixture_path("benches/snpp_block.dat")).unwrap()[4..].to_vec();
+    let clean: Vec<u8> =
+        std::fs::read(fixture_path("benches/snpp_block.dat")).unwrap()[4..].to_vec();
     assert_eq!(clean.len(), 1020);
 
     let one_err = {
@@ -273,7 +274,9 @@ fn bench_rs_backends(c: &mut Criterion) {
 
 /// Whole pipeline (sync, derandomize, frame decode, RS) over a real fixture, per backend.
 fn bench_rs_pipeline(c: &mut Criterion) {
-    use ccsds::framing::{derandomize, frame_decoder, reed_solomon, synchronize, RsBackend, RsOpts};
+    use ccsds::framing::{
+        derandomize, frame_decoder, reed_solomon, synchronize, RsBackend, RsOpts,
+    };
 
     let path = fixture_path("tests/fixtures/cadu/npp.20241206T173815.dat");
     let len = std::fs::metadata(&path).unwrap().len();
@@ -315,7 +318,7 @@ fn bench_derandomize(c: &mut Criterion) {
     group.bench_function("loop", |b| {
         b.iter(|| {
             let pn = DefaultDerandomizer;
-            let _ = pn.derandomize(&buf.clone());
+            pn.derandomize_inplace(&mut buf);
         });
     });
     group.finish();

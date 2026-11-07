@@ -407,7 +407,7 @@ fn main() -> Result<()> {
                 }
                 info!("merging {inputs:?} to {output:?}");
                 let apid_order = match apid_order_name {
-                    Some(name) => match crate::packet::apid_order(&name) {
+                    Some(name) => match crate::packet::apid_order(name) {
                         Some(order) => Some(order),
                         None => bail!("{name} is not a valid APID order name"),
                     },
@@ -421,13 +421,13 @@ fn main() -> Result<()> {
                 let time_decoder = PacketApidTimeDecoder::default().with_spacecraft(&cfg)?;
 
                 crate::packet::merge(
-                    &inputs,
+                    inputs,
                     time_decoder,
                     dest,
                     apid_order,
                     *from,
                     *to,
-                    Some(&apids),
+                    Some(apids),
                 )
             }
             PacketCommands::Info {
@@ -444,7 +444,7 @@ fn main() -> Result<()> {
                     None => None,
                 };
 
-                crate::packet::info(&input, &format, timecodes)
+                crate::packet::info(input, format, timecodes)
             }
             PacketCommands::Filter {
                 include,
@@ -516,7 +516,7 @@ fn get_config(args: &ConfigArgs) -> Result<Spacecraft> {
         }
     };
     debug!(?path, "reading config");
-    Ok(Spacecraft::with_file(path).with_context(|| format!("reading config from {path:?}"))?)
+    Spacecraft::with_file(path).with_context(|| format!("reading config from {path:?}"))
 }
 
 #[derive(Clone, Debug, Args)]
@@ -556,7 +556,7 @@ impl InputReader {
             return Ok(InputReader::File(BufReader::new(File::open(s)?)));
         }
         let conn = TcpStream::connect(s).context("failed to connect")?;
-        return Ok(InputReader::TCP(BufReader::new(conn)));
+        Ok(InputReader::TCP(BufReader::new(conn)))
     }
 }
 

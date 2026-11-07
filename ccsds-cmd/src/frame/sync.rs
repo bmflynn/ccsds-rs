@@ -16,18 +16,19 @@ pub fn synchronize(
         None => None,
     };
     let asm = &ccsds::framing::ASM[..];
-    let opts = ccsds::framing::SyncOpts::new(block_len).with_asm(&asm);
-    let denoiser = ccsds::framing::DefaultDerandomizer::default();
+    let opts = ccsds::framing::SyncOpts::new(block_len).with_asm(asm);
+    let denoiser = ccsds::framing::DefaultDerandomizer;
 
     for each in ccsds::framing::synchronize(reader, opts) {
         match each {
             Ok(mut block) => {
                 if let Some(f) = output.as_mut() {
                     if !no_asm {
-                        f.write_all(&asm)?;
+                        f.write_all(asm)?;
                     }
                     if pn {
-                        f.write_all(&denoiser.derandomize(&mut block.data))?;
+                        denoiser.derandomize_inplace(&mut block.data);
+                        f.write_all(&block.data)?;
                     } else {
                         f.write_all(&block.data)?;
                     }

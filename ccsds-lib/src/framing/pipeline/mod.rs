@@ -17,10 +17,10 @@ pub fn derandomize<I>(cadus: I) -> impl Iterator<Item = Cadu>
 where
     I: Iterator<Item = Cadu>,
 {
-    let pn = DefaultDerandomizer::default();
+    let pn = DefaultDerandomizer;
 
     cadus.map(move |mut cadu| {
-        cadu.data = pn.derandomize(&cadu.data);
+        pn.derandomize_inplace(&mut cadu.data);
         cadu
     })
 }

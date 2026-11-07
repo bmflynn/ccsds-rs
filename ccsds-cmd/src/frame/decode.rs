@@ -148,11 +148,8 @@ pub fn frame_aos<O: AsRef<Path>>(
             continue;
         }
         summary.collect(&frame);
-        match &frame.integrity {
-            Some(Integrity::Uncorrectable | Integrity::NotCorrected | Integrity::Failed) => {
-                continue;
-            }
-            _ => {}
+        if let Some(Integrity::Uncorrectable | Integrity::NotCorrected | Integrity::Failed) = &frame.integrity {
+            continue;
         }
 
         if let Some(mut fp) = dst.as_ref() {
@@ -173,7 +170,7 @@ pub fn decode<O: AsRef<Path>, S: AsRef<Path>>(
     output: Option<O>,
     summary_path: Option<S>,
 ) -> Result<()> {
-    let input = InputReader::from_str(&input)?;
+    let input = InputReader::from_str(input)?;
 
     let (interleave, virtual_fill) = if let Some(ref rs) = sc.framing.reed_solomon {
         (
@@ -264,7 +261,7 @@ pub fn write_text_summary<W: Write>(mut w: W, summary: &Summary) -> Result<()> {
     assert!(hb.register_template_string("main", TEXT_TEMPLATE).is_ok());
 
     let mut ordered_vcids: Vec<Info> = summary.vcids.values().cloned().collect();
-    ordered_vcids.sort_unstable_by(|a, b| a.vcid.cmp(&b.vcid));
+    ordered_vcids.sort_unstable_by_key(|a| a.vcid);
 
     #[derive(Debug, Serialize)]
     struct Data {

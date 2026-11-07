@@ -34,7 +34,7 @@ pub fn decoder_with_config(tc: &TimecodeConfig) -> Result<Box<dyn TimecodeDecode
             submillis_length,
             self_identifying,
         } => {
-            let epoch = Epoch::from_format_str(&epoch, "%Y-%m-%dT%H:%M:%SZ")
+            let epoch = Epoch::from_format_str(epoch, "%Y-%m-%dT%H:%M:%SZ")
                 .map_err(|_| Error::Config("invalid timestamp".to_string()))?;
             Ok(if *self_identifying {
                 Box::new(cds::PFieldDecoder::default().with_epoch(epoch.to_unix_seconds()))
@@ -52,7 +52,7 @@ pub fn decoder_with_config(tc: &TimecodeConfig) -> Result<Box<dyn TimecodeDecode
             fine_nanos,
             self_identifying,
         } => {
-            let epoch = Epoch::from_format_str(&epoch, "%Y-%m-%dT%H:%M:%SZ")
+            let epoch = Epoch::from_format_str(epoch, "%Y-%m-%dT%H:%M:%SZ")
                 .map_err(|_| Error::Config("invalid timestamp".to_string()))?;
             Ok(if *self_identifying {
                 Box::new(cuc::PFieldDecoder::default().with_epoch(epoch.to_unix_seconds()))
