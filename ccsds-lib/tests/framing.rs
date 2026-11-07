@@ -18,7 +18,7 @@ fn do_framing_test(interleave: u8, block_len: usize, fixture: &str, expected: &[
         *cur += 1;
     }
 
-    for (vcid, expected) in expected.iter().cloned() {
+    for &(vcid, expected) in expected {
         let got = got_counts.get(&vcid).unwrap_or(&0);
         assert_eq!(
             *got, expected,

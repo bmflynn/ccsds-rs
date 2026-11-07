@@ -40,10 +40,7 @@ impl Display for Integrity {
 impl Integrity {
     /// Return `true` if [Self::Ok] or [Self::Corrected]. Any other value will return `false`.
     pub fn ok(&self) -> bool {
-        match self {
-            Self::Ok | Self::Corrected => true,
-            _ => false,
-        }
+        matches!(self, Self::Ok | Self::Corrected)
     }
 }
 
@@ -100,7 +97,7 @@ impl DefaultReedSolomon {
     /// # Arguments
     ///
     /// * `interleave` Interleaving depth. Each frame data to detect/correct must have a length
-    /// such that `length = interleave * 255 + vritual_fill`.
+    ///   such that `length = interleave * 255 + vritual_fill`.
     pub fn new(interleave: u8) -> Self {
         Self {
             interleave,

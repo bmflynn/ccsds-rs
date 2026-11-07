@@ -65,7 +65,7 @@ impl<'a> SyncOpts<'a> {
     ///
     /// # Arguments
     /// * `length` Length of data to return as a [Block], not including the length of the attached
-    /// sync marker.
+    ///   sync marker.
     pub fn new(length: usize) -> Self {
         SyncOpts { asm: &ASM, length }
     }

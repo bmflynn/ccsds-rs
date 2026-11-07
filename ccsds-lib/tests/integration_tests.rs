@@ -73,7 +73,7 @@ fn merge_test() {
         .collect();
     assert_eq!(groups.len(), 20, "expected 20 total groups");
 
-    groups.sort_by(|a, b| a.apid.cmp(&b.apid));
+    groups.sort_by_key(|a| a.apid);
     for (i, group) in groups.iter().take(7).enumerate() {
         assert_eq!(group.apid, 800, "group {i} has wrong apid");
         assert!(group.complete(), "group {i} should be complete");

@@ -91,9 +91,10 @@ fn summarize(fpath: &Path, timecodes: Option<PacketApidTimeDecoder>) -> Result<I
                     summary.last_packet_time = summary
                         .last_packet_time
                         .map_or(Some(epoch), |cur| Some(cmp::max(epoch, cur)));
-                    if summary.first_packet_time.is_some() && summary.last_packet_time.is_some() {
-                        summary.duration =
-                            summary.last_packet_time.unwrap() - summary.first_packet_time.unwrap();
+                    if let (Some(first), Some(last)) =
+                        (summary.first_packet_time, summary.last_packet_time)
+                    {
+                        summary.duration = last - first;
                     }
 
                     apid.first_packet_time = apid
@@ -102,9 +103,10 @@ fn summarize(fpath: &Path, timecodes: Option<PacketApidTimeDecoder>) -> Result<I
                     apid.last_packet_time = apid
                         .last_packet_time
                         .map_or(Some(epoch), |cur| Some(cmp::max(epoch, cur)));
-                    if apid.first_packet_time.is_some() && apid.last_packet_time.is_some() {
-                        apid.duration =
-                            apid.last_packet_time.unwrap() - apid.first_packet_time.unwrap();
+                    if let (Some(first), Some(last)) =
+                        (apid.first_packet_time, apid.last_packet_time)
+                    {
+                        apid.duration = last - first;
                     }
                 }
                 Ok(None) => {
