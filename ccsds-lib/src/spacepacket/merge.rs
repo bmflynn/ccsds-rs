@@ -48,7 +48,7 @@ where
     ///
     /// # Arguments
     /// * `paths` Paths to input files to be opened in read mode when [Self::merge] is called.
-    /// * `decoder` [TimecodeDecoder] that is able to decode timecodes from input packets. An
+    /// * `decoder` [crate::timecode::TimecodeDecoder] that is able to decode timecodes from input packets. An
     ///   packets for which a timecode cannot be decoded will be silently dropped.
     pub fn new<S: AsRef<Path>>(paths: Vec<S>, decoder: T) -> Self {
         Self {

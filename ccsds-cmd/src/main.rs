@@ -529,7 +529,7 @@ struct ConfigArgs {
     /// Spacecraft configuration name or used to lookup spacecraft configuration.
     ///
     /// The standard location to lookup spacecraft configuration is
-    /// $HOME/.config/ccsds/spacecraft/<name>.json.
+    /// $HOME/.config/ccsds/spacecraft/`<name>`.json.
     #[arg(short = 's', long = "spacecraft")]
     spacecraft: Option<String>,
 }

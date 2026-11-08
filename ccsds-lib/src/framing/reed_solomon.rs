@@ -124,7 +124,7 @@ impl DefaultReedSolomon {
     /// the integrity value [Integrity::NotCorrected] and check symbols will _NOT_ be removed.
     ///
     /// If `true` (default), correction will be attempted and check symbols will be removed if the
-    /// integrity is one of [Integrity::Ok], [Integrity::Corrected], or [Integrity::Skipped].
+    /// integrity is one of [Integrity::Ok] or [Integrity::Corrected].
     pub fn with_correction(mut self, enabled: bool) -> Self {
         self.correct = enabled;
         self
@@ -158,8 +158,8 @@ impl DefaultReedSolomon {
 impl ReedSolomon for DefaultReedSolomon {
     /// Performs the algorithm.
     ///
-    /// Check symbols are removed if the integrity is [Integrity::Ok], [Integrity::Corrected],
-    /// [Integrity::Skipped]. They are not removed for [Integrity::NotCorrected], [Integrity::Failed],
+    /// Check symbols are removed if the integrity is [Integrity::Ok] or [Integrity::Corrected].
+    /// They are not removed for [Integrity::NotCorrected], [Integrity::Failed],
     /// or [Integrity::Uncorrectable].
     ///
     /// If correction is disabled by passing `false` to [Self::with_correction] then the algorithm

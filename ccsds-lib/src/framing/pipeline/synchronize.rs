@@ -64,20 +64,20 @@ impl<'a> SyncOpts<'a> {
     /// Create a new set of sync options.
     ///
     /// # Arguments
-    /// * `length` Length of data to return as a [Block], not including the length of the attached
+    /// * `length` Length of data to return as a [crate::framing::Block], not including the length of the attached
     ///   sync marker.
     pub fn new(length: usize) -> Self {
         SyncOpts { asm: &ASM, length }
     }
 
-    /// Attached sync marker indicating the start of a [Block].
+    /// Attached sync marker indicating the start of a [crate::framing::Block].
     pub fn with_asm(mut self, asm: &'a [u8]) -> Self {
         self.asm = asm;
         self
     }
 }
 
-/// Syncronize a bit stream to provide a byte-aligned iterator of [Block] data.
+/// Syncronize a bit stream to provide a byte-aligned iterator of [crate::framing::Block] data.
 pub fn synchronize<R>(reader: R, opts: SyncOpts) -> impl Iterator<Item = Result<Cadu>>
 where
     R: Read + Send + 'static,

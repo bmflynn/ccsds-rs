@@ -52,7 +52,7 @@ impl PField {
     }
 }
 
-/// CCSDS CDS [crate::TimecodeDecoder] where p-field is always present in the data
+/// CCSDS CDS [crate::timecode::TimecodeDecoder] where p-field is always present in the data
 /// stream (i.e., self-identifying). The only basic time unit currently supported is
 /// second.
 ///
@@ -90,7 +90,7 @@ impl TimecodeDecoder for PFieldDecoder {
     }
 }
 
-/// CCSDS CDS [crate::TimecodeDecoder] where p-field is not present in the data
+/// CCSDS CDS [crate::timecode::TimecodeDecoder] where p-field is not present in the data
 /// stream (i.e., p-field configuration is static). The only basic time unit
 /// currently supported is second.
 ///
