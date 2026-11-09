@@ -249,6 +249,7 @@ where
                 let packet = Packet {
                     header: PrimaryHeader::decode(data).expect("failed to decode primary header"),
                     data: data.to_vec(),
+                    vcid: Some(tracker.vcid),
                     offset: 0,
                 };
                 tracker.cache = tail.to_vec();

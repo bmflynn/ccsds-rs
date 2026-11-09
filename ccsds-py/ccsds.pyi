@@ -16,10 +16,14 @@ class Packet:
     data: bytes
     user_data: bytes
     header: PrimaryHeader
+    # Virtual channel the packet was received on. None when the packet was not decoded from
+    # frames, because packet bytes do not carry a VCID.
+    vcid: typing.Optional[int]
 
     def __init__(self, buf: bytes): ...
 
 class PacketGroup:
+    vcid: typing.Optional[int]
     apid: int
     packets: typing.Iterable[Packet]
     complete: bool

@@ -11,7 +11,7 @@ use std::io::Read;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Error, Result};
+use crate::{framing::Vcid, Error, Result};
 pub use merge::*;
 pub use summary::*;
 
@@ -48,6 +48,12 @@ pub struct Packet {
     /// All packet bytes, including header and user data
     #[serde(with = "serde_bytes")]
     pub data: Vec<u8>,
+    /// Virtual channel this packet was received on, if known.
+    ///
+    /// Set by the frame-to-packet demux. `None` for packets decoded directly from bytes,
+    /// because packet bytes do not carry a VCID. The same APID may be used on more than one
+    /// VCID, so use `(vcid, apid)` to identify a packet stream when this is set.
+    pub vcid: Option<Vcid>,
 
     pub(crate) offset: usize,
 }
@@ -126,6 +132,7 @@ impl Packet {
         Ok(Packet {
             header: ph,
             data: buf[..total_len].to_vec(),
+            vcid: None,
             offset: 0,
         })
     }
@@ -154,6 +161,7 @@ impl Packet {
         Ok(Packet {
             header: ph,
             data: buf[..total_len].to_vec(),
+            vcid: None,
             offset: 0,
         })
     }
@@ -239,6 +247,8 @@ impl PrimaryHeader {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "python", pyclass(frozen, get_all))]
 pub struct PacketGroup {
+    /// Virtual channel of the packets in this group, if known. See [Packet::vcid].
+    pub vcid: Option<Vcid>,
     pub apid: Apid,
     pub packets: Vec<Packet>,
 }
@@ -479,20 +489,24 @@ where
                     // standalone packet with no current group, just return it
                     if packet.is_standalone() {
                         return Some(Ok(PacketGroup {
+                            vcid: packet.vcid,
                             apid: packet.header.apid,
                             packets: vec![packet],
                         }));
                     }
                     // start a new group with our packet
                     Some(PacketGroup {
+                        vcid: packet.vcid,
                         apid: packet.header.apid,
                         packets: vec![packet],
                     })
                 }
                 Some(mut group) => {
-                    // Different apids indicate we're done with this group. However we have a
-                    // packet, so we must cache it for use on next iter.
-                    if packet.header.apid != group.packets[0].header.apid {
+                    // A different (vcid, apid) indicates we're done with this group. However we
+                    // have a packet, so we must cache it for use on next iter.
+                    if packet.header.apid != group.packets[0].header.apid
+                        || packet.vcid != group.vcid
+                    {
                         self.cached = Some(packet);
                         return Some(Ok(group));
                     }
@@ -512,6 +526,7 @@ where
         self.done = true;
         match self.cached.take() {
             Some(packet) => Some(Ok(PacketGroup {
+                vcid: packet.vcid,
                 apid: packet.header.apid,
                 packets: vec![packet],
             })),
@@ -579,6 +594,35 @@ mod tests {
         assert_eq!(&packets[0].data[..], &dat[..15]);
         assert_eq!(packets[1].header.sequence_id, 2);
         assert_eq!(&packets[1].data[..], &dat[15..]);
+    }
+
+    #[test]
+    fn groups_split_on_vcid_change() {
+        #[rustfmt::skip]
+        let dat: &[u8] = &[
+            // first (flags=1) and last (flags=2) packets of one APID
+            0xd, 0x59, 0x40, 0x01, 0x0, 0x8, 0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
+            0xd, 0x59, 0x80, 0x02, 0x0, 0x8, 0x52, 0xc0, 0x0, 0x0, 0x0, 0xa7, 0x0, 0xdb, 0xff,
+        ];
+        let mut a = Packet::decode(&dat[..15]).unwrap();
+        let mut b = Packet::decode(&dat[15..]).unwrap();
+
+        a.vcid = Some(1);
+        b.vcid = Some(1);
+        let groups: Vec<_> = collect_groups(vec![a.clone(), b.clone()].into_iter())
+            .map(|g| g.unwrap())
+            .collect();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].vcid, Some(1));
+        assert_eq!(groups[0].packets.len(), 2);
+
+        b.vcid = Some(2);
+        let groups: Vec<_> = collect_groups(vec![a, b].into_iter())
+            .map(|g| g.unwrap())
+            .collect();
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].vcid, Some(1));
+        assert_eq!(groups[1].vcid, Some(2));
     }
 
     #[test]

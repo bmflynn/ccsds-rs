@@ -122,3 +122,18 @@ fn test_backends_match_on_real_data() {
         }
     }
 }
+
+#[test]
+fn test_demux_packets_have_vcid() {
+    let file = File::open(fixture_path("cadu/npp.20241206T173815.dat")).unwrap();
+    let cadus = synchronize(file, SyncOpts::new(1020)).map_while(Result::ok);
+    let frames = reed_solomon(frame_decoder(derandomize(cadus)), RsOpts::new(4));
+
+    let mut count = 0;
+    for packet in PacketDemux::new(frames).with_defaults(0, false, false, true) {
+        let vcid = packet.vcid.expect("demux packets must have a vcid");
+        assert!(vcid == 16 || vcid == 63, "unexpected vcid {vcid}");
+        count += 1;
+    }
+    assert!(count > 0);
+}

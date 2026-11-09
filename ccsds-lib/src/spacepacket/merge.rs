@@ -10,6 +10,7 @@ use std::{
 use hifitime::{Duration, Epoch};
 use tracing::{debug, error, trace, warn};
 
+use crate::framing::Vcid;
 use crate::spacepacket::{Apid, Error, PrimaryHeader};
 
 use super::timecode::PacketTimeDecoder;
@@ -158,6 +159,7 @@ where
                         path: (*path).clone(),
                         offset: first.offset,
                         time: epoch,
+                        vcid: first.vcid,
                         apid: first.header.apid,
                         seqid: first.header.sequence_id,
                         size: total_size,
@@ -208,6 +210,7 @@ struct Ptr {
 
     // The following are considered for hashing purposes
     time: Epoch,
+    vcid: Option<Vcid>,
     apid: Apid,
     seqid: u16,
 
@@ -217,6 +220,7 @@ struct Ptr {
 
 impl Hash for Ptr {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.vcid.hash(state);
         self.apid.hash(state);
         self.time.hash(state);
         self.seqid.hash(state);
@@ -225,7 +229,10 @@ impl Hash for Ptr {
 
 impl PartialEq for Ptr {
     fn eq(&self, other: &Self) -> bool {
-        self.apid == other.apid && self.time == other.time && self.seqid == other.seqid
+        self.vcid == other.vcid
+            && self.apid == other.apid
+            && self.time == other.time
+            && self.seqid == other.seqid
     }
 }
 
