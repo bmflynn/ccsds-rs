@@ -89,9 +89,10 @@ fn word_hits(words: &Words, w: u64) -> u8 {
 /// A sychronized block location.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Loc {
-    /// Offset (0-based) to the first byte containing block data after a found sync marker
+    /// Offset (1-based) to the first byte containing block data after a found sync marker
     pub offset: usize,
-    /// The bit in the byte where the data block starts
+    /// The bit in the byte where the data block starts. So, for example if `bit` is 6 it
+    /// will take 2 left shifts to byte align the data.
     pub bit: u8,
 }
 

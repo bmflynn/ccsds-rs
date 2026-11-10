@@ -13,7 +13,6 @@ where
 {
     let ocf = trailer_length == 4 || trailer_length == 6;
     let fec = trailer_length == 2 || trailer_length == 6;
-    
 
     PacketDemux::new(frames).with_defaults(izone_length, false, ocf, fec)
 }

@@ -192,7 +192,7 @@ where
 
                 // No way to get sync if we don't have a packet header
                 if !mpdu.has_header() {
-                    trace!(vcid = %frame.header.vcid, tracker = %tracker, "frames w/o mpdu, dropping");
+                    trace!(vcid = %frame.header.vcid, tracker = %tracker, "frame w/o mpdu, dropping");
                     continue;
                 }
                 // I don't think there should ever be a fill MPDU in a non-fill VCDU, but we check
@@ -226,12 +226,6 @@ where
             // The start of the cache should always contain a packet primary header
             let mut header =
                 PrimaryHeader::decode(&tracker.cache).expect("failed to decode primary header");
-            if !valid_packet_header(&header) {
-                tracker.reset();
-                continue;
-            }
-
-            // TODO: Add packet validations for length, version, and type
 
             // Make sure we have enough data to fully construct the packet indicated by the header
             let mut need = header.len_minus1 as usize + 1 + PrimaryHeader::LEN;
@@ -260,10 +254,6 @@ where
                 }
                 header =
                     PrimaryHeader::decode(&tracker.cache).expect("failed to decode primary header");
-                if !valid_packet_header(&header) {
-                    tracker.reset();
-                    break;
-                }
                 need = header.len_minus1 as usize + 1 + PrimaryHeader::LEN;
                 if tracker.cache.len() < need {
                     break;
@@ -319,12 +309,4 @@ impl Display for VcidTracker {
             self.rs_corrected
         )
     }
-}
-
-fn valid_packet_header(header: &PrimaryHeader) -> bool {
-    if header.version != 0 || header.type_flag != 0 {
-        debug!("bad packet version or type, dropping {header:?}");
-        return false;
-    }
-    true
 }
