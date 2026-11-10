@@ -1,6 +1,7 @@
 use anyhow::Result;
 use ccsds::framing::Derandomizer;
 use std::{fs::File, io::Write, path::PathBuf};
+use tracing::debug;
 
 pub fn synchronize(
     input: PathBuf,
@@ -22,6 +23,7 @@ pub fn synchronize(
     for each in ccsds::framing::synchronize(reader, opts) {
         match each {
             Ok(mut block) => {
+                debug!(loc=?block.loc, last=block.last, "found");
                 if let Some(f) = output.as_mut() {
                     if !no_asm {
                         f.write_all(asm)?;
@@ -38,6 +40,7 @@ pub fn synchronize(
                     println!("byte_offset={} bit_offset={}", loc.offset, loc.bit);
                 }
             }
+            Err(ccsds::Error::Io(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
             Err(e) => eprintln!("{e}"),
         }
     }
