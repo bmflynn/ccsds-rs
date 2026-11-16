@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use ccsds::spacepacket::{
-    decode_packets, missing_packets, Packet,
+    decode_packets, missing_packets,
     timecode::{PacketApidTimeDecoder, PacketTimeDecoder},
-    Apid,
+    Apid, Packet,
 };
 use handlebars::handlebars_helper;
 use hifitime::{Duration, Epoch};
@@ -247,7 +247,11 @@ mod tests {
 
     #[test]
     fn sequence_wrap_is_not_missing() {
-        let (sum, _) = run(vec![packet(0x59, 16382), packet(0x59, 16383), packet(0x59, 0)]);
+        let (sum, _) = run(vec![
+            packet(0x59, 16382),
+            packet(0x59, 16383),
+            packet(0x59, 0),
+        ]);
         assert_eq!(sum.missing_packets, 0);
     }
 

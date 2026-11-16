@@ -637,10 +637,16 @@ mod tests {
         // A repeated sequence id is a duplicate, not a full wrap
         assert_eq!(missing_packets(0, 0), 0);
         assert_eq!(missing_packets(100, 100), 0);
-        assert_eq!(missing_packets(PrimaryHeader::SEQ_MAX, PrimaryHeader::SEQ_MAX), 0);
+        assert_eq!(
+            missing_packets(PrimaryHeader::SEQ_MAX, PrimaryHeader::SEQ_MAX),
+            0
+        );
         // Gaps across the wrap
         assert_eq!(missing_packets(3, PrimaryHeader::SEQ_MAX - 1), 4);
-        assert_eq!(missing_packets(PrimaryHeader::SEQ_MAX, 0), PrimaryHeader::SEQ_MAX - 1);
+        assert_eq!(
+            missing_packets(PrimaryHeader::SEQ_MAX, 0),
+            PrimaryHeader::SEQ_MAX - 1
+        );
         // Largest detectable loss, everything but the repeated id
         assert_eq!(missing_packets(99, 100), PrimaryHeader::SEQ_MAX - 1);
         // Out of range input does not overflow

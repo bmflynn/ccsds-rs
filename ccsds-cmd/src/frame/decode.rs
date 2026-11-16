@@ -25,6 +25,7 @@ pub struct Info {
     pub total_frames: usize,
     pub total_bytes: usize,
     pub missing_frames: usize,
+    pub duplicate_frames: usize,
 
     pub corrected: usize,
     pub uncorrectable: usize,
@@ -38,6 +39,7 @@ pub struct Summary {
     pub total_frames: usize,
     pub total_bytes: usize,
     pub missing_frames: usize,
+    pub duplicate_frames: usize,
 
     pub corrected: usize,
     pub uncorrectable: usize,
@@ -59,6 +61,8 @@ impl Summary {
         channel.total_bytes += frame.data.len();
         channel.missing_frames += frame.missing as usize;
         self.missing_frames += frame.missing as usize;
+        channel.duplicate_frames += usize::from(frame.duplicate);
+        self.duplicate_frames += usize::from(frame.duplicate);
         match &frame.integrity {
             Some(integrity) => match integrity {
                 Integrity::Ok => {
@@ -216,6 +220,7 @@ const TEXT_TEMPLATE: &str = r#"=================================================
 Frames:        {{ summary.total_frames }}
 Bytes:         {{ summary.total_bytes }} 
 Missing:       {{ summary.missing_frames}}
+Duplicate:     {{ summary.duplicate_frames }}
 Corrected:     {{ summary.corrected }}
 Uncorrectable: {{ summary.uncorrectable }}
 Ok:            {{ summary.ok }}

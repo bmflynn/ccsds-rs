@@ -73,6 +73,11 @@ pub struct Frame {
     pub header: VCDUHeader,
     /// Count of missing frame counts between this frame and the last received for this VCID.
     pub missing: u32,
+    /// `true` if this frame has the same frame counter as the last frame received for this VCID.
+    ///
+    /// Such frames are not counted in [Frame::missing]. Fill frames are never marked duplicate.
+    #[serde(default)]
+    pub duplicate: bool,
     /// Integrity checking disposition, if peformed, [Option::None] otherwise.
     pub integrity: Option<Integrity>,
     /// Frame bytes. If RS was performed upstream this will not include any parity bytes.
@@ -98,6 +103,7 @@ impl Frame {
         Some(Frame {
             header,
             missing: 0,
+            duplicate: false,
             integrity: None,
             data: dat,
         })
@@ -138,9 +144,10 @@ impl VCDUHeader {
     /// Construct from the provided bytes, or `None` if there are not enough bytes
     /// or the version is not supported.
     ///
-    /// This supports version 1 (CCSDS 732.0-B-1) and version 2 (CCSDS 132.0-B-3). For
-    /// version 2 the master channel frame count and virtual channel frame count are
-    /// combined into a single 32b counter.
+    /// This supports header version number 0, TM (CCSDS 132.0-B-3), and version number 1, AOS
+    /// (CCSDS 732.0-B-4). The [VCDUHeader::counter] is the virtual channel frame count, which is 8
+    /// bits for TM and 24 bits for AOS. The TM master channel frame count is not kept. See
+    /// [VCDUHeader::counter_max].
     ///
     /// If the version is unknown or unsupported, `None` is returned.
     ///
@@ -160,18 +167,22 @@ impl VCDUHeader {
         }
     }
 
-    /// TM Transfer Frame header CCSDS 132.0
+    /// TM Transfer Frame header CCSDS 132.0, header version number 0.
+    ///
+    /// Byte 2 is the master channel frame count (shared by all VCIDs) and byte 3 is the virtual
+    /// channel frame count. Only the virtual channel count is used, because it is the one that
+    /// increments by 1 for each frame of a single VCID.
     fn decode_v1(dat: &[u8]) -> Option<Self> {
         let x = u16::from_be_bytes([dat[0], dat[1]]);
         Some(VCDUHeader {
             version: 0,
             scid: ((x >> 4) & 0x3ff),
             vcid: ((x >> 1) & 0x7),
-            counter: u32::from_be_bytes([0, 0, dat[2], dat[3]]),
+            counter: u32::from(dat[3]),
         })
     }
 
-    /// AOS Transfer Frame header CCSDS 732.0
+    /// AOS Transfer Frame header CCSDS 732.0, header version number 1.
     fn decode_v2(dat: &[u8]) -> Option<Self> {
         let x = u16::from_be_bytes([dat[0], dat[1]]);
         Some(VCDUHeader {
@@ -207,8 +218,21 @@ impl VCDUHeader {
     pub const LEN: usize = 6;
     /// VCID indicating a fill frame
     pub const FILL: Vcid = 63;
-    /// Maximum value for the zero-based VCDU counter before rollover;
-    pub const COUNTER_MAX: u32 = 0xff_ffff - 1;
+    /// Maximum value of the 24-bit AOS VCDU counter. The next count after this value is 0.
+    pub const COUNTER_MAX: u32 = 0xff_ffff;
+    /// Maximum value of the 8-bit TM virtual channel frame count. The next count after this value
+    /// is 0.
+    pub const TM_COUNTER_MAX: u32 = 0xff;
+
+    /// Maximum value of [VCDUHeader::counter] for this header version, after which it wraps to 0.
+    #[must_use]
+    pub fn counter_max(&self) -> u32 {
+        if self.version == 0 {
+            Self::TM_COUNTER_MAX
+        } else {
+            Self::COUNTER_MAX
+        }
+    }
 }
 
 /// MPDU contained within a [Frame].
@@ -292,27 +316,26 @@ impl MPDU {
 /// Calculate the number of missing frame sequence counts.
 ///
 /// `cur` is the current frame counter. `last` is the frame counter seen before `cur`.
-/// `cur` will be greater than `last` except in the case of a wrap.
+/// `counter_max` is the largest counter value, see [VCDUHeader::counter_max]. The counter wraps
+/// from `counter_max` to 0, so the result is `(cur - last - 1)` modulo `counter_max + 1`.
+///
+/// If `cur == last` the result is 0. A repeated counter is almost always a duplicate frame, not a
+/// loss of exactly `counter_max` frames, so it is not reported as missing. This means a loss of
+/// exactly that many frames cannot be detected.
+///
+/// Inputs are reduced modulo `counter_max + 1`, so values above `counter_max` do not overflow.
+///
+/// # Panics
+/// If `counter_max` is `u32::MAX`.
 #[must_use]
-pub fn missing_frames(cur: u32, last: u32) -> u32 {
+pub fn missing_frames(cur: u32, last: u32, counter_max: u32) -> u32 {
+    let modulus = counter_max + 1;
+    let cur = cur % modulus;
+    let last = last % modulus;
     if cur == last {
-        return VCDUHeader::COUNTER_MAX;
+        return 0;
     }
-
-    let expected = if last == VCDUHeader::COUNTER_MAX {
-        0
-    } else {
-        last + 1
-    };
-
-    if cur == expected {
-        0
-    } else {
-        if cur < last {
-            return VCDUHeader::COUNTER_MAX - last + cur;
-        }
-        cur - last - 1
-    }
+    (cur + modulus - last - 1) % modulus
 }
 
 #[cfg(test)]
@@ -353,10 +376,66 @@ mod test {
 
     #[test]
     fn test_missing_frames() {
-        assert_eq!(missing_frames(5, 4), 0);
-        assert_eq!(missing_frames(5, 3), 1);
-        assert_eq!(missing_frames(0, VCDUHeader::COUNTER_MAX), 0);
-        assert_eq!(missing_frames(0, VCDUHeader::COUNTER_MAX - 1), 1);
-        assert_eq!(missing_frames(0, 0), VCDUHeader::COUNTER_MAX);
+        const MAX: u32 = VCDUHeader::COUNTER_MAX;
+        assert_eq!(missing_frames(5, 4, MAX), 0);
+        assert_eq!(missing_frames(5, 3, MAX), 1);
+        // Wrap with no loss
+        assert_eq!(missing_frames(0, MAX, MAX), 0);
+        assert_eq!(missing_frames(MAX, MAX - 1, MAX), 0);
+        // Wrap with loss
+        assert_eq!(missing_frames(0, MAX - 1, MAX), 1);
+        assert_eq!(missing_frames(3, MAX - 1, MAX), 4);
+        assert_eq!(missing_frames(MAX, 0, MAX), MAX - 1);
+        // A repeated counter is a duplicate, not a full wrap
+        assert_eq!(missing_frames(0, 0, MAX), 0);
+        assert_eq!(missing_frames(100, 100, MAX), 0);
+        assert_eq!(missing_frames(MAX, MAX, MAX), 0);
+        // Largest detectable loss, everything but the repeated counter
+        assert_eq!(missing_frames(99, 100, MAX), MAX - 1);
+        // Out of range input does not overflow
+        assert_eq!(missing_frames(1, u32::MAX, MAX), 1);
+    }
+
+    #[test]
+    fn test_missing_frames_tm_counter() {
+        const MAX: u32 = VCDUHeader::TM_COUNTER_MAX;
+        assert_eq!(missing_frames(1, 0, MAX), 0);
+        assert_eq!(missing_frames(0, 255, MAX), 0);
+        assert_eq!(missing_frames(2, 255, MAX), 2);
+        assert_eq!(missing_frames(5, 3, MAX), 1);
+        assert_eq!(missing_frames(7, 7, MAX), 0);
+        assert_eq!(missing_frames(6, 7, MAX), 254);
+    }
+
+    #[test]
+    fn decode_tm_vcduheader_uses_virtual_channel_count() {
+        let dat: Vec<u8> = vec![
+            // version 0, scid 0x155 (341), vcid 5, no ocf
+            0x15, 0x5a, //
+            0xab, // master channel count
+            0x07, // virtual channel count
+            0x00, 0x00,
+        ];
+        let header = VCDUHeader::decode(&dat).unwrap();
+
+        assert_eq!(header.version, 0);
+        assert_eq!(header.scid, 341);
+        assert_eq!(header.vcid, 5);
+        assert_eq!(header.counter, 7);
+        assert_eq!(header.counter_max(), VCDUHeader::TM_COUNTER_MAX);
+    }
+
+    #[test]
+    fn aos_counter_max() {
+        let dat: Vec<u8> = vec![0x55, 0x61, 0x01, 0xe2, 0x40, 0x05];
+        let header = VCDUHeader::decode(&dat).unwrap();
+        assert_eq!(header.counter_max(), VCDUHeader::COUNTER_MAX);
+    }
+
+    #[test]
+    fn frame_decode_is_not_duplicate() {
+        let frame = Frame::decode(vec![0x55, 0x61, 0x01, 0xe2, 0x40, 0x05]).unwrap();
+        assert!(!frame.duplicate);
+        assert_eq!(frame.missing, 0);
     }
 }

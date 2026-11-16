@@ -147,6 +147,17 @@ where
                 break;
             };
 
+            // The data in a duplicate frame was already seen, using it again would corrupt the
+            // packet data being tracked.
+            if frame.duplicate {
+                trace!(
+                    vcid = frame.header.vcid,
+                    counter = frame.header.counter,
+                    "duplicate frame, dropping"
+                );
+                continue 'next_frame;
+            }
+
             let mpdu = match self.mpdu(&frame) {
                 Some(m) => m,
                 None => {
