@@ -305,21 +305,24 @@ impl PacketGroup {
 
 /// Calculate the number of missing sequence ids.
 ///
-/// `cur` is the current sequence id. `last` is the sequence id seen before `cur`.
+/// `cur` is the current sequence id. `last` is the sequence id seen before `cur`. Sequence ids
+/// are 14 bits and wrap, so the result is `(cur - last - 1)` modulo 16384.
+///
+/// If `cur == last` the result is 0. A repeated sequence id is almost always a duplicate packet,
+/// not a loss of exactly 16383 packets, so it is not reported as missing. This means a loss of
+/// exactly 16383 packets cannot be detected.
+///
+/// Inputs are reduced modulo 16384, so values above [PrimaryHeader::SEQ_MAX] do not overflow.
 #[must_use]
 pub fn missing_packets(cur: u16, last: u16) -> u16 {
-    let expected = if last + 1 > PrimaryHeader::SEQ_MAX {
-        0
-    } else {
-        last + 1
-    };
-    if cur != expected {
-        if last + 1 > cur {
-            return cur + PrimaryHeader::SEQ_MAX - last;
-        }
-        return cur - last - 1;
+    let modulus = u32::from(PrimaryHeader::SEQ_MAX) + 1;
+    let cur = u32::from(cur) % modulus;
+    let last = u32::from(last) % modulus;
+    if cur == last {
+        return 0;
     }
-    0
+    // cannot truncate, the result is always less than modulus
+    ((cur + modulus - last - 1) % modulus) as u16
 }
 
 struct PacketDecoder<R: Read + Send> {
@@ -631,6 +634,16 @@ mod tests {
         assert_eq!(missing_packets(5, 3), 1);
         assert_eq!(missing_packets(0, PrimaryHeader::SEQ_MAX), 0);
         assert_eq!(missing_packets(0, PrimaryHeader::SEQ_MAX - 1), 1);
-        assert_eq!(missing_packets(0, 0), PrimaryHeader::SEQ_MAX);
+        // A repeated sequence id is a duplicate, not a full wrap
+        assert_eq!(missing_packets(0, 0), 0);
+        assert_eq!(missing_packets(100, 100), 0);
+        assert_eq!(missing_packets(PrimaryHeader::SEQ_MAX, PrimaryHeader::SEQ_MAX), 0);
+        // Gaps across the wrap
+        assert_eq!(missing_packets(3, PrimaryHeader::SEQ_MAX - 1), 4);
+        assert_eq!(missing_packets(PrimaryHeader::SEQ_MAX, 0), PrimaryHeader::SEQ_MAX - 1);
+        // Largest detectable loss, everything but the repeated id
+        assert_eq!(missing_packets(99, 100), PrimaryHeader::SEQ_MAX - 1);
+        // Out of range input does not overflow
+        assert_eq!(missing_packets(1, u16::MAX), 1);
     }
 }
