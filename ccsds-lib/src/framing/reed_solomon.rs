@@ -11,12 +11,14 @@ use crate::{Error, Result};
 
 /// The possible integrity dispositions
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(feature = "python", pyclass(eq, eq_int))]
+#[cfg_attr(feature = "python", pyclass(eq, eq_int, from_py_object))]
 pub enum Integrity {
     /// Data did not require correction.
     Ok,
-    /// Data was successfully corrected.
+    /// Data had errors was successfully corrected.
     Corrected,
+    /// Data had errors and no correction was performed.
+    Errors,
     /// Not correctable due to alg failure or too many errors
     Uncorrectable,
     /// Errors are present, but no correction was attempted.

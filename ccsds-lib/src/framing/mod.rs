@@ -67,7 +67,7 @@ pub const FHEC_LEN: usize = 2;
 ///
 /// TM Transfer Frames (CCSDS 132.0-B-3) are not supported.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "python", pyclass(frozen, get_all))]
+#[cfg_attr(feature = "python", pyclass(frozen, get_all, from_py_object))]
 pub struct Frame {
     /// This frames header data
     pub header: VCDUHeader,
@@ -127,7 +127,7 @@ impl Frame {
 
 /// Contents of a valid VCDU header
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(feature = "python", pyclass(frozen, get_all))]
+#[cfg_attr(feature = "python", pyclass(frozen, get_all, from_py_object))]
 pub struct VCDUHeader {
     pub version: u8,
     pub scid: Scid,
@@ -214,7 +214,7 @@ impl VCDUHeader {
 
 /// MPDU contained within a [Frame].
 #[derive(Clone)]
-#[cfg_attr(feature = "python", pyclass(get_all))]
+#[cfg_attr(feature = "python", pyclass(get_all, from_py_object))]
 pub struct MPDU {
     // the offset of the header minus 1
     first_header: u16,

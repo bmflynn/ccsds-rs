@@ -41,7 +41,7 @@ pub type Apid = u16;
 /// # Ok::<(), ccsds::Error>(())
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "python", pyclass(frozen, get_all))]
+#[cfg_attr(feature = "python", pyclass(frozen, get_all, from_py_object))]
 pub struct Packet {
     /// All packets have a primary header
     pub header: PrimaryHeader,
@@ -172,7 +172,7 @@ impl Packet {
 /// The primary header format is common to all CCSDS space packets.
 ///
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "python", pyclass(frozen))]
+#[cfg_attr(feature = "python", pyclass(frozen, from_py_object))]
 pub struct PrimaryHeader {
     pub version: u8,
     pub type_flag: u8,
@@ -245,7 +245,7 @@ impl PrimaryHeader {
 /// Packet data representing a CCSDS packet group according to the packet
 /// sequencing value in primary header.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "python", pyclass(frozen, get_all))]
+#[cfg_attr(feature = "python", pyclass(frozen, get_all, from_py_object))]
 pub struct PacketGroup {
     /// Virtual channel of the packets in this group, if known. See [Packet::vcid].
     pub vcid: Option<Vcid>,
