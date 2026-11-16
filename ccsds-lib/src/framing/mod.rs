@@ -112,13 +112,14 @@ impl Frame {
 
     /// Extract the MPDU bytes from this frame, or `None` if not enough bytes.
     #[must_use]
-    pub fn mpdu(&self, izone_length: usize, trailer_length: usize, fhec: bool) -> Option<MPDU> {
+    pub fn mpdu(&self, izone_length: usize, ocf: bool, fec: bool, fhec: bool) -> Option<MPDU> {
         let start: usize = if fhec {
             VCDUHeader::LEN + izone_length + FHEC_LEN
         } else {
             VCDUHeader::LEN + izone_length
         };
-        let end: usize = self.data.len() - trailer_length;
+        let end: usize =
+            self.data.len() - if ocf { OCF_LEN } else { 0 } - if fec { FEC_LEN } else { 0 };
         let data = self.data[start..end].to_vec();
 
         MPDU::decode(&data)

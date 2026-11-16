@@ -5,7 +5,7 @@ use std::{
 
 use tracing::{debug, trace};
 
-use crate::framing::{Integrity, Vcid, FEC_LEN, MPDU, OCF_LEN};
+use crate::framing::{Integrity, Vcid, MPDU};
 use crate::spacepacket::{Packet, PrimaryHeader};
 
 use super::Frame;
@@ -123,13 +123,7 @@ where
             .channel_config
             .get(&frame.header.vcid)
             .or(self.default_config.as_ref())?;
-        let trailer_len = match (cfg.ocf, cfg.fec) {
-            (true, true) => OCF_LEN + FEC_LEN,
-            (true, false) => OCF_LEN,
-            (false, true) => FEC_LEN,
-            (false, false) => 0,
-        };
-        frame.mpdu(cfg.izone_len, trailer_len, cfg.fhec)
+        frame.mpdu(cfg.izone_len, cfg.ocf, cfg.fec, cfg.fhec)
     }
 }
 

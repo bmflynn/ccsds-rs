@@ -1,6 +1,5 @@
-use std::fmt::Display;
-
 use rs2::{correct_message, has_errors, RSState, N, PARITY_LEN};
+use std::fmt::Display;
 
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
