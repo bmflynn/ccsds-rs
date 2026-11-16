@@ -75,9 +75,7 @@ pub struct Frame {
     pub missing: u32,
     /// Integrity checking disposition, if peformed, [Option::None] otherwise.
     pub integrity: Option<Integrity>,
-    /// Frame bytes. If integrity checking was performed and failed, e.g., not [Integrity::Ok] or
-    /// [Integrity::Corrected], this will also include any check symbols and therefore potentially
-    /// be longer than the expected frame length.
+    /// Frame bytes. If RS was performed upstream this will not include any parity bytes.
     #[serde(with = "serde_bytes")]
     pub data: Vec<u8>,
 }

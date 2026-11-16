@@ -73,6 +73,10 @@ impl Summary {
                     channel.uncorrectable += 1;
                     self.uncorrectable += 1;
                 }
+                Integrity::NotPerformed => {
+                    channel.not_performed += 1;
+                    self.not_performed += 1;
+                }
                 Integrity::Failed => {
                     channel.error += 1;
                     self.error += 1;
@@ -96,7 +100,6 @@ pub fn frame_aos<O: AsRef<Path>>(
     input: InputReader,
     length: usize,
     pn: bool,
-    keep_fill: bool,
     reed_solomon: Option<u8>,
     reed_solomon_detect: bool,
     reed_solomon_correct: bool,
@@ -138,9 +141,6 @@ pub fn frame_aos<O: AsRef<Path>>(
     };
 
     for frame in frames {
-        if frame.is_fill() && !keep_fill {
-            continue;
-        }
         if !include.is_empty() && !include.contains(&frame.header.vcid) {
             continue;
         }
@@ -148,12 +148,13 @@ pub fn frame_aos<O: AsRef<Path>>(
             continue;
         }
         summary.collect(&frame);
-        if let Some(Integrity::Uncorrectable | Integrity::NotCorrected | Integrity::Failed) = &frame.integrity {
+        if let Some(Integrity::Uncorrectable | Integrity::Failed) = &frame.integrity {
             continue;
         }
 
         if let Some(mut fp) = dst.as_ref() {
-            fp.write_all(&frame.data[..length])?;
+            // fp.write_all(&frame.data[..length])?;
+            fp.write_all(&frame.data)?;
         }
     }
 
@@ -185,7 +186,6 @@ pub fn decode<O: AsRef<Path>, S: AsRef<Path>>(
         input,
         sc.framing.length,
         sc.framing.pseudo_noise.is_some(),
-        true,
         if interleave == 0 {
             None
         } else {

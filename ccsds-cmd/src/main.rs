@@ -107,8 +107,8 @@ enum PacketCommands {
     },
     /// Show information about a spacepacket file
     Info {
-        /// Input spacepacket file
-        input: PathBuf,
+        /// One or more input file
+        input: Vec<PathBuf>,
 
         /// Output format
         #[arg(short, long, default_value = "text")]
@@ -201,12 +201,12 @@ enum FrameCommands {
         #[command(flatten)]
         config: ConfigArgs,
 
-        /// Enable RS correction (implies rs-detect).
+        /// Do not correct or detect errors, only remove parity bytes.
         #[arg(long, default_value_t = false)]
-        rs_correct: bool,
-        /// Enable RS detection only, no correction.
+        rs_passthrough: bool,
+        /// Do not correct errors, only detect
         #[arg(long, default_value_t = false)]
-        rs_detect: bool,
+        rs_no_correct: bool,
 
         /// Include these vcids or vcid ranges. If not specified, include all.
         ///
@@ -270,8 +270,8 @@ enum FrameCommands {
         #[command(flatten)]
         config: ConfigArgs,
 
-        /// Input file path
-        input: PathBuf,
+        /// One or more input file paths
+        input: Vec<PathBuf>,
     },
 }
 
@@ -341,13 +341,13 @@ fn main() -> Result<()> {
         Commands::Frames(args) => match &args.command {
             FrameCommands::Decode {
                 config,
-                rs_detect,
-                rs_correct,
                 include,
                 exclude,
                 input,
                 output,
                 summary: summary_path,
+                rs_passthrough,
+                rs_no_correct,
             } => {
                 let include = parse_number_ranges(include.clone())?
                     .iter()
@@ -358,14 +358,18 @@ fn main() -> Result<()> {
                     .filter_map(|v| Vcid::try_from(*v).ok())
                     .collect::<Vec<Vcid>>();
                 let cfg = get_config(config)?;
-
+                let (detect, correct) = if *rs_passthrough {
+                    (false, false)
+                } else {
+                    (true, !*rs_no_correct)
+                };
                 frame::decode(
                     &cfg,
                     input,
                     include,
                     exclude,
-                    *rs_detect,
-                    *rs_correct,
+                    detect,
+                    correct,
                     output.as_ref(),
                     summary_path.as_ref(),
                 )
@@ -387,7 +391,10 @@ fn main() -> Result<()> {
             ),
             FrameCommands::Info { config, input } => {
                 let cfg = get_config(config)?;
-                crate::frame::info(input, &cfg)
+                for fpath in input {
+                    crate::frame::info(fpath, &cfg)?;
+                }
+                Ok(())
             }
         },
         Commands::Packets(args) => match &args.command {
@@ -435,16 +442,18 @@ fn main() -> Result<()> {
                 format,
                 config,
             } => {
-                let timecodes = match config {
-                    Some(args) => {
-                        let cfg = get_config(args)?;
-                        let decoder = PacketApidTimeDecoder::default().with_spacecraft(&cfg)?;
-                        Some(decoder)
-                    }
-                    None => None,
-                };
-
-                crate::packet::info(input, format, timecodes)
+                for fpath in input {
+                    let timecodes = match config {
+                        Some(args) => {
+                            let cfg = get_config(args)?;
+                            let decoder = PacketApidTimeDecoder::default().with_spacecraft(&cfg)?;
+                            Some(decoder)
+                        }
+                        None => None,
+                    };
+                    crate::packet::info(fpath, format, timecodes)?;
+                }
+                Ok(())
             }
             PacketCommands::Filter {
                 include,

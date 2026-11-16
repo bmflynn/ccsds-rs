@@ -16,12 +16,12 @@ pub enum Integrity {
     Ok,
     /// Data had errors was successfully corrected.
     Corrected,
-    /// Data had errors and no correction was performed.
-    Errors,
     /// Not correctable due to alg failure or too many errors
     Uncorrectable,
     /// Errors are present, but no correction was attempted.
     NotCorrected,
+    /// No correction or detection was performed
+    NotPerformed,
     /// Algorithm failed to run due to precondition, e.g., bad frame size
     Failed,
 }
@@ -33,6 +33,7 @@ impl Display for Integrity {
             Integrity::Corrected => write!(f, "corrected"),
             Integrity::Uncorrectable => write!(f, "uncorrectable"),
             Integrity::NotCorrected => write!(f, "notcorrected"),
+            Integrity::NotPerformed => write!(f, "notperformed"),
             Integrity::Failed => write!(f, "failed"),
         }
     }
@@ -159,16 +160,11 @@ impl DefaultReedSolomon {
 impl ReedSolomon for DefaultReedSolomon {
     /// Performs the algorithm.
     ///
-    /// Check symbols are removed if the integrity is [Integrity::Ok] or [Integrity::Corrected].
-    /// They are not removed for [Integrity::NotCorrected], [Integrity::Failed],
-    /// or [Integrity::Uncorrectable].
-    ///
     /// If correction is disabled by passing `false` to [Self::with_correction] then the algorithm
     /// detects errors but does not perform the correction. If errors are detected the integrity
     /// will be [Integrity::NotCorrected]. This can save a significant amount of CPU.
     ///
-    /// In the case detection is disabled by passing `false` to [Self::with_detection] then neither
-    /// the detection or correction are performed, however, check symbols are still removed.
+    /// Check symbols are always removed before returning, if configured.
     fn perform(&self, cadu_dat: &[u8]) -> Result<(Integrity, Vec<u8>)> {
         if !DefaultReedSolomon::can_correct(cadu_dat, self.interleave, self.virtual_fill) {
             return Err(Error::IntegrityAlgorithm(format!(
@@ -178,9 +174,15 @@ impl ReedSolomon for DefaultReedSolomon {
             )));
         }
 
-        let block: Vec<u8> = cadu_dat.to_vec();
-        let mut corrected = vec![0u8; block.len() + self.virtual_fill];
-        let mut num_corrected = 0;
+        // Basically, just removing parity
+        if !self.correct && !self.detect {
+            let cadu_dat = if self.remove_parity {
+                self.remove_parity(cadu_dat)
+            } else {
+                cadu_dat
+            };
+            return Ok((Integrity::NotCorrected, cadu_dat.to_vec()));
+        }
 
         // If using virtual fill, it gets added to the start of our CADU data
         let cadu_dat = if self.virtual_fill == 0 {
@@ -190,17 +192,38 @@ impl ReedSolomon for DefaultReedSolomon {
             &[zeros, cadu_dat].concat()
         };
 
+        // `cadu_dat` already includes any virtual fill here
+        let mut corrected = vec![0u8; cadu_dat.len()];
+        let mut num_corrected = 0;
+
+        // Handle each individual RS message (there will be I of them)
         let messages = deinterleave(cadu_dat, self.interleave);
         for (idx, msg) in messages.iter().enumerate() {
-            if !self.correct && has_errors(msg) {
-                return Ok((Integrity::NotCorrected, cadu_dat.to_vec()));
+            // If not doing correction, only detection, just bail at the first detected error
+            if !self.correct {
+                if has_errors(msg) {
+                    // We have errors, no need to check other messages
+                    let data = if self.remove_parity {
+                        self.remove_parity(cadu_dat)
+                    } else {
+                        cadu_dat
+                    };
+                    return Ok((Integrity::NotCorrected, data[self.virtual_fill..].to_vec()));
+                }
+                // No errors in this message, so skip correction
+                continue;
             }
+            // Full algorithm, correct & detect
             let zult = correct_message(msg);
             match zult.state {
                 RSState::Uncorrectable(_) => {
                     // Bail if there is any single uncorrectable message in this block
-                    let cadu_data = self.remove_parity(cadu_dat);
-                    return Ok((Integrity::Uncorrectable, cadu_data.to_vec()));
+                    let data = if self.remove_parity {
+                        self.remove_parity(cadu_dat)
+                    } else {
+                        cadu_dat
+                    };
+                    return Ok((Integrity::Uncorrectable, data[self.virtual_fill..].to_vec()));
                 }
                 RSState::Corrected(num) => {
                     num_corrected += num;
@@ -211,6 +234,11 @@ impl ReedSolomon for DefaultReedSolomon {
             for j in 0..message.len() {
                 corrected[idx + j * self.interleave as usize] = message[j];
             }
+        }
+
+        // Detect-only and no errors found, nothing was corrected so use the input as is
+        if !self.correct {
+            corrected = cadu_dat.to_vec();
         }
 
         let zult = if self.remove_parity {
@@ -296,6 +324,243 @@ mod tests {
             "expected data to be corrected with introduced error, it was not"
         );
         assert_eq!(block.len(), expected_block_len);
+    }
+
+    /// Build a valid interleaved code block by repeating the fixture message.
+    fn fixture_cadu(interleave: u8) -> Vec<u8> {
+        let i = interleave as usize;
+        let mut cadu = vec![0u8; FIXTURE_MSG.len() * i];
+        for (j, b) in FIXTURE_MSG.iter().enumerate() {
+            for k in 0..i {
+                cadu[i * j + k] = *b;
+            }
+        }
+        cadu
+    }
+
+    /// Expected output length when all parity is removed.
+    fn data_len(interleave: u8) -> usize {
+        (255 - PARITY_LEN) * interleave as usize
+    }
+
+    /// Expected output data. Interleaved fixture message without parity.
+    fn expected_data(interleave: u8) -> Vec<u8> {
+        let mut cadu = fixture_cadu(interleave);
+        cadu.truncate(data_len(interleave));
+        cadu
+    }
+
+    #[test]
+    fn test_integrity_ok_removes_parity() {
+        for interleave in [1u8, 4, 5] {
+            let cadu = fixture_cadu(interleave);
+            let rs = DefaultReedSolomon::new(interleave);
+            let (status, data) = rs.perform(&cadu).unwrap();
+            assert_eq!(status, Integrity::Ok, "interleave={interleave}");
+            assert_eq!(data.len(), data_len(interleave), "interleave={interleave}");
+            assert_eq!(data, expected_data(interleave), "interleave={interleave}");
+        }
+    }
+
+    #[test]
+    fn test_integrity_corrected_removes_parity_and_fixes_data() {
+        for interleave in [1u8, 4, 5] {
+            let mut cadu = fixture_cadu(interleave);
+            cadu[10] ^= 0xff; // data byte error
+            let last = cadu.len() - 1;
+            cadu[last] ^= 0x01; // parity byte error
+            let rs = DefaultReedSolomon::new(interleave);
+            let (status, data) = rs.perform(&cadu).unwrap();
+            assert_eq!(status, Integrity::Corrected, "interleave={interleave}");
+            assert_eq!(data.len(), data_len(interleave), "interleave={interleave}");
+            assert_eq!(data, expected_data(interleave), "interleave={interleave}");
+        }
+    }
+
+    #[test]
+    fn test_integrity_corrected_at_max_correctable_errors() {
+        // 16 symbol errors in a single codeword is the most RS(255,223) can correct
+        let interleave = 4u8;
+        let mut cadu = fixture_cadu(interleave);
+        for j in 0..16 {
+            cadu[j * interleave as usize] ^= 0xa5;
+        }
+        let rs = DefaultReedSolomon::new(interleave);
+        let (status, data) = rs.perform(&cadu).unwrap();
+        assert_eq!(status, Integrity::Corrected);
+        assert_eq!(data, expected_data(interleave));
+    }
+
+    #[test]
+    fn test_integrity_uncorrectable_removes_parity() {
+        let interleave = 4u8;
+        let mut cadu = fixture_cadu(interleave);
+        // 20 symbol errors in codeword 0, more than the 16 that can be corrected
+        for j in 0..20 {
+            cadu[j * interleave as usize] ^= 0xa5;
+        }
+        let rs = DefaultReedSolomon::new(interleave);
+        let (status, data) = rs.perform(&cadu).unwrap();
+        assert_eq!(status, Integrity::Uncorrectable);
+        assert_eq!(data.len(), data_len(interleave));
+    }
+
+    #[test]
+    fn test_uncorrectable_in_later_codeword() {
+        // A single bad codeword anywhere in the block makes the whole block uncorrectable
+        let interleave = 4u8;
+        let mut cadu = fixture_cadu(interleave);
+        for j in 0..20 {
+            cadu[j * interleave as usize + 3] ^= 0xa5;
+        }
+        let rs = DefaultReedSolomon::new(interleave);
+        let (status, data) = rs.perform(&cadu).unwrap();
+        assert_eq!(status, Integrity::Uncorrectable);
+        assert_eq!(data.len(), data_len(interleave));
+    }
+
+    #[test]
+    fn test_no_correction_ok_removes_parity() {
+        let interleave = 4u8;
+        let cadu = fixture_cadu(interleave);
+        let rs = DefaultReedSolomon::new(interleave).with_correction(false);
+        let (status, data) = rs.perform(&cadu).unwrap();
+        assert_eq!(status, Integrity::Ok);
+        assert_eq!(data, expected_data(interleave));
+    }
+
+    #[test]
+    fn test_no_correction_with_errors_removes_parity() {
+        let interleave = 4u8;
+        let mut cadu = fixture_cadu(interleave);
+        cadu[10] ^= 0xff;
+        let rs = DefaultReedSolomon::new(interleave).with_correction(false);
+        let (status, data) = rs.perform(&cadu).unwrap();
+        assert_eq!(status, Integrity::NotCorrected);
+        assert_eq!(data.len(), data_len(interleave));
+    }
+
+    #[test]
+    fn test_no_correction_detects_error_in_any_codeword() {
+        // Error in the last codeword of the interleave must still be detected
+        let interleave = 4u8;
+        let mut cadu = fixture_cadu(interleave);
+        cadu[3] ^= 0xff;
+        let rs = DefaultReedSolomon::new(interleave).with_correction(false);
+        let (status, data) = rs.perform(&cadu).unwrap();
+        assert_eq!(status, Integrity::NotCorrected);
+        assert_eq!(data.len(), data_len(interleave));
+    }
+
+    #[test]
+    fn test_no_detection_removes_parity() {
+        let interleave = 4u8;
+        let mut cadu = fixture_cadu(interleave);
+        cadu[10] ^= 0xff;
+        let rs = DefaultReedSolomon::new(interleave)
+            .with_correction(false)
+            .with_detection(false);
+        let (status, data) = rs.perform(&cadu).unwrap();
+        assert_eq!(status, Integrity::NotCorrected);
+        assert_eq!(data.len(), data_len(interleave));
+        // Data is passed through unchanged
+        assert_eq!(data, cadu[..data_len(interleave)]);
+    }
+
+    #[test]
+    fn test_parity_kept_when_remove_parity_disabled() {
+        let interleave = 4u8;
+        let cadu = fixture_cadu(interleave);
+        let rs = DefaultReedSolomon::new(interleave).with_remove_parity(false);
+        let (status, data) = rs.perform(&cadu).unwrap();
+        assert_eq!(status, Integrity::Ok);
+        assert_eq!(data, cadu);
+    }
+
+    #[test]
+    fn test_virtual_fill_removes_fill_and_parity() {
+        // An all-zero block is a valid codeword, so it works with any amount of virtual fill.
+        let interleave = 4u8;
+        let fill = 100usize;
+        let cadu = vec![0u8; 255 * interleave as usize - fill];
+        let rs = DefaultReedSolomon::new(interleave).with_virtual_fill(fill);
+        let (status, data) = rs.perform(&cadu).unwrap();
+        assert_eq!(status, Integrity::Ok);
+        assert_eq!(data.len(), data_len(interleave) - fill);
+    }
+
+    #[test]
+    fn test_virtual_fill_corrected_removes_fill_and_parity() {
+        let interleave = 4u8;
+        let fill = 100usize;
+        let mut cadu = vec![0u8; 255 * interleave as usize - fill];
+        cadu[10] = 0x42;
+        let rs = DefaultReedSolomon::new(interleave).with_virtual_fill(fill);
+        let (status, data) = rs.perform(&cadu).unwrap();
+        assert_eq!(status, Integrity::Corrected);
+        assert_eq!(data.len(), data_len(interleave) - fill);
+        assert!(data.iter().all(|b| *b == 0), "error was not corrected");
+    }
+
+    #[test]
+    fn test_virtual_fill_uncorrectable_removes_fill_and_parity() {
+        let interleave = 4u8;
+        let fill = 100usize;
+        let mut cadu = vec![0u8; 255 * interleave as usize - fill];
+        for j in 0..20 {
+            cadu[j * interleave as usize] = 0xa5;
+        }
+        let rs = DefaultReedSolomon::new(interleave).with_virtual_fill(fill);
+        let (status, data) = rs.perform(&cadu).unwrap();
+        assert_eq!(status, Integrity::Uncorrectable);
+        assert_eq!(data.len(), data_len(interleave) - fill);
+    }
+
+    #[test]
+    fn test_virtual_fill_no_correction_removes_fill_and_parity() {
+        let interleave = 4u8;
+        let fill = 100usize;
+        let expected_len = data_len(interleave) - fill;
+        let rs = DefaultReedSolomon::new(interleave)
+            .with_virtual_fill(fill)
+            .with_correction(false);
+
+        let mut cadu = vec![0u8; 255 * interleave as usize - fill];
+        let (status, data) = rs.perform(&cadu).unwrap();
+        assert_eq!(status, Integrity::Ok);
+        assert_eq!(data.len(), expected_len);
+
+        cadu[10] = 0x42;
+        let (status, data) = rs.perform(&cadu).unwrap();
+        assert_eq!(status, Integrity::NotCorrected);
+        assert_eq!(data.len(), expected_len);
+        assert_eq!(data[10], 0x42, "data must not be modified");
+    }
+
+    #[test]
+    fn test_no_correction_does_not_modify_data() {
+        let interleave = 4u8;
+        let cadu = fixture_cadu(interleave);
+        let rs = DefaultReedSolomon::new(interleave).with_correction(false);
+        let (_, data) = rs.perform(&cadu).unwrap();
+        assert_eq!(data, cadu[..data_len(interleave)]);
+    }
+
+    #[test]
+    fn test_bad_block_length_is_error() {
+        let rs = DefaultReedSolomon::new(4);
+        assert!(rs.perform(&fixture_cadu(4)[1..]).is_err());
+        assert!(rs.perform(&fixture_cadu(5)).is_err());
+    }
+
+    #[test]
+    fn test_integrity_ok() {
+        assert!(Integrity::Ok.ok());
+        assert!(Integrity::Corrected.ok());
+        assert!(!Integrity::NotPerformed.ok());
+        assert!(!Integrity::Uncorrectable.ok());
+        assert!(!Integrity::NotCorrected.ok());
+        assert!(!Integrity::Failed.ok());
     }
 
     #[test]

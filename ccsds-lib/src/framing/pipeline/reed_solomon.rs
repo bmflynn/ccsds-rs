@@ -115,7 +115,7 @@ where
 
     // Frame jobs are submitted in a background thread to the compute thread pool. For each job
     // a new "future" channel is created to receive the result of the RS computation. Results are
-    // send to `jobs_tx` in the order they were submitted, and then recieved on `jobs_rx` in that
+    // sent to `jobs_tx` in the order they were submitted, and then recieved on `jobs_rx` in that
     // same order, thereby preserving the original frame order.
     std::thread::Builder::new()
         .name("reed_solomon::submit".into())
