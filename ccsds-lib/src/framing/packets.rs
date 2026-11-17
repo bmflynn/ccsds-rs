@@ -5,10 +5,8 @@ use std::{
 
 use tracing::{debug, trace};
 
-use crate::framing::{Integrity, Vcid, MPDU};
+use crate::framing::{Frame, Integrity, Vcid, MPDU};
 use crate::spacepacket::{Packet, PrimaryHeader};
-
-use super::Frame;
 
 /// Per-channel framing configuration
 #[derive(Clone, Debug, Default)]
@@ -42,7 +40,7 @@ struct ChannelConfig {
 /// use ccsds::framing::{Frame, PacketDemux};
 /// use ccsds::spacepacket::Packet;
 ///
-/// let frames = vec![Frame::decode(vec![0u8; 1020]).unwrap()];
+/// let frames = vec![Frame::decode(&vec![0u8; 1020]).unwrap()];
 /// let packets: Vec<Packet> = PacketDemux::new(frames.into_iter()).with_defaults(0, false, false, false).collect();
 /// ```
 #[derive(Clone, Debug)]
@@ -143,7 +141,6 @@ where
         'next_frame: loop {
             let frame = self.frames.next();
             let Some(frame) = frame else {
-                trace!("no more frames");
                 break;
             };
 

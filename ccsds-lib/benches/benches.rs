@@ -173,18 +173,6 @@ fn bench_rs_correct_codeblock(c: &mut Criterion) {
             );
         });
     });
-    #[cfg(feature = "libcorrect")]
-    group.bench_function("correct_codeblock_libcorrect", |b| {
-        b.iter(|| {
-            let rs = ccsds::framing::LibcorrectReedSolomon::new(4);
-            let (i, _) = rs.perform(block).unwrap();
-            assert_eq!(
-                i,
-                Integrity::Corrected,
-                "expected to have corrected block; got {i:?}"
-            );
-        });
-    });
     group.finish();
 }
 
@@ -196,11 +184,6 @@ fn rs_backends(correct: bool) -> Vec<(&'static str, Box<dyn ReedSolomon>)> {
         "rs2",
         Box::new(DefaultReedSolomon::new(4).with_correction(correct)),
     )];
-    #[cfg(feature = "libcorrect")]
-    v.push((
-        "libcorrect",
-        Box::new(ccsds::framing::LibcorrectReedSolomon::new(4).with_correction(correct)),
-    ));
     v
 }
 
@@ -284,8 +267,6 @@ fn bench_rs_pipeline(c: &mut Criterion) {
 
     #[allow(unused_mut)]
     let mut backends = vec![("rs2", RsBackend::Rs2)];
-    #[cfg(feature = "libcorrect")]
-    backends.push(("libcorrect", RsBackend::Libcorrect));
 
     let mut group = c.benchmark_group("rs_pipeline");
     group.throughput(Throughput::Bytes(len));

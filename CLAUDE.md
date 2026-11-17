@@ -4,11 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Workspace layout
 
-Cargo workspace with three crates. `default-members` is `ccsds-cmd` and `ccsds-lib`, so plain `cargo build` and `cargo test` skip `ccsds-py`.
+Cargo workspace with three crates. `default-members` is `ccsds-cmd` and `ccsds-lib`, so plain `cargo build` and `cargo test`.
 
 - `ccsds-lib` (package and lib name `ccsds`): decoding library. Framing, spacepackets, timecodes.
 - `ccsds-cmd` (binary `ccsds`): clap CLI built on the library. Subcommands `frames` and `packets`.
-- `ccsds-py`: pyo3 Python bindings, built with maturin.
 
 Spacecraft metadata (frame lengths, VCIDs, APID and timecode config) comes from the external `spacecrafts` crate, a git dependency on `bmflynn/spacecrafts-rs` with no pinned rev in `Cargo.toml`. `Cargo.lock` holds the real pin. The CLI loads spacecraft config by path, or by name from `~/.config/ccsds/spacecrafts/`.
 
@@ -22,14 +21,6 @@ cargo test -p ccsds --test framing   # one integration test file
 cargo bench -p ccsds                 # criterion benches (ccsds-lib/benches)
 cargo clippy --all-targets
 ./scripts/make_dist.sh               # static musl release tarball of the CLI
-```
-
-Python bindings (not covered by the default workspace commands):
-
-```sh
-cd ccsds-py
-maturin develop        # build and install into the active venv
-pytest tests/test.py
 ```
 
 ## Git LFS
@@ -58,12 +49,11 @@ CUC `fine_nanos` of 0 means 1 ns per fine count. The rule lives in `decode_cuc` 
 
 `main.rs` defines the clap tree and shared `ConfigArgs` (spacecraft config selection). `frame/` and `packet/` hold one file per subcommand. Packet handling for each VCID uses the per-channel framing config from the spacecraft definition (`packet/demux.rs`).
 
-### `ccsds-py`
-
-Thin wrappers. `ccsds-py/Cargo.toml` takes `spacecrafts` from crates.io (`^0.1.0-beta.3`), not the workspace git dependency used by the other crates. The versions can differ, so check this if the Python build fails on spacecraft config types. `ccsds-lib` types gain `#[pyclass]` only under the `python` cargo feature (`cfg_attr(feature = "python", ...)`), so core types carry pyo3 attributes inline. `ccsds-py/ccsds.pyi` is the hand-written type stub. Update it when the Python API changes.
 
 ## Conventions
 
 - Public library API returns iterators. Keep new pipeline stages lazy and composable.
 - Library errors use `thiserror` (`ccsds::Error`, `ccsds::Result`). The CLI uses `anyhow`.
 - The README warns that the API is unstable. Breaking changes are acceptable.
+- The changelog should contain brief high-level summaries of significant changes leaving 
+  out fine-grained details.

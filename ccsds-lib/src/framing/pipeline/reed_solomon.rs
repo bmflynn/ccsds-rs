@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crossbeam::channel::Sender;
 use tracing::debug;
 
-use crate::framing::{DefaultReedSolomon, Frame, Integrity, ReedSolomon, VCDUHeader};
+use crate::framing::{DefaultReedSolomon, Integrity, ReedSolomon, RsFrame};
 
 /// Reed-Solomon implementation used by [reed_solomon].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -11,11 +11,6 @@ pub enum RsBackend {
     /// Pure Rust implementation, see [DefaultReedSolomon].
     #[default]
     Rs2,
-    /// C implementation from quiet/libcorrect, see
-    /// [LibcorrectReedSolomon](crate::framing::LibcorrectReedSolomon). Requires the `libcorrect`
-    /// cargo feature.
-    #[cfg(feature = "libcorrect")]
-    Libcorrect,
 }
 
 /// Configuration options for the ReedSolomon supported by [super::Pipeline].
@@ -81,9 +76,10 @@ impl RsOpts {
     }
 }
 
-fn do_reed_solomon<I>(frames: I, opts: RsOpts, result_tx: Sender<Frame>)
+fn do_reed_solomon<F, I>(frames: I, opts: RsOpts, result_tx: Sender<F>)
 where
-    I: Iterator<Item = Frame> + Send + 'static,
+    F: RsFrame,
+    I: Iterator<Item = F> + Send + 'static,
 {
     // Thread pool to host the  RS computation tasks. 1 job per frame, which results in
     // `interleave` computations per frame as a single job.
@@ -104,13 +100,6 @@ where
                 .with_correction(opts.correct)
                 .with_virtual_fill(opts.virtual_fill),
         ),
-        #[cfg(feature = "libcorrect")]
-        RsBackend::Libcorrect => Arc::new(
-            crate::framing::LibcorrectReedSolomon::new(opts.interleave)
-                .with_detection(opts.detect)
-                .with_correction(opts.correct)
-                .with_virtual_fill(opts.virtual_fill),
-        ),
     };
 
     // Frame jobs are submitted in a background thread to the compute thread pool. For each job
@@ -124,18 +113,16 @@ where
                 let rs = rs.clone();
                 let (job_tx, job_rx) = crossbeam::channel::bounded(1);
                 pool.spawn(move || {
-                    if frame.header.vcid != VCDUHeader::FILL {
-                        let (integrity, data) = match rs.perform(&frame.data) {
-                            Ok(v) => v,
-                            Err(err) => panic!("rs failed: {err:?}"),
-                        };
-                        frame.integrity = Some(integrity);
+                    let (integrity, data) = match rs.perform(frame.data()) {
+                        Ok(v) => v,
+                        Err(err) => panic!("rs failed: {err:?}"),
+                    };
 
-                        // data does not include the check symbols
-                        if let Some(Integrity::Ok | Integrity::Corrected) = frame.integrity {
-                            frame.data = data
-                        }
+                    // data does not include the check symbols
+                    if matches!(integrity, Integrity::Ok | Integrity::Corrected) {
+                        frame.set_data(data);
                     }
+                    frame.set_integrity(integrity);
 
                     job_tx.send(frame).expect("failed to send frame");
                 });
@@ -163,6 +150,9 @@ where
 
 /// Perform ReedSolomon error correction using [DefaultReedSolomon].
 ///
+/// Works with any [RsFrame], i.e., both [Frame](crate::framing::Frame) and
+/// [OpaqueFrame](crate::framing::OpaqueFrame).
+///
 /// RS is the most computationally expensive operation in the decoding process. A pool of
 /// background threads is used to perform the algorithm in parallel. Each individual frame of data
 /// is a job in the background pool. The number of threads used for the RS computation can be set
@@ -177,16 +167,17 @@ where
 /// ```
 /// use ccsds::framing::{Frame, reed_solomon, Integrity, RsOpts};
 ///
-/// let frames_in = vec![Frame::decode(vec![1u8; 1020]).unwrap()];
+/// let frames_in = vec![Frame::decode(&[1u8; 1020]).unwrap()];
 /// let frames_out: Vec<Frame> = reed_solomon(frames_in.into_iter(), RsOpts::new(4)).collect();
 ///
 /// assert_eq!(frames_out.len(), 1);
 /// assert!(matches!(frames_out[0].integrity, Some(Integrity::Ok)), "got {:?}",
 /// frames_out[0].integrity);
 /// ```
-pub fn reed_solomon<I>(frames: I, opts: RsOpts) -> impl Iterator<Item = Frame>
+pub fn reed_solomon<F, I>(frames: I, opts: RsOpts) -> impl Iterator<Item = F>
 where
-    I: Iterator<Item = Frame> + Send + 'static,
+    F: RsFrame,
+    I: Iterator<Item = F> + Send + 'static,
 {
     let (output_tx, output_rx) = crossbeam::channel::bounded(opts.buffer_size);
 
@@ -199,4 +190,51 @@ where
         .unwrap();
 
     output_rx.into_iter()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::framing::{Frame, OpaqueFrame};
+
+    #[test]
+    fn test_opaque_frame_matches_frame() {
+        // Valid all-ones RS block, plus one with a corrupted byte that is correctable
+        let mut good = vec![1u8; 1020];
+        let mut bad = good.clone();
+        bad[10] ^= 0xff;
+        good.truncate(1020);
+
+        let inputs = [good, bad];
+
+        let frames: Vec<Frame> = reed_solomon(
+            inputs
+                .iter()
+                .map(|d| Frame::decode(d).unwrap())
+                .collect::<Vec<_>>()
+                .into_iter(),
+            RsOpts::new(4),
+        )
+        .collect();
+
+        let opaque: Vec<OpaqueFrame> = reed_solomon(
+            inputs
+                .iter()
+                .map(|d| OpaqueFrame {
+                    data: d.clone(),
+                    integrity: None,
+                })
+                .collect::<Vec<_>>()
+                .into_iter(),
+            RsOpts::new(4),
+        )
+        .collect();
+
+        assert_eq!(frames.len(), opaque.len());
+        for (f, o) in frames.iter().zip(opaque.iter()) {
+            assert!(o.integrity.is_some());
+            assert_eq!(f.integrity, o.integrity);
+            assert_eq!(f.data, o.data);
+        }
+    }
 }

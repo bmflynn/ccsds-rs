@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::framing::{missing_frames, Cadu, Frame, VCDUHeader};
+use crate::framing::{missing_frames, Cadu, Frame, OpaqueFrame, VCDUHeader};
 
 struct CaduDecoderIter<I>
 where
@@ -17,9 +17,12 @@ where
     type Item = Frame;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let cadu = self.cadus.next()?;
-        match VCDUHeader::decode(&cadu.data) {
-            Some(header) => {
+        let Some(cadu) = self.cadus.next() else {
+            return None;
+        };
+        match Frame::decode(&cadu.data) {
+            Some(mut frame) => {
+                let header = &frame.header;
                 let mut missing = 0;
                 let mut duplicate = false;
                 if header.vcid != VCDUHeader::FILL {
@@ -28,18 +31,24 @@ where
                         missing = missing_frames(header.counter, *last, header.counter_max());
                     }
                 }
+                frame.missing = missing;
+                frame.duplicate = duplicate;
                 self.vcid_counters.insert(header.vcid, header.counter);
-                Some(Frame {
-                    header,
-                    missing,
-                    duplicate,
-                    integrity: None,
-                    data: cadu.data,
-                })
+                Some(frame)
             }
             None => None,
         }
     }
+}
+
+pub fn opaque_frame_decoder<I>(cadus: I) -> impl Iterator<Item = OpaqueFrame> + Send + 'static
+where
+    I: Iterator<Item = Cadu> + Send + 'static,
+{
+    return cadus.map(|c| OpaqueFrame {
+        data: c.data,
+        integrity: None,
+    });
 }
 
 /// Decode input [Cadu] data into [Frame] data.

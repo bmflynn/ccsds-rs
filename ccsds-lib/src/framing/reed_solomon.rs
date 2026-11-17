@@ -1,16 +1,12 @@
 use rs2::{correct_message, has_errors, RSState, N, PARITY_LEN};
 use std::fmt::Display;
 
-#[cfg(feature = "python")]
-use pyo3::prelude::*;
-
 use serde::{Deserialize, Serialize};
 
 use crate::{Error, Result};
 
 /// The possible integrity dispositions
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(feature = "python", pyclass(eq, eq_int, from_py_object))]
 pub enum Integrity {
     /// Data did not require correction.
     Ok,

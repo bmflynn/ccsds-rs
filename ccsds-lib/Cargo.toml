@@ -4,53 +4,35 @@ description = "CCSDS spacecraft data stream decoding"
 edition.workspace = true
 version.workspace = true
 authors.workspace = true
-keywords.workspace = true 
+keywords.workspace = true
 categories.workspace = true
 license.workspace = true
 repository.workspace = true
 
 [dependencies]
-hifitime = { workspace = true}
-pyo3 = { workspace = true, optional = true }
-crc.workspace = true
+hifitime = { workspace = true }
 crossbeam = { version = "^0.8.4", features = ["crossbeam-channel"] }
-ndarray = "0.16.1"
 rayon = "^1.7.0"
 rs2 = { version = "0.2.0", git = "https://github.com/bmflynn/rs2.git" }
-libcorrect-sys = { path = "../libcorrect-sys", optional = true }
-serde = { workspace = true, features = ["derive"]}
-serde_json = { workspace = true}
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 spacecrafts.workspace = true
 thiserror = "^2.0.0"
-threadpool = "^1.8.1"
 tracing.workspace = true
-typed-builder = "0.20.0"
-derive_more = { version = "2.0.1", features = ["from"] }
-serde_bytes = { workspace = true}
+serde_bytes = { workspace = true }
 
 [lib]
 name = "ccsds"
 path = "src/lib.rs"
 
-[features]
-python = ["dep:pyo3"]
-# Adds LibcorrectReedSolomon, a Reed-Solomon backend using vendored C code from quiet/libcorrect.
-# Requires a C compiler.
-libcorrect = ["dep:libcorrect-sys"]
-
 [dev-dependencies]
 hex = "0.4.3"
 md-5 = "0.10.6"
 rand = "0.8.5"
-tempfile = "3.9.0"
 criterion = { version = "0.5.1", features = ["html_reports"] }
 test-case = "3.3.1"
-
-[build-dependencies]
-spacecrafts.workspace = true
-serde_json.workspace = true
+tempfile = "3.27.0"
 
 [[bench]]
 name = "benches"
 harness = false
-

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["ccsds-cmd", "ccsds-lib", "ccsds-py", "libcorrect-sys"]
+members = ["ccsds-cmd", "ccsds-lib"]
 default-members = ["ccsds-cmd", "ccsds-lib"]
 
 [workspace.package]
@@ -20,6 +20,4 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 spacecrafts = { version = "0.2.0-beta.1", "git" = "https://github.com/bmflynn/spacecrafts-rs.git" }
 hifitime = "4.0.0"
-pyo3 = "0.29.2"
 crc = "3.2.1"
-

@@ -33,20 +33,14 @@ mod packets;
 mod pipeline;
 mod pn;
 mod reed_solomon;
-#[cfg(feature = "libcorrect")]
-mod reed_solomon_libcorrect;
 mod synchronizer;
 
-#[cfg(feature = "python")]
-use pyo3::{exceptions::PyValueError, prelude::*};
 use serde::{Deserialize, Serialize};
 
 pub use packets::PacketDemux;
 pub use pipeline::*;
 pub use pn::{DefaultDerandomizer, Derandomizer};
 pub use reed_solomon::{DefaultReedSolomon, Integrity, ReedSolomon};
-#[cfg(feature = "libcorrect")]
-pub use reed_solomon_libcorrect::LibcorrectReedSolomon;
 pub use synchronizer::{Block, ASM};
 
 pub type Scid = u16;
@@ -60,6 +54,48 @@ pub const FEC_LEN: usize = 2;
 /// Length of the frame header error control field
 pub const FHEC_LEN: usize = 2;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpaqueFrame {
+    data: Vec<u8>,
+    integrity: Option<Integrity>,
+}
+
+/// A frame type that can be processed by [reed_solomon].
+///
+/// Implemented for [Frame] and [OpaqueFrame].
+pub trait RsFrame: Send + 'static {
+    /// Frame bytes, including any RS check symbols.
+    fn data(&self) -> &[u8];
+    /// Replace the frame bytes, e.g., with the check symbols removed.
+    fn set_data(&mut self, data: Vec<u8>);
+    /// Set the integrity disposition.
+    fn set_integrity(&mut self, integrity: Integrity);
+}
+
+impl RsFrame for OpaqueFrame {
+    fn data(&self) -> &[u8] {
+        &self.data
+    }
+    fn set_data(&mut self, data: Vec<u8>) {
+        self.data = data;
+    }
+    fn set_integrity(&mut self, integrity: Integrity) {
+        self.integrity = Some(integrity);
+    }
+}
+
+impl RsFrame for Frame {
+    fn data(&self) -> &[u8] {
+        &self.data
+    }
+    fn set_data(&mut self, data: Vec<u8>) {
+        self.data = data;
+    }
+    fn set_integrity(&mut self, integrity: Integrity) {
+        self.integrity = Some(integrity);
+    }
+}
+
 /// Loose representation of a single frame of data extracted from a Cadu.
 ///
 /// This can generally be though of as containing frame data from a version 1 or version
@@ -67,9 +103,8 @@ pub const FHEC_LEN: usize = 2;
 ///
 /// TM Transfer Frames (CCSDS 132.0-B-3) are not supported.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "python", pyclass(frozen, get_all, from_py_object))]
 pub struct Frame {
-    /// This frames header data
+    /// This frames header data, for Aos or Tm frames.
     pub header: VCDUHeader,
     /// Count of missing frame counts between this frame and the last received for this VCID.
     pub missing: u32,
@@ -85,27 +120,18 @@ pub struct Frame {
     pub data: Vec<u8>,
 }
 
-#[cfg(feature = "python")]
-#[cfg_attr(feature = "python", pymethods)]
-impl Frame {
-    #[cfg(feature = "python")]
-    fn __repr__(&self) -> String {
-        format!("{self:?}")
-    }
-}
-
 impl Frame {
     /// Decode `dat` representing an AOS Transfer Frame into a `Frame`, or `None` if
     /// not enough bytes.
     #[must_use]
-    pub fn decode(dat: Vec<u8>) -> Option<Self> {
+    pub fn decode(dat: &[u8]) -> Option<Self> {
         let header = VCDUHeader::decode(&dat)?;
         Some(Frame {
             header,
             missing: 0,
             duplicate: false,
             integrity: None,
-            data: dat,
+            data: dat.to_vec(),
         })
     }
 
@@ -132,7 +158,6 @@ impl Frame {
 
 /// Contents of a valid VCDU header
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(feature = "python", pyclass(frozen, get_all, from_py_object))]
 pub struct VCDUHeader {
     pub version: u8,
     pub scid: Scid,
@@ -141,30 +166,40 @@ pub struct VCDUHeader {
 }
 
 impl VCDUHeader {
-    /// Construct from the provided bytes, or `None` if there are not enough bytes
-    /// or the version is not supported.
+    /// Construct from the provided bytes, or `None` if there are not enough bytes to decode
+    /// the CCSDS header.
     ///
     /// This supports header version number 0, TM (CCSDS 132.0-B-3), and version number 1, AOS
     /// (CCSDS 732.0-B-4). The [VCDUHeader::counter] is the virtual channel frame count, which is 8
     /// bits for TM and 24 bits for AOS. The TM master channel frame count is not kept. See
     /// [VCDUHeader::counter_max].
     ///
-    /// If the version is unknown or unsupported, `None` is returned.
-    ///
-    /// The returned header length will not include [FHEC_LEN] if used.
+    /// If the version is unknown or unsupported attempt to decode as v2 as it's much more common.
     #[must_use]
     pub fn decode(dat: &[u8]) -> Option<Self> {
         if dat.len() < Self::LEN {
             return None;
         }
-
-        let ver = (dat[0] >> 6) & 0x3;
-        match ver {
-            0 => Self::decode_v1(dat),
-            1 => Self::decode_v2(dat),
-            // Unknown or unsupported version
-            _ => None,
+        let ver = (dat[0] >> 6) & 0b11;
+        if ver == 0 {
+            return Self::decode_v1(dat);
         }
+        return Self::decode_v2(dat);
+    }
+
+    /// Return true if the frame is an unknown format.
+    pub fn is_opaque(&self) -> bool {
+        !self.is_aos() && !self.is_tm()
+    }
+
+    /// Return true if frame is an AOS transfer frame
+    pub fn is_aos(&self) -> bool {
+        self.version == 1
+    }
+
+    /// Return true if frame is a TM frame
+    pub fn is_tm(&self) -> bool {
+        self.version == 0
     }
 
     /// TM Transfer Frame header CCSDS 132.0, header version number 0.
@@ -172,7 +207,7 @@ impl VCDUHeader {
     /// Byte 2 is the master channel frame count (shared by all VCIDs) and byte 3 is the virtual
     /// channel frame count. Only the virtual channel count is used, because it is the one that
     /// increments by 1 for each frame of a single VCID.
-    fn decode_v1(dat: &[u8]) -> Option<Self> {
+    pub fn decode_v1(dat: &[u8]) -> Option<Self> {
         let x = u16::from_be_bytes([dat[0], dat[1]]);
         Some(VCDUHeader {
             version: 0,
@@ -183,10 +218,10 @@ impl VCDUHeader {
     }
 
     /// AOS Transfer Frame header CCSDS 732.0, header version number 1.
-    fn decode_v2(dat: &[u8]) -> Option<Self> {
+    pub fn decode_v2(dat: &[u8]) -> Option<Self> {
         let x = u16::from_be_bytes([dat[0], dat[1]]);
         Some(VCDUHeader {
-            version: 1,
+            version: dat[0] >> 6 & 0b11,
             scid: ((x >> 6) & 0xff),
             vcid: (x & 0x3f),
             counter: u32::from_be_bytes([0, dat[2], dat[3], dat[4]]),
@@ -194,25 +229,6 @@ impl VCDUHeader {
     }
 }
 
-#[cfg(feature = "python")]
-#[cfg_attr(feature = "python", pymethods)]
-impl VCDUHeader {
-    #[new]
-    pub fn py_new(dat: &[u8]) -> PyResult<Self> {
-        match Self::decode(dat) {
-            Some(hdr) => Ok(hdr),
-            None => {
-                if dat.len() < Self::LEN {
-                    Err(PyValueError::new_err("not enough bytes or w"))
-                } else {
-                    Err(PyValueError::new_err("invalid frame version"))
-                }
-            }
-        }
-    }
-}
-
-#[cfg_attr(feature = "python", pymethods)]
 impl VCDUHeader {
     /// VCDU header length in bytes
     pub const LEN: usize = 6;
@@ -237,7 +253,6 @@ impl VCDUHeader {
 
 /// MPDU contained within a [Frame].
 #[derive(Clone)]
-#[cfg_attr(feature = "python", pyclass(get_all, from_py_object))]
 pub struct MPDU {
     // the offset of the header minus 1
     first_header: u16,
@@ -271,7 +286,6 @@ impl MPDU {
     }
 }
 
-#[cfg_attr(feature = "python", pymethods)]
 impl MPDU {
     /// MPDU first-header pointer value indicating fill data
     pub const FILL: u16 = 0x7fe;
@@ -281,15 +295,6 @@ impl MPDU {
 
     pub fn is_fill(&self) -> bool {
         self.first_header == Self::FILL
-    }
-
-    #[cfg(feature = "python")]
-    #[new]
-    pub fn new(dat: &[u8]) -> PyResult<MPDU> {
-        if let Some(m) = Self::decode(dat) {
-            return Ok(m);
-        }
-        Err(PyValueError::new_err("not enough bytes"))
     }
 
     #[must_use]
@@ -361,15 +366,17 @@ mod test {
     }
 
     #[test]
-    fn decode_vcduheader_unsupported_version_is_none() {
-        let dat: Vec<u8> = vec![0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
+    fn decode_vcduheader_unknown_version_decodes_as_v2() {
+        let dat: Vec<u8> = vec![0b11000000, 0, 0, 0, 0, 0];
 
         let hdr = VCDUHeader::decode(&dat);
-        assert!(hdr.is_none(), "expected none, got {:?}", hdr);
+        assert!(hdr.is_some(), "expected some, got {:?}", hdr);
+        let hdr = hdr.unwrap();
+        assert_eq!(hdr.version, 3);
     }
 
     #[test]
-    fn decode_vcduheader_is_err_when_data_too_short() {
+    fn decode_vcduheader_is_none_when_data_too_short() {
         let zult = VCDUHeader::decode(&[0u8; 0]);
         assert!(zult.is_none());
     }
@@ -434,7 +441,7 @@ mod test {
 
     #[test]
     fn frame_decode_is_not_duplicate() {
-        let frame = Frame::decode(vec![0x55, 0x61, 0x01, 0xe2, 0x40, 0x05]).unwrap();
+        let frame = Frame::decode(&vec![0x55, 0x61, 0x01, 0xe2, 0x40, 0x05]).unwrap();
         assert!(!frame.duplicate);
         assert_eq!(frame.missing, 0);
     }

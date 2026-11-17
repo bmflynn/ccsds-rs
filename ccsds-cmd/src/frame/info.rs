@@ -30,7 +30,7 @@ where
     let frames = chunks
         .into_iter()
         .map_while(Result::ok)
-        .filter_map(Frame::decode);
+        .filter_map(|buf| Frame::decode(&buf));
 
     let mut summary = Summary::default();
     for frame in frames {

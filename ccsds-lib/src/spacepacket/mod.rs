@@ -3,9 +3,6 @@ mod merge;
 mod summary;
 pub mod timecode;
 
-#[cfg(feature = "python")]
-use pyo3::{exceptions::PyValueError, prelude::*};
-
 use std::fmt::Display;
 use std::io::Read;
 
@@ -41,7 +38,6 @@ pub type Apid = u16;
 /// # Ok::<(), ccsds::Error>(())
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "python", pyclass(frozen, get_all, from_py_object))]
 pub struct Packet {
     /// All packets have a primary header
     pub header: PrimaryHeader,
@@ -70,21 +66,8 @@ impl Display for Packet {
     }
 }
 
-#[cfg_attr(feature = "python", pymethods)]
 impl Packet {
     const MAX_LEN: usize = 65536;
-
-    #[cfg(feature = "python")]
-    #[new]
-    fn py_new(buf: &[u8]) -> PyResult<Self> {
-        //let buf = buf.as_bytes(py);
-        Ok(Packet::decode(buf)?)
-    }
-
-    #[cfg(feature = "python")]
-    fn __repr__(&self) -> String {
-        format!("{self}")
-    }
 
     #[must_use]
     pub fn is_first(&self) -> bool {
@@ -172,7 +155,6 @@ impl Packet {
 /// The primary header format is common to all CCSDS space packets.
 ///
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "python", pyclass(frozen, from_py_object))]
 pub struct PrimaryHeader {
     pub version: u8,
     pub type_flag: u8,
@@ -182,25 +164,6 @@ pub struct PrimaryHeader {
     pub sequence_flags: u8,
     pub sequence_id: u16,
     pub len_minus1: u16,
-}
-
-#[cfg_attr(feature = "python", pymethods)]
-impl PrimaryHeader {
-    #[cfg(feature = "python")]
-    #[new]
-    fn py_new(buf: &[u8]) -> PyResult<Self> {
-        //let buf = buf.as_bytes(py);
-
-        match PrimaryHeader::decode(buf) {
-            Ok(p) => Ok(p),
-            Err(e) => Err(PyValueError::new_err(format!("{e}"))),
-        }
-    }
-
-    #[cfg(feature = "python")]
-    fn __repr__(&self) -> String {
-        format!("{self:?}")
-    }
 }
 
 impl PrimaryHeader {
@@ -245,7 +208,6 @@ impl PrimaryHeader {
 /// Packet data representing a CCSDS packet group according to the packet
 /// sequencing value in primary header.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "python", pyclass(frozen, get_all, from_py_object))]
 pub struct PacketGroup {
     /// Virtual channel of the packets in this group, if known. See [Packet::vcid].
     pub vcid: Option<Vcid>,
@@ -253,27 +215,7 @@ pub struct PacketGroup {
     pub packets: Vec<Packet>,
 }
 
-#[cfg_attr(feature = "python", pymethods)]
 impl PacketGroup {
-    #[cfg(feature = "python")]
-    fn apid(&self) -> Apid {
-        self.apid
-    }
-
-    #[cfg(feature = "python")]
-    fn packets(&self) -> Vec<Packet> {
-        self.packets.clone()
-    }
-
-    #[cfg(feature = "python")]
-    fn __repr__(&self) -> String {
-        format!(
-            "PacketGroup {{apid={} packets[len={}]}}",
-            self.apid,
-            self.packets.len()
-        )
-    }
-
     /// Return true if this packet group is complete.
     ///
     /// Valid means at least 1 packet and all the packets for a complete group with no missing
