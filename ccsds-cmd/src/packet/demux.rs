@@ -8,7 +8,7 @@ use anyhow::{anyhow, Result};
 use spacecrafts::Spacecraft;
 use tracing::debug;
 
-use ccsds::framing::{Frame, Integrity, PacketDemux};
+use ccsds::framing::{Frame, PacketDemux};
 
 pub fn demux_packets<I: AsRef<Path>, O: AsRef<Path>>(
     input: I,
@@ -29,9 +29,8 @@ pub fn demux_packets<I: AsRef<Path>, O: AsRef<Path>>(
     let frames = chunks
         .into_iter()
         .map_while(Result::ok)
-        .filter_map(|buf| Frame::decode(&buf))
-        .filter(|f| !f.is_fill())
-        .filter(|f| f.integrity != Some(Integrity::Uncorrectable));
+        .map(|buf| Frame::decode(&buf))
+        .filter(|f| !f.is_fill());
 
     let demux = {
         let mut d = PacketDemux::new(frames).with_defaults(

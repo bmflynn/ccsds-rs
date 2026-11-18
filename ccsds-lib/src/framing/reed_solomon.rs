@@ -253,6 +253,82 @@ impl ReedSolomon for DefaultReedSolomon {
     }
 }
 
+/// Reed-Solomon implementation used by [reed_solomon].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RsBackend {
+    /// Pure Rust implementation, see [DefaultReedSolomon].
+    #[default]
+    Rs2,
+}
+
+/// Configuration options for the ReedSolomon supported by [super::Pipeline].
+#[derive(Debug, Clone, Copy)]
+pub struct RsOpts {
+    pub(crate) backend: RsBackend,
+    pub(crate) interleave: u8,
+    pub(crate) virtual_fill: usize,
+    pub(crate) num_threads: usize,
+    pub(crate) buffer_size: usize,
+    pub(crate) detect: bool,
+    pub(crate) correct: bool,
+}
+
+impl RsOpts {
+    pub fn new(interleave: u8) -> Self {
+        RsOpts {
+            backend: RsBackend::default(),
+            interleave,
+            virtual_fill: 0,
+            num_threads: 0,
+            detect: true,
+            correct: true,
+            buffer_size: 50,
+        }
+    }
+
+    /// Choose the Reed-Solomon implementation. Default is [RsBackend::Rs2].
+    pub fn with_backend(mut self, backend: RsBackend) -> Self {
+        self.backend = backend;
+        self
+    }
+
+    /// See [DefaultReedSolomon::with_virtual_fill]
+    pub fn with_virtual_fill(mut self, virtual_fill: usize) -> Self {
+        self.virtual_fill = virtual_fill;
+        self
+    }
+
+    /// Size of the thread pool used to perform the RS compuataion. By default the value will be
+    /// chosen automatically.
+    pub fn with_num_threads(mut self, num_threads: usize) -> Self {
+        self.num_threads = num_threads;
+        self
+    }
+
+    /// See [DefaultReedSolomon::with_correction]
+    pub fn with_correction(mut self, enabled: bool) -> Self {
+        self.correct = enabled;
+        self
+    }
+
+    /// See [DefaultReedSolomon::with_detection]
+    pub fn with_detection(mut self, enabled: bool) -> Self {
+        self.detect = enabled;
+        self
+    }
+
+    /// Set the allowable number of in-flight frames waiting to enter the thread pool.
+    pub fn with_buffer_size(mut self, size: usize) -> Self {
+        self.buffer_size = size;
+        self
+    }
+}
+
+pub struct RsData {
+    pub data: Vec<u8>,
+    pub integrity: Integrity,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

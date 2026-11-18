@@ -8,9 +8,9 @@ use common::fixture_path;
 fn do_framing_test(interleave: u8, block_len: usize, fixture: &str, expected: &[(Vcid, usize)]) {
     let file = File::open(fixture_path(fixture)).expect("Failed to open fixture file");
     let cadus = synchronize(file, SyncOpts::new(block_len)).map_while(Result::ok);
-    let cadus = derandomize(cadus);
-    let frames = frame_decoder(cadus);
-    let frames = reed_solomon(frames, RsOpts::new(interleave));
+    let cadus = derandomize(cadus.map(|b| b.data));
+    let cadus = reed_solomon(cadus, RsOpts::new(interleave));
+    let frames = frame_decoder(cadus.map(|r| r.data));
 
     let mut got_counts: HashMap<Vcid, usize> = HashMap::default();
     for frame in frames {
@@ -100,8 +100,11 @@ fn test_framing_aqua_4_1020() {
 #[test]
 fn test_demux_packets_have_vcid() {
     let file = File::open(fixture_path("cadu/npp.20241206T173815.dat")).unwrap();
-    let cadus = synchronize(file, SyncOpts::new(1020)).map_while(Result::ok);
-    let frames = reed_solomon(frame_decoder(derandomize(cadus)), RsOpts::new(4));
+    let cadus = synchronize(file, SyncOpts::new(1020))
+        .map_while(Result::ok)
+        .map(|b| b.data);
+    let cadus = reed_solomon(derandomize(cadus), RsOpts::new(4));
+    let frames = frame_decoder(cadus.map(|r| r.data));
 
     let mut count = 0;
     for packet in PacketDemux::new(frames).with_defaults(0, false, false, true) {

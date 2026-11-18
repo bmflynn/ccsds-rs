@@ -5,7 +5,7 @@ use std::{
 
 use tracing::{debug, trace};
 
-use crate::framing::{Frame, Integrity, Vcid, MPDU};
+use crate::framing::{Frame, Vcid, MPDU};
 use crate::spacepacket::{Packet, PrimaryHeader};
 
 /// Per-channel framing configuration
@@ -40,7 +40,7 @@ struct ChannelConfig {
 /// use ccsds::framing::{Frame, PacketDemux};
 /// use ccsds::spacepacket::Packet;
 ///
-/// let frames = vec![Frame::decode(&vec![0u8; 1020]).unwrap()];
+/// let frames = vec![Frame::decode(&vec![0u8; 1020])];
 /// let packets: Vec<Packet> = PacketDemux::new(frames.into_iter()).with_defaults(0, false, false, false).collect();
 /// ```
 #[derive(Clone, Debug)]
@@ -167,18 +167,6 @@ where
                 .entry(frame.header.vcid)
                 .or_insert(VcidTracker::new(frame.header.vcid));
 
-            match frame.integrity {
-                Some(Integrity::Corrected) => {
-                    debug!(vcid = %frame.header.vcid, "corrected frame");
-                    tracker.rs_corrected = true;
-                }
-                Some(Integrity::Uncorrectable | Integrity::NotCorrected) => {
-                    debug!(vcid = %frame.header.vcid, tracker = %tracker, "uncorrectable or errored frame, dropping tracker");
-                    tracker.reset();
-                    continue;
-                }
-                _ => {}
-            }
             // Frame error indicates there are frames missing _before_ this one -- this one is
             // still useable, so clear the existing cache and continue to process this frame.
             if frame.missing > 0 {
@@ -276,8 +264,6 @@ struct VcidTracker {
     vcid: Vcid,
     /// Caches partial packets for this vcid
     cache: Vec<u8>,
-    // True when any frame used to fill the cache was rs corrected
-    rs_corrected: bool,
     // True when a FHP has been found and data should be added to cache. False
     // where there is a missing data due to RS failure or missing frames.
     sync: bool,
@@ -289,14 +275,12 @@ impl VcidTracker {
             vcid,
             sync: false,
             cache: vec![],
-            rs_corrected: false,
         }
     }
 
     fn reset(&mut self) {
         self.cache.clear();
         self.sync = false;
-        self.rs_corrected = false;
     }
 }
 
@@ -304,11 +288,10 @@ impl Display for VcidTracker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "VcidTracker{{vcid={}, sync={}, cache_len={}, rs_corrected:{}}}",
+            "VcidTracker{{vcid={}, sync={}, cache_len={}}}",
             self.vcid,
             self.sync,
             self.cache.len(),
-            self.rs_corrected
         )
     }
 }

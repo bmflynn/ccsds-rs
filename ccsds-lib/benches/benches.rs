@@ -257,31 +257,26 @@ fn bench_rs_backends(c: &mut Criterion) {
 
 /// Whole pipeline (sync, derandomize, frame decode, RS) over a real fixture, per backend.
 fn bench_rs_pipeline(c: &mut Criterion) {
-    use ccsds::framing::{
-        derandomize, frame_decoder, reed_solomon, synchronize, RsBackend, RsOpts,
-    };
+    use ccsds::framing::{derandomize, frame_decoder, reed_solomon, synchronize, RsOpts};
 
     let path = fixture_path("tests/fixtures/cadu/npp.20241206T173815.dat");
     let len = std::fs::metadata(&path).unwrap().len();
     let data = std::fs::read(&path).unwrap();
 
-    #[allow(unused_mut)]
-    let mut backends = vec![("rs2", RsBackend::Rs2)];
-
     let mut group = c.benchmark_group("rs_pipeline");
     group.throughput(Throughput::Bytes(len));
     group.sample_size(10);
-    for (name, backend) in backends {
-        group.bench_function(name, |b| {
-            b.iter(|| {
-                let cadus = synchronize(Cursor::new(data.clone()), SyncOpts::new(BLOCK_LEN))
-                    .map_while(Result::ok);
-                let frames = frame_decoder(derandomize(cadus));
-                let n = reed_solomon(frames, RsOpts::new(4).with_backend(backend)).count();
-                assert!(n > 0);
-            });
+    group.bench_function("rs2", |b| {
+        b.iter(|| {
+            let cadus = synchronize(Cursor::new(data.clone()), SyncOpts::new(BLOCK_LEN))
+                .map_while(Result::ok)
+                .map(|c| c.data);
+            let cadus = derandomize(cadus);
+            let cadus = reed_solomon(cadus, RsOpts::new(4)).map(|r| r.data);
+            let n = frame_decoder(cadus).count();
+            assert!(n > 0);
         });
-    }
+    });
     group.finish();
 }
 

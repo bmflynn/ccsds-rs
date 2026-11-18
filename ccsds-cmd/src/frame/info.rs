@@ -30,12 +30,12 @@ where
     let frames = chunks
         .into_iter()
         .map_while(Result::ok)
-        .filter_map(|buf| Frame::decode(&buf));
+        .map(|b| Frame::decode(&b));
 
     let mut summary = Summary::default();
     for frame in frames {
         debug!(header=?frame.header, "frame");
-        summary.collect(&frame);
+        summary.collect_frame(&frame);
     }
 
     write_text_summary(stdout(), &summary)

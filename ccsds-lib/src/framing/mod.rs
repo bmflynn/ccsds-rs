@@ -6,26 +6,24 @@
 //! use std::io::BufReader;
 //! use ccsds::framing::*;
 //!
-//! let block_len = 1020; // CADU length - ASM length
-//! let interleave = 4;
-//! let virtual_fill = 0;
-//! let izone_len = 0;
-//! let trailer_len = 0;
+//! const block_len: usize = 1020; // CADU length - ASM length
+//! const interleave: u8 = 4;
+//! const virtual_fill: usize = 0;
+//! const izone_len: u32 = 0;
+//! const trailer_len: u32 = 0;
 //!
-//! let file = BufReader::new(File::open("snpp.dat").unwrap());
-//! let cadus = synchronize(file, SyncOpts::new(block_len)).map_while(Result::ok);
-//! let cadus = derandomize(cadus);
-//! let frames = frame_decoder(cadus);
-//! let rs_opts = RsOpts::new(interleave)
-//!     .with_virtual_fill(virtual_fill)
-//!     .with_correction(true)
-//!     .with_detection(true)
-//!     .with_num_threads(0); // use all CPUs
-//! let frames = reed_solomon(frames, rs_opts)
-//!     .filter(|frame| match frame.integrity {
-//!         Some(ref val) => val.ok(),
-//!         None => false,
-//!     });
+//! fn example() {
+//!     let file = BufReader::new(File::open("snpp.dat").unwrap());
+//!     let cadus = synchronize(file, SyncOpts::new(block_len)).map_while(Result::ok).map(|b| b.data);
+//!     let cadus = derandomize(cadus);
+//!     let rs_opts = RsOpts::new(interleave)
+//!         .with_virtual_fill(virtual_fill)
+//!         .with_correction(true)
+//!         .with_detection(true);
+//!     let cadus = reed_solomon(cadus, rs_opts)
+//!         .filter(|r| r.integrity.ok());
+//!     let frames = frame_decoder(cadus.map(|r| r.data));
+//! }
 //! ```
 
 mod bytes;
@@ -40,12 +38,11 @@ use serde::{Deserialize, Serialize};
 pub use packets::PacketDemux;
 pub use pipeline::*;
 pub use pn::{DefaultDerandomizer, Derandomizer};
-pub use reed_solomon::{DefaultReedSolomon, Integrity, ReedSolomon};
+pub use reed_solomon::{DefaultReedSolomon, Integrity, ReedSolomon, RsData, RsOpts};
 pub use synchronizer::{Block, ASM};
 
 pub type Scid = u16;
 pub type Vcid = u16;
-pub type Cadu = Block;
 
 /// Length of the operational control field
 pub const OCF_LEN: usize = 4;
@@ -54,54 +51,10 @@ pub const FEC_LEN: usize = 2;
 /// Length of the frame header error control field
 pub const FHEC_LEN: usize = 2;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OpaqueFrame {
-    data: Vec<u8>,
-    integrity: Option<Integrity>,
-}
-
-/// A frame type that can be processed by [reed_solomon].
-///
-/// Implemented for [Frame] and [OpaqueFrame].
-pub trait RsFrame: Send + 'static {
-    /// Frame bytes, including any RS check symbols.
-    fn data(&self) -> &[u8];
-    /// Replace the frame bytes, e.g., with the check symbols removed.
-    fn set_data(&mut self, data: Vec<u8>);
-    /// Set the integrity disposition.
-    fn set_integrity(&mut self, integrity: Integrity);
-}
-
-impl RsFrame for OpaqueFrame {
-    fn data(&self) -> &[u8] {
-        &self.data
-    }
-    fn set_data(&mut self, data: Vec<u8>) {
-        self.data = data;
-    }
-    fn set_integrity(&mut self, integrity: Integrity) {
-        self.integrity = Some(integrity);
-    }
-}
-
-impl RsFrame for Frame {
-    fn data(&self) -> &[u8] {
-        &self.data
-    }
-    fn set_data(&mut self, data: Vec<u8>) {
-        self.data = data;
-    }
-    fn set_integrity(&mut self, integrity: Integrity) {
-        self.integrity = Some(integrity);
-    }
-}
-
-/// Loose representation of a single frame of data extracted from a Cadu.
+/// Loose representation of a single CCSDS frame of data extracted from a Cadu.
 ///
 /// This can generally be though of as containing frame data from a version 1 or version
 /// 2 CCSDS Transfer Frame, see [VCDUHeader::decode] for details on version support.
-///
-/// TM Transfer Frames (CCSDS 132.0-B-3) are not supported.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Frame {
     /// This frames header data, for Aos or Tm frames.
@@ -113,26 +66,31 @@ pub struct Frame {
     /// Such frames are not counted in [Frame::missing]. Fill frames are never marked duplicate.
     #[serde(default)]
     pub duplicate: bool,
-    /// Integrity checking disposition, if peformed, [Option::None] otherwise.
-    pub integrity: Option<Integrity>,
     /// Frame bytes. If RS was performed upstream this will not include any parity bytes.
     #[serde(with = "serde_bytes")]
     pub data: Vec<u8>,
+}
+
+impl<S> From<S> for Frame
+where
+    S: AsRef<[u8]>,
+{
+    fn from(dat: S) -> Self {
+        Frame {
+            header: VCDUHeader::decode(dat.as_ref()).unwrap_or_default(),
+            missing: 0,
+            duplicate: false,
+            data: dat.as_ref().to_vec(),
+        }
+    }
 }
 
 impl Frame {
     /// Decode `dat` representing an AOS Transfer Frame into a `Frame`, or `None` if
     /// not enough bytes.
     #[must_use]
-    pub fn decode(dat: &[u8]) -> Option<Self> {
-        let header = VCDUHeader::decode(&dat)?;
-        Some(Frame {
-            header,
-            missing: 0,
-            duplicate: false,
-            integrity: None,
-            data: dat.to_vec(),
-        })
+    pub fn decode(dat: &[u8]) -> Self {
+        dat.into()
     }
 
     #[must_use]
@@ -157,7 +115,7 @@ impl Frame {
 }
 
 /// Contents of a valid VCDU header
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct VCDUHeader {
     pub version: u8,
     pub scid: Scid,
@@ -441,7 +399,7 @@ mod test {
 
     #[test]
     fn frame_decode_is_not_duplicate() {
-        let frame = Frame::decode(&vec![0x55, 0x61, 0x01, 0xe2, 0x40, 0x05]).unwrap();
+        let frame = Frame::decode(&vec![0x55, 0x61, 0x01, 0xe2, 0x40, 0x05]);
         assert!(!frame.duplicate);
         assert_eq!(frame.missing, 0);
     }

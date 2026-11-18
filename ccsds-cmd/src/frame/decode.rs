@@ -8,11 +8,12 @@ use std::{
 use anyhow::{anyhow, Context, Result};
 use clap::ValueEnum;
 
-use ccsds::framing::{Frame, Integrity, Pipeline, RsOpts, Vcid};
+use ccsds::framing::RsOpts;
+use ccsds::framing::{decode_cadus, Frame, Integrity, SyncOpts, Vcid};
 use handlebars::handlebars_helper;
 use serde::{Deserialize, Serialize};
 use spacecrafts::Spacecraft;
-use tracing::{debug, info};
+use tracing::info;
 
 use crate::InputReader;
 
@@ -26,12 +27,6 @@ pub struct Info {
     pub total_bytes: usize,
     pub missing_frames: usize,
     pub duplicate_frames: usize,
-
-    pub corrected: usize,
-    pub uncorrectable: usize,
-    pub ok: usize,
-    pub error: usize,
-    pub not_performed: usize,
 }
 
 #[derive(Debug, Default, Clone, Serialize)]
@@ -51,7 +46,31 @@ pub struct Summary {
 }
 
 impl Summary {
-    pub fn collect(&mut self, frame: &Frame) {
+    pub fn collect_cadu(&mut self, data: &[u8], integrity: Option<&Integrity>) {
+        self.total_bytes += data.len();
+        self.total_frames += 1;
+        if let Some(integrity) = integrity {
+            match integrity {
+                Integrity::Ok => {
+                    self.ok += 1;
+                }
+                Integrity::Corrected => {
+                    self.corrected += 1;
+                }
+                Integrity::Uncorrectable | Integrity::NotCorrected => {
+                    self.uncorrectable += 1;
+                }
+                Integrity::NotPerformed => {
+                    self.not_performed += 1;
+                }
+                Integrity::Failed => {
+                    self.error += 1;
+                }
+            }
+        }
+    }
+
+    pub fn collect_frame(&mut self, frame: &Frame) {
         self.total_frames += 1;
         self.total_bytes += frame.data.len();
 
@@ -63,34 +82,6 @@ impl Summary {
         self.missing_frames += frame.missing as usize;
         channel.duplicate_frames += usize::from(frame.duplicate);
         self.duplicate_frames += usize::from(frame.duplicate);
-        match &frame.integrity {
-            Some(integrity) => match integrity {
-                Integrity::Ok => {
-                    channel.ok += 1;
-                    self.ok += 1;
-                }
-                Integrity::Corrected => {
-                    channel.corrected += 1;
-                    self.corrected += 1;
-                }
-                Integrity::Uncorrectable | Integrity::NotCorrected => {
-                    channel.uncorrectable += 1;
-                    self.uncorrectable += 1;
-                }
-                Integrity::NotPerformed => {
-                    channel.not_performed += 1;
-                    self.not_performed += 1;
-                }
-                Integrity::Failed => {
-                    channel.error += 1;
-                    self.error += 1;
-                }
-            },
-            None => {
-                channel.not_performed += 1;
-                self.not_performed += 1;
-            }
-        }
     }
 }
 
@@ -117,12 +108,9 @@ pub fn frame_aos<O: AsRef<Path>>(
     let interleave = reed_solomon.unwrap_or_default();
     let sync_block_len = length + RS_PARITY_LEN * interleave as usize;
     info!("using frame/cadu length: {}/{}", length, sync_block_len);
-    let mut pipeline = Pipeline::new(sync_block_len);
-    if !pn {
-        pipeline = pipeline.without_derandomization();
-    }
-    if let Some(interleave) = reed_solomon {
-        let mut opts = RsOpts::new(interleave)
+
+    let rs = reed_solomon.map(|i| {
+        let mut opts = RsOpts::new(i)
             .with_buffer_size(reed_solomon_buffersize)
             .with_correction(reed_solomon_correct)
             .with_detection(reed_solomon_detect || reed_solomon_correct);
@@ -132,27 +120,30 @@ pub fn frame_aos<O: AsRef<Path>>(
         if let Some(num) = reed_solomon_threads {
             opts = opts.with_num_threads(num);
         }
-        debug!("rs opts: {:?}", opts);
-        pipeline = pipeline.with_rs(opts);
-    }
+        opts
+    });
+
+    let cadus = decode_cadus(input, SyncOpts::new(sync_block_len), pn, rs);
 
     let mut summary = Summary::default();
 
-    let frames = pipeline.start(input);
     let dst = match output {
         Some(path) => Some(File::create(path).context("creating output")?),
         None => None,
     };
 
-    for frame in frames {
+    for (data, integrity) in cadus {
+        summary.collect_cadu(&data, integrity.as_ref());
+
+        let frame = Frame::decode(&data);
         if !include.is_empty() && !include.contains(&frame.header.vcid) {
             continue;
         }
         if !exclude.is_empty() && exclude.contains(&frame.header.vcid) {
             continue;
         }
-        summary.collect(&frame);
-        if let Some(Integrity::Uncorrectable | Integrity::Failed) = &frame.integrity {
+        summary.collect_frame(&frame);
+        if let Some(Integrity::Uncorrectable | Integrity::Failed) = &integrity {
             continue;
         }
 
