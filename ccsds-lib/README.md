@@ -45,7 +45,9 @@ let block_len = 1020; // CADU length - ASM length
 let interleave= 4;
 let virtual_fill = 0;
 let izone_len = 0;
-let trailer_len = 0;
+let ocf = false;
+let fec = false;
+let fhec = false;
 
 let rs_opts = RsOpts::new(interleave)
     .with_virtual_fill(virtual_fill)
@@ -56,7 +58,7 @@ let rs_opts = RsOpts::new(interleave)
 let file = BufReader::new(File::open("snpp.dat").unwrap());
 let cadus = decode_cadus(file, SyncOpts::new(block_len), true, Some(rs_opts));
 let frames = cadus.map(|c| Frame::decode(&c.0));
-let packets = packet_decoder(frames, izone_len, trailer_len);
+let packets = packet_decoder(frames, izone_len, ocf, fec, fhec);
 ```
 
 ## Crate Features

@@ -237,15 +237,14 @@ where
 pub fn packet_decoder<I>(
     frames: I,
     izone_length: usize,
-    trailer_length: usize,
+    ocf: bool,
+    fec: bool,
+    fhec: bool,
 ) -> impl Iterator<Item = Packet> + Send + 'static
 where
     I: Iterator<Item = Frame> + Send + 'static,
 {
-    let ocf = trailer_length == 4 || trailer_length == 6;
-    let fec = trailer_length == 2 || trailer_length == 6;
-
-    PacketDemux::new(frames).with_defaults(izone_length, false, ocf, fec)
+    PacketDemux::new(frames).with_defaults(izone_length, fhec, ocf, fec)
 }
 
 #[cfg(test)]
