@@ -8,47 +8,11 @@ use crate::framing::synchronizer::Synchronizer;
 use crate::framing::{
     missing_frames,
     reed_solomon::{RsBackend, RsData, RsOpts},
-    DefaultDerandomizer, DefaultReedSolomon, Derandomizer, Frame, Integrity, ReedSolomon,
-    VCDUHeader,
+    DefaultDerandomizer, DefaultReedSolomon, Derandomizer, Frame, ReedSolomon, VCDUHeader,
 };
-use crate::framing::{Block, PacketDemux, ASM};
+use crate::framing::{Block, Counter, Integrity, PacketDemux, ASM};
 use crate::spacepacket::Packet;
 use crate::Result;
-
-struct BlockDecoderIter<I>
-where
-    I: Iterator<Item = Vec<u8>> + Send + 'static,
-{
-    vcid_counters: HashMap<u16, u32>,
-    cadus: I,
-}
-
-impl<I> Iterator for BlockDecoderIter<I>
-where
-    I: Iterator<Item = Vec<u8>> + Send + 'static,
-{
-    type Item = Frame;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let Some(data) = self.cadus.next() else {
-            return None;
-        };
-        let mut frame = Frame::decode(&data);
-        let header = &frame.header;
-        let mut missing = 0;
-        let mut duplicate = false;
-        if VCDUHeader::FILL != header.vcid {
-            if let Some(last) = self.vcid_counters.get(&header.vcid) {
-                duplicate = header.counter == *last;
-                missing = missing_frames(header.counter, *last, header.counter_max());
-            }
-        }
-        frame.missing = missing;
-        frame.duplicate = duplicate;
-        self.vcid_counters.insert(header.vcid, header.counter);
-        Some(frame)
-    }
-}
 
 /// Perform derandomization on each input [Block] using [DefaultDerandomizer].
 pub fn derandomize<I>(cadus: I) -> impl Iterator<Item = Vec<u8>>
@@ -64,24 +28,27 @@ where
 }
 
 /// Options used for synchronization
-pub struct SyncOpts<'a> {
-    asm: &'a [u8],
+pub struct SyncOpts {
+    asm: Vec<u8>,
     length: usize,
 }
 
-impl<'a> SyncOpts<'a> {
+impl SyncOpts {
     /// Create a new set of sync options.
     ///
     /// # Arguments
     /// * `length` Length of data to return as a [crate::framing::Block], not including the length of the attached
     ///   sync marker.
     pub fn new(length: usize) -> Self {
-        SyncOpts { asm: &ASM, length }
+        SyncOpts {
+            asm: ASM.to_vec(),
+            length,
+        }
     }
 
     /// Attached sync marker indicating the start of a [crate::framing::Block].
-    pub fn with_asm(mut self, asm: &'a [u8]) -> Self {
-        self.asm = asm;
+    pub fn with_asm(mut self, asm: &[u8]) -> Self {
+        self.asm = asm.to_vec();
         self
     }
 }
@@ -92,7 +59,7 @@ where
     R: Read + Send + 'static,
 {
     // sync_on_thread(reader, block_length, 10)
-    let sync = Synchronizer::new(reader, opts.length).with_asm(opts.asm);
+    let sync = Synchronizer::new(reader, opts.length).with_asm(&opts.asm);
 
     sync.into_iter()
 }
@@ -133,18 +100,30 @@ where
     rs_cadus
 }
 
-/// Decode input [Block] data into [Frame] data.
+/// Decode input `Vec<u8>` data into [Frame] data updating [Frame::state] with the current
+/// state.
 ///
-/// There is not much real work here other than keeping track of frame sequence couters to
-/// facilitate [Frame::missing] count.
-pub fn frame_decoder<I>(cadus: I) -> impl Iterator<Item = Frame> + Send + 'static
+/// Frames produced will always have a non-`None` [Frame::state].
+pub fn frame_decoder<I>(payloads: I) -> impl Iterator<Item = Frame> + Send + 'static
 where
     I: Iterator<Item = Vec<u8>> + Send + 'static,
 {
-    BlockDecoderIter {
-        vcid_counters: HashMap::default(),
-        cadus,
-    }
+    let mut counters: HashMap<u16, u32> = HashMap::default();
+    payloads.filter_map(move |data| {
+        let mut frame = Frame::decode(&data);
+        let header = &frame.header;
+        let mut missing = 0;
+        let mut duplicate = false;
+        if VCDUHeader::FILL != header.vcid {
+            if let Some(last) = counters.get(&header.vcid) {
+                duplicate = header.counter == *last;
+                missing = missing_frames(header.counter, *last, header.counter_max());
+            }
+        }
+        frame.state = Some(Counter { missing, duplicate });
+        counters.insert(header.vcid, header.counter);
+        Some(frame)
+    })
 }
 
 fn do_reed_solomon<I>(frames: I, opts: RsOpts, result_tx: Sender<RsData>)
@@ -296,7 +275,10 @@ mod tests {
     /// Returns `(missing, duplicate)` for each frame.
     fn run(cadus: Vec<Block>) -> Vec<(u32, bool)> {
         frame_decoder(cadus.into_iter().map(|c| c.data))
-            .map(|f| (f.missing, f.duplicate))
+            .filter_map(|f| match f.state {
+                Some(c) => Some((c.missing, c.duplicate)),
+                None => None,
+            })
             .collect()
     }
 

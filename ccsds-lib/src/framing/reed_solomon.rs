@@ -264,16 +264,19 @@ pub enum RsBackend {
 /// Configuration options for the ReedSolomon supported by [super::Pipeline].
 #[derive(Debug, Clone, Copy)]
 pub struct RsOpts {
-    pub(crate) backend: RsBackend,
-    pub(crate) interleave: u8,
-    pub(crate) virtual_fill: usize,
-    pub(crate) num_threads: usize,
-    pub(crate) buffer_size: usize,
-    pub(crate) detect: bool,
-    pub(crate) correct: bool,
+    pub backend: RsBackend,
+    pub interleave: u8,
+    pub virtual_fill: usize,
+    pub num_threads: usize,
+    pub buffer_size: usize,
+    pub detect: bool,
+    pub correct: bool,
+    pub remove_parity: bool,
+    pub drop_uncorrectable: bool,
 }
 
 impl RsOpts {
+    const DEFAULT_BUFFER_SIZE: usize = 50;
     pub fn new(interleave: u8) -> Self {
         RsOpts {
             backend: RsBackend::default(),
@@ -282,7 +285,9 @@ impl RsOpts {
             num_threads: 0,
             detect: true,
             correct: true,
-            buffer_size: 50,
+            buffer_size: Self::DEFAULT_BUFFER_SIZE,
+            remove_parity: true,
+            drop_uncorrectable: true,
         }
     }
 
@@ -322,10 +327,20 @@ impl RsOpts {
         self.buffer_size = size;
         self
     }
+
+    pub fn with_drop_uncorrectable(mut self, b: bool) -> Self {
+        self.drop_uncorrectable = b;
+        self
+    }
 }
 
+//// The result of performing RS.
 pub struct RsData {
+    /// Output data. Data will be the corrected result if `integrity` is [Integrity::Ok],
+    /// [Integrity::Corrected], otherwise it will be the original data. In all cases the
+    /// parity bytes are removed.
     pub data: Vec<u8>,
+    /// The result of performing RS
     pub integrity: Integrity,
 }
 

@@ -78,10 +78,11 @@ impl Summary {
         channel.vcid = frame.header.vcid;
         channel.total_frames += 1;
         channel.total_bytes += frame.data.len();
-        channel.missing_frames += frame.missing as usize;
-        self.missing_frames += frame.missing as usize;
-        channel.duplicate_frames += usize::from(frame.duplicate);
-        self.duplicate_frames += usize::from(frame.duplicate);
+        let counter = frame.state.clone().unwrap_or_default();
+        channel.missing_frames += counter.missing as usize;
+        self.missing_frames += counter.missing as usize;
+        channel.duplicate_frames += usize::from(counter.duplicate);
+        self.duplicate_frames += usize::from(counter.duplicate);
     }
 }
 

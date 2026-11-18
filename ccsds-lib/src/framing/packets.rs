@@ -144,9 +144,10 @@ where
                 break;
             };
 
+            let frame_counter = frame.state.clone().unwrap_or_default();
             // The data in a duplicate frame was already seen, using it again would corrupt the
             // packet data being tracked.
-            if frame.duplicate {
+            if frame_counter.duplicate {
                 trace!(
                     vcid = frame.header.vcid,
                     counter = frame.header.counter,
@@ -169,8 +170,8 @@ where
 
             // Frame error indicates there are frames missing _before_ this one -- this one is
             // still useable, so clear the existing cache and continue to process this frame.
-            if frame.missing > 0 {
-                trace!(vcid = frame.header.vcid, tracker=%tracker, missing=frame.missing, "missing frames, dropping tracker");
+            if frame_counter.missing > 0 {
+                trace!(vcid = frame.header.vcid, tracker=%tracker, missing=frame_counter.missing, "missing frames, dropping tracker");
                 tracker.reset();
             }
 

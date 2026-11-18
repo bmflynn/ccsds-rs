@@ -51,14 +51,9 @@ pub const FEC_LEN: usize = 2;
 /// Length of the frame header error control field
 pub const FHEC_LEN: usize = 2;
 
-/// Loose representation of a single CCSDS frame of data extracted from a Cadu.
-///
-/// This can generally be though of as containing frame data from a version 1 or version
-/// 2 CCSDS Transfer Frame, see [VCDUHeader::decode] for details on version support.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Frame {
-    /// This frames header data, for Aos or Tm frames.
-    pub header: VCDUHeader,
+/// Counter keeps track of the frame counter state
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct Counter {
     /// Count of missing frame counts between this frame and the last received for this VCID.
     pub missing: u32,
     /// `true` if this frame has the same frame counter as the last frame received for this VCID.
@@ -66,6 +61,17 @@ pub struct Frame {
     /// Such frames are not counted in [Frame::missing]. Fill frames are never marked duplicate.
     #[serde(default)]
     pub duplicate: bool,
+}
+
+/// Loose representation of a single CCSDS frame of data extracted from a Cadu.
+///
+/// This can generally be though of as containing frame data from a version 1 or version
+/// 2 CCSDS Transfer Frame, see [VCDUHeader::decode] for details on version support.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Frame {
+    pub header: VCDUHeader,
+    /// Tracks the counter state when handled as part of a stream
+    pub state: Option<Counter>,
     /// Frame bytes. If RS was performed upstream this will not include any parity bytes.
     #[serde(with = "serde_bytes")]
     pub data: Vec<u8>,
@@ -78,8 +84,7 @@ where
     fn from(dat: S) -> Self {
         Frame {
             header: VCDUHeader::decode(dat.as_ref()).unwrap_or_default(),
-            missing: 0,
-            duplicate: false,
+            state: Some(Counter::default()),
             data: dat.as_ref().to_vec(),
         }
     }
@@ -395,12 +400,5 @@ mod test {
         let dat: Vec<u8> = vec![0x55, 0x61, 0x01, 0xe2, 0x40, 0x05];
         let header = VCDUHeader::decode(&dat).unwrap();
         assert_eq!(header.counter_max(), VCDUHeader::COUNTER_MAX);
-    }
-
-    #[test]
-    fn frame_decode_is_not_duplicate() {
-        let frame = Frame::decode(&vec![0x55, 0x61, 0x01, 0xe2, 0x40, 0x05]);
-        assert!(!frame.duplicate);
-        assert_eq!(frame.missing, 0);
     }
 }
