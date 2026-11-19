@@ -10,7 +10,6 @@ use clap::ValueEnum;
 
 use ccsds::framing::RsOpts;
 use ccsds::framing::{decode_cadus, Frame, Integrity, SyncOpts, Vcid};
-use handlebars::handlebars_helper;
 use serde::{Deserialize, Serialize};
 use spacecrafts::Spacecraft;
 use tracing::info;
@@ -235,26 +234,7 @@ VCID  Frames      Bytes       Missing     Corrected   Uncorr.     Ok          Er
 "#;
 
 pub fn write_text_summary<W: Write>(mut w: W, summary: &Summary) -> Result<()> {
-    handlebars_helper!(left_pad: |num: u64, v: Json| {
-        let v = match v {
-            serde_json::Value::String(s) => s.to_owned(),
-            serde_json::Value::Null => String::new(),
-            _ => v.to_string()
-        };
-        let mut num: usize = usize::try_from(num).unwrap();
-        if num < v.len() {
-            num = v.len();
-        }
-        let mut s = String::new();
-        let padding = num - v.len();
-        for _ in 0..padding {
-            s.push(' ');
-        }
-        s.push_str(&v);
-        s
-    });
-    let mut hb = handlebars::Handlebars::new();
-    hb.register_helper("lpad", Box::new(left_pad));
+    let mut hb = crate::render::engine();
     assert!(hb.register_template_string("main", TEXT_TEMPLATE).is_ok());
 
     let mut ordered_vcids: Vec<Info> = summary.vcids.values().cloned().collect();

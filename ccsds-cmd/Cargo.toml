@@ -28,3 +28,6 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 handlebars = "6"
 regex = "1.10.5"
 hifitime.workspace = true
+
+[dev-dependencies]
+tempfile = "3.27.0"

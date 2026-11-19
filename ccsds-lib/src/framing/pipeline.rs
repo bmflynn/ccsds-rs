@@ -56,7 +56,7 @@ impl SyncOpts {
 /// Syncronize a bit stream to provide a byte-aligned iterator of [crate::framing::Block] data.
 pub fn synchronize<R>(reader: R, opts: SyncOpts) -> impl Iterator<Item = Result<Block>>
 where
-    R: Read + Send + 'static,
+    R: Read + Send,
 {
     // sync_on_thread(reader, block_length, 10)
     let sync = Synchronizer::new(reader, opts.length).with_asm(&opts.asm);

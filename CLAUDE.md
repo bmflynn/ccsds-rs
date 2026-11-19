@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Cargo workspace with three crates. `default-members` is `ccsds-cmd` and `ccsds-lib`, so plain `cargo build` and `cargo test`.
 
 - `ccsds-lib` (package and lib name `ccsds`): decoding library. Framing, spacepackets, timecodes.
-- `ccsds-cmd` (binary `ccsds`): clap CLI built on the library. Subcommands `frames` and `packets`.
+- `ccsds-cmd` (binary `ccsds`): clap CLI built on the library. Subcommands `frames`, `packets` and `spacecrafts`.
 
 Spacecraft metadata (frame lengths, VCIDs, APID and timecode config) comes from the external `spacecrafts` crate, a git dependency on `bmflynn/spacecrafts-rs` with no pinned rev in `Cargo.toml`. `Cargo.lock` holds the real pin. The CLI loads spacecraft config by path, or by name from `~/.config/ccsds/spacecrafts/`.
 
@@ -47,7 +47,7 @@ CUC `fine_nanos` of 0 means 1 ns per fine count. The rule lives in `decode_cuc` 
 
 ### `ccsds-cmd`
 
-`main.rs` defines the clap tree and shared `ConfigArgs` (spacecraft config selection). `frame/` and `packet/` hold one file per subcommand. Packet handling for each VCID uses the per-channel framing config from the spacecraft definition (`packet/demux.rs`).
+`main.rs` defines the clap tree and shared `ConfigArgs` (spacecraft config selection). `frame/`, `packet/` and `spacecraft/` hold one file per subcommand. `render.rs` builds the shared handlebars engine (`lpad` and `rpad` helpers, HTML escaping off) that all text summaries use. `spacecraft/` builds a plain view struct in Rust and keeps the templates free of logic. Packet handling for each VCID uses the per-channel framing config from the spacecraft definition (`packet/demux.rs`).
 
 
 ## Conventions

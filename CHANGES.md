@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `OpaqueFrame` and `opaque_frame_decoder` for frames of unknown format. `reed_solomon` accepts
   either `Frame` or `OpaqueFrame` via the new `RsFrame` trait.
 - `VCDUHeader::is_aos`, `is_tm` and `is_opaque`.
+- `ccsds spacecrafts list` and `ccsds spacecrafts show` print spacecraft configuration as text
+  tables.
 
 ### Changed
 

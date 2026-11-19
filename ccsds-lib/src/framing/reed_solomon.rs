@@ -273,6 +273,7 @@ pub struct RsOpts {
     pub correct: bool,
     pub remove_parity: bool,
     pub drop_uncorrectable: bool,
+    pub skip_ccsds_fill: Option<u16>,
 }
 
 impl RsOpts {
@@ -288,6 +289,7 @@ impl RsOpts {
             buffer_size: Self::DEFAULT_BUFFER_SIZE,
             remove_parity: true,
             drop_uncorrectable: true,
+            skip_ccsds_fill: None,
         }
     }
 
@@ -330,6 +332,11 @@ impl RsOpts {
 
     pub fn with_drop_uncorrectable(mut self, b: bool) -> Self {
         self.drop_uncorrectable = b;
+        self
+    }
+
+    pub fn with_skip_ccsds_fill(mut self, scid: u16) -> Self {
+        self.skip_ccsds_fill = Some(scid);
         self
     }
 }

@@ -4,7 +4,6 @@ use ccsds::spacepacket::{
     timecode::{PacketApidTimeDecoder, PacketTimeDecoder},
     Apid, Packet,
 };
-use handlebars::handlebars_helper;
 use hifitime::{Duration, Epoch};
 use serde::Serialize;
 use std::{
@@ -168,26 +167,7 @@ pub fn info(
 }
 
 fn render_text(info: &Info) -> Result<String> {
-    handlebars_helper!(left_pad: |num: u64, v: Json| {
-        let v = match v {
-            serde_json::Value::String(s) => s.to_owned(),
-            serde_json::Value::Null => String::new(),
-            _ => v.to_string()
-        };
-        let mut num: usize = usize::try_from(num).unwrap();
-        if num < v.len() {
-            num = v.len();
-        }
-        let mut s = String::new();
-        let padding = num - v.len();
-        for _ in 0..padding {
-            s.push(' ');
-        }
-        s.push_str(&v);
-        s
-    });
-    let mut hb = handlebars::Handlebars::new();
-    hb.register_helper("lpad", Box::new(left_pad));
+    let mut hb = crate::render::engine();
     assert!(hb.register_template_string("info", TEXT_TEMPLATE).is_ok());
 
     hb.render("info", &info).context("rendering text")

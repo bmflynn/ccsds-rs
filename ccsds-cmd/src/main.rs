@@ -1,5 +1,7 @@
 mod frame;
 mod packet;
+mod render;
+mod spacecraft;
 
 use std::io::{BufReader, Read};
 use std::net::TcpStream;
@@ -38,6 +40,25 @@ enum Commands {
     Packets(PacketArgs),
     /// Frame commands
     Frames(FrameArgs),
+    /// Spacecraft configuration commands
+    Spacecrafts(SpacecraftArgs),
+}
+
+#[derive(Debug, clap::Args)]
+struct SpacecraftArgs {
+    #[command(subcommand)]
+    command: SpacecraftCommands,
+}
+
+#[derive(Debug, Subcommand)]
+enum SpacecraftCommands {
+    /// List the spacecraft configurations found in ~/.config/ccsds/spacecrafts/.
+    List,
+    /// Show the configuration of one spacecraft as tables.
+    Show {
+        #[command(flatten)]
+        config: ConfigArgs,
+    },
 }
 
 #[derive(Debug, clap::Args)]
@@ -397,6 +418,13 @@ fn main() -> Result<()> {
                 Ok(())
             }
         },
+        Commands::Spacecrafts(args) => match &args.command {
+            SpacecraftCommands::List => crate::spacecraft::list(&spacecraft_dir()?),
+            SpacecraftCommands::Show { config } => {
+                let cfg = get_config(config)?;
+                crate::spacecraft::show(&cfg)
+            }
+        },
         Commands::Packets(args) => match &args.command {
             PacketCommands::Merge {
                 config,
@@ -515,17 +543,22 @@ fn main() -> Result<()> {
     }
 }
 
+/// Directory searched for spacecraft configuration by name.
+fn spacecraft_dir() -> Result<PathBuf> {
+    let home = std::env::home_dir().context("getting user home dir")?;
+    Ok(home.join(".config/ccsds/spacecrafts"))
+}
+
 fn get_config(args: &ConfigArgs) -> Result<Spacecraft> {
     let path = match &args.config {
-        Some(p) => p,
+        Some(p) => p.clone(),
         None => {
             let name = args.spacecraft.clone().unwrap_or_default();
-            let home = std::env::home_dir().context("getting user home dir")?;
-            &home.join(format!(".config/ccsds/spacecrafts/{name}.json"))
+            spacecraft_dir()?.join(format!("{name}.json"))
         }
     };
     debug!(?path, "reading config");
-    Spacecraft::with_file(path).with_context(|| format!("reading config from {path:?}"))
+    Spacecraft::with_file(&path).with_context(|| format!("reading config from {path:?}"))
 }
 
 #[derive(Clone, Debug, Args)]
